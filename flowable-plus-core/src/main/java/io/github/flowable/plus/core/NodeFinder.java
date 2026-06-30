@@ -1,4 +1,4 @@
-package io.github.flowable.plus.core.internal;
+package io.github.flowable.plus.core;
 
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.bpmn.model.ExclusiveGateway;
@@ -26,13 +26,15 @@ import java.util.Set;
  *   <li>向后查找——从当前节点反向追踪上一审批节点，处理排他网关和并行网关</li>
  *   <li>向前查找——从 StartEvent 正向追踪第一个 UserTask 作为发起人节点</li>
  * </ul>
+ *
+ * <p>包级私有类，仅由 {@link FlowablePlus} 内部使用。</p>
  */
-public class NodeFinder {
+class NodeFinder {
 
     private final RepositoryService repositoryService;
     private final HistoryService historyService;
 
-    public NodeFinder(RepositoryService repositoryService, HistoryService historyService) {
+    NodeFinder(RepositoryService repositoryService, HistoryService historyService) {
         this.repositoryService = repositoryService;
         this.historyService = historyService;
     }
@@ -45,7 +47,7 @@ public class NodeFinder {
      * @param processInstanceId   流程实例 ID（用于查询历史数据判定网关分支，可为 null）
      * @return 上一审批节点 ID 列表，无上一节点时返回空列表
      */
-    public List<String> findPreviousNodes(String processDefinitionId, String currentActivityId, String processInstanceId) {
+    List<String> findPreviousNodes(String processDefinitionId, String currentActivityId, String processInstanceId) {
         BpmnModel bpmnModel = repositoryService.getBpmnModel(processDefinitionId);
         if (bpmnModel == null) {
             return Collections.emptyList();
@@ -68,7 +70,7 @@ public class NodeFinder {
      * @param processDefinitionId 流程定义 ID
      * @return 第一个 UserTask 的 ID，未找到时返回 null
      */
-    public String findInitiatorNode(String processDefinitionId) {
+    String findInitiatorNode(String processDefinitionId) {
         BpmnModel bpmnModel = repositoryService.getBpmnModel(processDefinitionId);
         if (bpmnModel == null) {
             return null;

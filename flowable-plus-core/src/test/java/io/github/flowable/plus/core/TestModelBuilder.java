@@ -1,4 +1,4 @@
-package io.github.flowable.plus.core.internal;
+package io.github.flowable.plus.core;
 
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.bpmn.model.ExclusiveGateway;
