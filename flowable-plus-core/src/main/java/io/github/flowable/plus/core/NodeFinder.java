@@ -12,6 +12,8 @@ import org.flowable.engine.HistoryService;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.history.HistoricActivityInstance;
 
+import lombok.RequiredArgsConstructor;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -29,15 +31,11 @@ import java.util.Set;
  *
  * <p>包级私有类，仅由 {@link FlowablePlus} 内部使用。</p>
  */
+@RequiredArgsConstructor
 class NodeFinder {
 
     private final RepositoryService repositoryService;
     private final HistoryService historyService;
-
-    NodeFinder(RepositoryService repositoryService, HistoryService historyService) {
-        this.repositoryService = repositoryService;
-        this.historyService = historyService;
-    }
 
     /**
      * 向后查找上一审批节点。

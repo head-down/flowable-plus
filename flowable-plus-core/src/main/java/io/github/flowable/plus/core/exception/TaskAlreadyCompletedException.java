@@ -1,15 +1,10 @@
 package io.github.flowable.plus.core.exception;
 
+import lombok.experimental.StandardException;
+
 /**
  * 任务已完成时抛出。
  */
+@StandardException
 public class TaskAlreadyCompletedException extends FlowablePlusException {
-
-    public TaskAlreadyCompletedException(String message) {
-        super(message);
-    }
-
-    public TaskAlreadyCompletedException(String message, Throwable cause) {
-        super(message, cause);
-    }
 }

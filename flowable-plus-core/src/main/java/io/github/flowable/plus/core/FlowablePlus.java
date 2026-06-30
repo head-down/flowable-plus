@@ -2,6 +2,8 @@ package io.github.flowable.plus.core;
 
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;
+import lombok.AccessLevel;
+import lombok.Getter;
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.bpmn.model.FlowElement;
 import org.flowable.engine.HistoryService;
@@ -21,6 +23,7 @@ import java.util.List;
  *
  * <p>所有业务方法的参数校验和异常转换在此层完成，NodeFinder 仅负责纯遍历逻辑。</p>
  */
+@Getter
 public class FlowablePlus {
 
     private final ProcessEngine processEngine;
@@ -28,6 +31,7 @@ public class FlowablePlus {
     private final RuntimeService runtimeService;
     private final TaskService taskService;
     private final HistoryService historyService;
+    @Getter(AccessLevel.NONE)
     private final NodeFinder nodeFinder;
 
     /**
@@ -45,41 +49,6 @@ public class FlowablePlus {
         this.taskService = processEngine.getTaskService();
         this.historyService = processEngine.getHistoryService();
         this.nodeFinder = new NodeFinder(repositoryService, historyService);
-    }
-
-    /**
-     * 获取底层 ProcessEngine 实例。
-     */
-    public ProcessEngine getProcessEngine() {
-        return processEngine;
-    }
-
-    /**
-     * 获取 RepositoryService。
-     */
-    public RepositoryService getRepositoryService() {
-        return repositoryService;
-    }
-
-    /**
-     * 获取 RuntimeService。
-     */
-    public RuntimeService getRuntimeService() {
-        return runtimeService;
-    }
-
-    /**
-     * 获取 TaskService。
-     */
-    public TaskService getTaskService() {
-        return taskService;
-    }
-
-    /**
-     * 获取 HistoryService。
-     */
-    public HistoryService getHistoryService() {
-        return historyService;
     }
 
     /**
