@@ -92,3 +92,17 @@ starter 模块通过 `META-INF/spring.factories` 注册 `FlowablePlusAutoConfigu
 ## 当前状态
 
 三个模块均处于骨架阶段。每个模块仅包含一个 `package-info.java`，starter 模块额外包含一个空壳自动配置类和一个布尔开关属性。核心领域服务、测试用例和扩展功能尚未实现。
+
+## Agent skills
+
+### Issue tracker
+
+使用 GitHub Issues（仓库 `head-down/flowable-plus`），通过 `gh` CLI 操作。详见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+使用默认标准标签：`needs-triage`、`needs-info`、`ready-for-agent`、`ready-for-human`、`wontfix`。详见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+单一上下文布局：`CONTEXT.md` + `docs/adr/` 在仓库根目录。详见 `docs/agents/domain.md`。
