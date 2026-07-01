@@ -1,5 +1,7 @@
 package io.github.flowable.plus.core;
 
+import io.github.flowable.plus.core.exception.NoPreviousNodeException;
+import io.github.flowable.plus.core.exception.NotFoundException;
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.bpmn.model.ExclusiveGateway;
 import org.flowable.bpmn.model.ParallelGateway;
@@ -18,6 +20,7 @@ import java.util.Date;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
@@ -28,13 +31,13 @@ public class NodeFinderTest {
 
     private RepositoryService repositoryService;
     private HistoryService historyService;
-    private NodeFinder nodeFinder;
+    private DefaultNodeFinder nodeFinder;
 
     @BeforeEach
     public void setUp() {
         repositoryService = Mockito.mock(RepositoryService.class);
         historyService = Mockito.mock(HistoryService.class);
-        nodeFinder = new NodeFinder(repositoryService, historyService);
+        nodeFinder = new DefaultNodeFinder(repositoryService, historyService);
     }
 
     // ======================== 向后查找 ========================
@@ -139,7 +142,7 @@ public class NodeFinderTest {
     }
 
     /**
-     * 无上一节点：start → task1，从 task1 回溯应返回空列表
+     * 无上一节点：start → task1，从 task1 回溯应抛出 {@link NoPreviousNodeException}
      */
     @Test
     public void testFindPreviousNodesNoPreviousNode() {
@@ -151,21 +154,21 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-none")).thenReturn(model);
 
-        List<String> result = nodeFinder.findPreviousNodes("proc-none", "task1", null);
-
-        assertThat(result).isEmpty();
+        assertThatThrownBy(() -> nodeFinder.findPreviousNodes("proc-none", "task1", null))
+                .isInstanceOf(NoPreviousNodeException.class)
+                .hasMessageContaining("task1 无上一审批节点");
     }
 
     /**
-     * 模型不存在时返回空列表（而非空指针）
+     * 模型不存在时抛出 {@link NotFoundException}
      */
     @Test
     public void testFindPreviousNodesNoModelReturnsEmpty() {
         when(repositoryService.getBpmnModel("nonexistent")).thenReturn(null);
 
-        List<String> result = nodeFinder.findPreviousNodes("nonexistent", "task1", null);
-
-        assertThat(result).isEmpty();
+        assertThatThrownBy(() -> nodeFinder.findPreviousNodes("nonexistent", "task1", null))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining("流程定义 nonexistent 不存在");
     }
 
     // ======================== 向前查找 ========================
@@ -215,15 +218,15 @@ public class NodeFinderTest {
     }
 
     /**
-     * 模型不存在时返回 null
+     * 模型不存在时抛出 {@link NotFoundException}
      */
     @Test
     public void testFindInitiatorNodeNoModelReturnsNull() {
         when(repositoryService.getBpmnModel("nonexistent")).thenReturn(null);
 
-        String result = nodeFinder.findInitiatorNode("nonexistent");
-
-        assertThat(result).isNull();
+        assertThatThrownBy(() -> nodeFinder.findInitiatorNode("nonexistent"))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining("流程定义 nonexistent 不存在");
     }
 
     // ======================== 辅助方法 ========================

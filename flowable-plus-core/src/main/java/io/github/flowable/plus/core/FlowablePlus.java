@@ -1,12 +1,7 @@
 package io.github.flowable.plus.core;
 
-import io.github.flowable.plus.core.exception.NoPreviousNodeException;
-import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.spi.UserContext;
-import lombok.AccessLevel;
 import lombok.Getter;
-import org.flowable.bpmn.model.BpmnModel;
-import org.flowable.bpmn.model.FlowElement;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.IdentityService;
 import org.flowable.engine.ProcessEngine;
@@ -27,21 +22,21 @@ import java.util.Map;
  *
  * <p>所有业务方法的参数校验和异常转换在此层完成，NodeFinder 仅负责纯遍历逻辑。</p>
  */
-@Getter
 public class FlowablePlus {
 
+    @Getter
     private final ProcessEngine processEngine;
+    @Getter
     private final UserContext userContext;
     private final RepositoryService repositoryService;
     private final RuntimeService runtimeService;
     private final TaskService taskService;
     private final HistoryService historyService;
     private final IdentityService identityService;
-    @Getter(AccessLevel.NONE)
     private final NodeFinder nodeFinder;
 
     /**
-     * 构造器注入 ProcessEngine 和 UserContext，同时提取所有内部服务。
+     * 构造器注入 ProcessEngine 和 UserContext，使用默认 BPMN 遍历策略。
      *
      * @param processEngine Flowable 流程引擎实例，不可为 null
      * @param userContext   用户上下文，用于获取当前操作用户，不可为 null
@@ -60,7 +55,34 @@ public class FlowablePlus {
         this.taskService = processEngine.getTaskService();
         this.historyService = processEngine.getHistoryService();
         this.identityService = processEngine.getIdentityService();
-        this.nodeFinder = new NodeFinder(repositoryService, historyService);
+        this.nodeFinder = new DefaultNodeFinder(repositoryService, historyService);
+    }
+
+    /**
+     * 构造器注入 ProcessEngine、UserContext 和自定义 NodeFinder。
+     *
+     * @param processEngine Flowable 流程引擎实例，不可为 null
+     * @param userContext   用户上下文，用于获取当前操作用户，不可为 null
+     * @param nodeFinder    BPMN 节点遍历策略，不可为 null。可用于注入 Mock 或缓存适配器
+     */
+    public FlowablePlus(ProcessEngine processEngine, UserContext userContext, NodeFinder nodeFinder) {
+        if (processEngine == null) {
+            throw new IllegalArgumentException("ProcessEngine 不可为 null");
+        }
+        if (userContext == null) {
+            throw new IllegalArgumentException("UserContext 不可为 null");
+        }
+        if (nodeFinder == null) {
+            throw new IllegalArgumentException("NodeFinder 不可为 null");
+        }
+        this.processEngine = processEngine;
+        this.userContext = userContext;
+        this.repositoryService = processEngine.getRepositoryService();
+        this.runtimeService = processEngine.getRuntimeService();
+        this.taskService = processEngine.getTaskService();
+        this.historyService = processEngine.getHistoryService();
+        this.identityService = processEngine.getIdentityService();
+        this.nodeFinder = nodeFinder;
     }
 
     /**
@@ -81,17 +103,7 @@ public class FlowablePlus {
             throw new IllegalArgumentException("currentActivityId 不可为 null");
         }
 
-        BpmnModel bpmnModel = getRequiredBpmnModel(processDefinitionId);
-        FlowElement currentElement = bpmnModel.getFlowElement(currentActivityId);
-        if (currentElement == null) {
-            throw new NotFoundException("节点 " + currentActivityId + " 不存在");
-        }
-
-        List<String> result = nodeFinder.findPreviousNodes(processDefinitionId, currentActivityId, processInstanceId);
-        if (result.isEmpty()) {
-            throw new NoPreviousNodeException("节点 " + currentActivityId + " 无上一审批节点");
-        }
-        return result;
+        return nodeFinder.findPreviousNodes(processDefinitionId, currentActivityId, processInstanceId);
     }
 
     /**
@@ -106,24 +118,7 @@ public class FlowablePlus {
             throw new IllegalArgumentException("processDefinitionId 不可为 null");
         }
 
-        BpmnModel bpmnModel = getRequiredBpmnModel(processDefinitionId);
-
-        String result = nodeFinder.findInitiatorNode(processDefinitionId);
-        if (result == null) {
-            throw new NotFoundException("流程定义 " + processDefinitionId + " 中未找到发起人节点");
-        }
-        return result;
-    }
-
-    /**
-     * 加载 BPMN 模型，不存在时抛出 {@link NotFoundException}。
-     */
-    private BpmnModel getRequiredBpmnModel(String processDefinitionId) {
-        BpmnModel bpmnModel = repositoryService.getBpmnModel(processDefinitionId);
-        if (bpmnModel == null) {
-            throw new NotFoundException("流程定义 " + processDefinitionId + " 不存在");
-        }
-        return bpmnModel;
+        return nodeFinder.findInitiatorNode(processDefinitionId);
     }
 
     // ======================== 基础操作 ========================

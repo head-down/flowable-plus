@@ -85,7 +85,7 @@ mvn clean package -Dmaven.source.skip=false
 
 starter 模块通过 `META-INF/spring.factories` 注册 `FlowablePlusAutoConfiguration`，其中：
 - `@ConditionalOnClass("org.flowable.engine.ProcessEngine")` — 仅在 Flowable 引擎存在时激活
-- `@EnableConfigurationProperties(FlowablePlusProperties.class)` — 绑定 `flowable.plus.*` 配置属性
+- `@ConditionalOnProperty(name = "flowable.plus.enabled")` — 通过 `flowable.plus.enabled` 属性控制开关，默认 `true`
 
 当前唯一配置项为 `flowable.plus.enabled`（布尔值，默认 `true`）。
 

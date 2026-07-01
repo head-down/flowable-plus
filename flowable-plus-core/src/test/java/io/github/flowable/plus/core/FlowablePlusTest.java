@@ -83,26 +83,11 @@ public class FlowablePlusTest {
                 .hasMessageContaining("UserContext 不可为 null");
     }
 
-    // ======================== Service getter ========================
+    // ======================== getter ========================
 
     @Test
-    public void testGetRepositoryService() {
-        assertThat(flowablePlus.getRepositoryService()).isSameAs(mockRepoService);
-    }
-
-    @Test
-    public void testGetRuntimeService() {
-        assertThat(flowablePlus.getRuntimeService()).isSameAs(mockRuntimeService);
-    }
-
-    @Test
-    public void testGetTaskService() {
-        assertThat(flowablePlus.getTaskService()).isSameAs(mockTaskService);
-    }
-
-    @Test
-    public void testGetHistoryService() {
-        assertThat(flowablePlus.getHistoryService()).isSameAs(mockHistoryService);
+    public void testGetUserContext() {
+        assertThat(flowablePlus.getUserContext()).isSameAs(userContext);
     }
 
     // ======================== findPreviousNodes ========================
@@ -308,5 +293,31 @@ public class FlowablePlusTest {
         assertThatThrownBy(() -> flowablePlus.claimTask(null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("taskId");
+    }
+
+    // ======================== 三参构造器 (NodeFinder 注入) ========================
+
+    @Test
+    public void testConstructorRejectsNullNodeFinder() {
+        assertThatThrownBy(() -> new FlowablePlus(mockEngine, userContext, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("NodeFinder");
+    }
+
+    @Test
+    public void testCustomNodeFinderInjection() {
+        NodeFinder mockNodeFinder = mock(NodeFinder.class);
+        when(mockNodeFinder.findPreviousNodes("proc-1", "task1", null))
+                .thenReturn(java.util.Collections.singletonList("task0"));
+        when(mockNodeFinder.findInitiatorNode("proc-1"))
+                .thenReturn("initiatorTask");
+
+        FlowablePlus customFp = new FlowablePlus(mockEngine, userContext, mockNodeFinder);
+
+        assertThat(customFp.findPreviousNodes("proc-1", "task1", null)).containsExactly("task0");
+        assertThat(customFp.findInitiatorNode("proc-1")).isEqualTo("initiatorTask");
+
+        verify(mockNodeFinder).findPreviousNodes("proc-1", "task1", null);
+        verify(mockNodeFinder).findInitiatorNode("proc-1");
     }
 }
