@@ -1,6 +1,7 @@
 package io.github.flowable.plus.starter;
 
 import io.github.flowable.plus.core.FlowablePlus;
+import io.github.flowable.plus.core.spi.UserContext;
 import org.flowable.engine.ProcessEngine;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -31,12 +32,32 @@ public class FlowablePlusAutoConfiguration {
      * 且允许用户通过自定义同类型 Bean 覆盖。</p>
      *
      * @param processEngine Flowable 流程引擎（由 flowable-spring-boot-starter 提供）
+     * @param userContext   用户上下文（可被应用覆盖）
      * @return FlowablePlus 实例
      */
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnProperty(name = "flowable.plus.enabled", havingValue = "true", matchIfMissing = true)
-    public FlowablePlus flowablePlus(ProcessEngine processEngine) {
-        return new FlowablePlus(processEngine);
+    public FlowablePlus flowablePlus(ProcessEngine processEngine, UserContext userContext) {
+        return new FlowablePlus(processEngine, userContext);
+    }
+
+    /**
+     * 默认 UserContext Bean，从 Spring Security 上下文读取当前用户。
+     *
+     * <p>应用可通过声明同名 Bean 覆盖此默认实现。</p>
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public UserContext userContext() {
+        return () -> {
+            org.springframework.security.core.Authentication auth =
+                    org.springframework.security.core.context.SecurityContextHolder
+                            .getContext().getAuthentication();
+            if (auth == null || !auth.isAuthenticated()) {
+                return "anonymous";
+            }
+            return auth.getName();
+        };
     }
 }
