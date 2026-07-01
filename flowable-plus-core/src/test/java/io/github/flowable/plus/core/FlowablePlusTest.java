@@ -2,8 +2,11 @@ package io.github.flowable.plus.core;
 
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;
+import io.github.flowable.plus.core.exception.PermissionDeniedException;
+import io.github.flowable.plus.core.exception.TaskAlreadyCompletedException;
 import io.github.flowable.plus.core.spi.UserContext;
 import org.flowable.bpmn.model.BpmnModel;
+import org.flowable.bpmn.model.ParallelGateway;
 import org.flowable.bpmn.model.StartEvent;
 import org.flowable.bpmn.model.UserTask;
 import org.flowable.engine.HistoryService;
@@ -12,10 +15,16 @@ import org.flowable.engine.ProcessEngine;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
+import org.flowable.engine.runtime.ChangeActivityStateBuilder;
 import org.flowable.engine.runtime.ProcessInstance;
+import org.flowable.task.api.Task;
+import org.flowable.task.api.TaskQuery;
+import org.flowable.task.api.history.HistoricTaskInstance;
+import org.flowable.task.api.history.HistoricTaskInstanceQuery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +32,8 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -319,5 +330,347 @@ public class FlowablePlusTest {
 
         verify(mockNodeFinder).findPreviousNodes("proc-1", "task1", null);
         verify(mockNodeFinder).findInitiatorNode("proc-1");
+    }
+
+    // ======================== rejectTask ========================
+
+    /**
+     * 正常驳回：task1 → task2，审批 task2 时驳回至 task1。
+     */
+    @Test
+    public void testRejectTaskNormalFlow() {
+        // 准备 BPMN 模型：start → task1 → task2
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        UserTask task2 = builder.addUserTask("task2");
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, task2);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        // 准备任务查询：当前任务为 task2
+        Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task2", "testUser");
+        stubTaskQuery(mockTask);
+
+        // 准备 ChangeActivityStateBuilder
+        ChangeActivityStateBuilder mockBuilder = stubChangeActivityStateBuilder();
+
+        flowablePlus.rejectTask("task-001", "审批不通过");
+
+        // 验证驳回意见写入
+        verify(mockTaskService).addComment("task-001", "pi-001", "审批不通过");
+        // 验证节点跳转
+        verify(mockBuilder).processInstanceId("pi-001");
+        verify(mockBuilder).moveActivityIdTo("task2", "task1");
+        verify(mockBuilder).changeState();
+    }
+
+    /**
+     * 并行网关汇合后驳回，应抛出 NoPreviousNodeException。
+     */
+    @Test
+    public void testRejectTaskParallelGatewayMerge() {
+        // BPMN 模型：start → task1 → pgwSplit → task2 / task3 → pgwMerge → task4
+        // 从 task4 回溯会找到 [task2, task3]，触发并行网关拒绝
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        builder.addSequenceFlow("f0", start, task1);
+        ParallelGateway pgwSplit = builder.addParallelGateway("pgwSplit");
+        builder.addSequenceFlow("f1", task1, pgwSplit);
+        UserTask task2 = builder.addUserTask("task2");
+        UserTask task3 = builder.addUserTask("task3");
+        builder.addSequenceFlow("f2", pgwSplit, task2);
+        builder.addSequenceFlow("f3", pgwSplit, task3);
+        ParallelGateway pgwMerge = builder.addParallelGateway("pgwMerge");
+        builder.addSequenceFlow("f4", task2, pgwMerge);
+        builder.addSequenceFlow("f5", task3, pgwMerge);
+        UserTask task4 = builder.addUserTask("task4");
+        builder.addSequenceFlow("f6", pgwMerge, task4);
+
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        // 当前任务为 task4
+        Task mockTask = createMockTask("task-004", "pi-001", "proc-1", "task4", "testUser");
+        stubTaskQuery(mockTask);
+
+        assertThatThrownBy(() -> flowablePlus.rejectTask("task-004", "驳回"))
+                .isInstanceOf(NoPreviousNodeException.class)
+                .hasMessageContaining("并行网关汇合");
+    }
+
+    /**
+     * 任务不存在，应抛出 NotFoundException。
+     */
+    @Test
+    public void testRejectTaskNotFound() {
+        // 任务运行时查不到
+        stubTaskQuery(null);
+        // 历史也查不到
+        stubHistoricTaskQuery(null);
+
+        assertThatThrownBy(() -> flowablePlus.rejectTask("task-nonexistent", "驳回"))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining("任务 task-nonexistent 不存在");
+    }
+
+    /**
+     * 任务已完成，应抛出 TaskAlreadyCompletedException。
+     */
+    @Test
+    public void testRejectTaskAlreadyCompleted() {
+        // 任务运行时查不到
+        stubTaskQuery(null);
+        // 历史中查到已完成
+        HistoricTaskInstance mockHistoric = mock(HistoricTaskInstance.class);
+        stubHistoricTaskQuery(mockHistoric);
+
+        assertThatThrownBy(() -> flowablePlus.rejectTask("task-completed", "驳回"))
+                .isInstanceOf(TaskAlreadyCompletedException.class)
+                .hasMessageContaining("任务 task-completed 已完成");
+    }
+
+    /**
+     * 非审批人调用驳回，应抛出 PermissionDeniedException。
+     */
+    @Test
+    public void testRejectTaskPermissionDenied() {
+        // 当前用户为 testUser，但任务审批人为 otherUser
+        Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task2", "otherUser");
+        stubTaskQuery(mockTask);
+
+        assertThatThrownBy(() -> flowablePlus.rejectTask("task-001", "驳回"))
+                .isInstanceOf(PermissionDeniedException.class)
+                .hasMessageContaining("不是任务 task-001 的审批人");
+    }
+
+    /**
+     * 任务未认领（assignee 为 null），应抛出 PermissionDeniedException。
+     */
+    @Test
+    public void testRejectTaskUnassigned() {
+        Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task2", null);
+        stubTaskQuery(mockTask);
+
+        assertThatThrownBy(() -> flowablePlus.rejectTask("task-001", "驳回"))
+                .isInstanceOf(PermissionDeniedException.class)
+                .hasMessageContaining("无权驳回");
+    }
+
+    /**
+     * 无上一审批节点，应抛出 NoPreviousNodeException。
+     */
+    @Test
+    public void testRejectTaskNoPreviousNode() {
+        // BPMN 模型：start → task1（只有发起人节点）
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        builder.addSequenceFlow("f1", start, task1);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        // 当前任务为 task1，无上一节点
+        Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
+        stubTaskQuery(mockTask);
+
+        assertThatThrownBy(() -> flowablePlus.rejectTask("task-001", "驳回"))
+                .isInstanceOf(NoPreviousNodeException.class);
+    }
+
+    /**
+     * null taskId 校验。
+     */
+    @Test
+    public void testRejectTaskNullId() {
+        assertThatThrownBy(() -> flowablePlus.rejectTask(null, "驳回"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("taskId");
+    }
+
+    /**
+     * 驳回原因为空字符串时不写入意见。
+     */
+    @Test
+    public void testRejectTaskWithEmptyReason() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        UserTask task2 = builder.addUserTask("task2");
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, task2);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task2", "testUser");
+        stubTaskQuery(mockTask);
+        stubChangeActivityStateBuilder();
+
+        flowablePlus.rejectTask("task-001", "");
+
+        // 不写入空意见
+        verify(mockTaskService, never()).addComment(anyString(), anyString(), anyString());
+    }
+
+    /**
+     * 驳回原因 null 时跳过意见写入。
+     */
+    @Test
+    public void testRejectTaskWithNullReason() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        UserTask task2 = builder.addUserTask("task2");
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, task2);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task2", "testUser");
+        stubTaskQuery(mockTask);
+        stubChangeActivityStateBuilder();
+
+        flowablePlus.rejectTask("task-001", null);
+
+        verify(mockTaskService, never()).addComment(anyString(), anyString(), anyString());
+    }
+
+    // ======================== rejectTaskToInitiator ========================
+
+    /**
+     * 正常驳回至发起人节点。
+     */
+    @Test
+    public void testRejectTaskToInitiatorNormalFlow() {
+        // BPMN 模型：start → task1 → task2
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        UserTask task2 = builder.addUserTask("task2");
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, task2);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        // 当前任务为 task2
+        Task mockTask = createMockTask("task-002", "pi-002", "proc-1", "task2", "testUser");
+        stubTaskQuery(mockTask);
+
+        ChangeActivityStateBuilder mockBuilder = stubChangeActivityStateBuilder();
+
+        flowablePlus.rejectTaskToInitiator("task-002", "退回发起人");
+
+        // 验证驳回意见
+        verify(mockTaskService).addComment("task-002", "pi-002", "退回发起人");
+        // 验证跳转到发起人节点 task1
+        verify(mockBuilder).processInstanceId("pi-002");
+        verify(mockBuilder).moveActivityIdTo("task2", "task1");
+        verify(mockBuilder).changeState();
+    }
+
+    /**
+     * 当前节点已是发起人节点，应抛出 NoPreviousNodeException。
+     */
+    @Test
+    public void testRejectTaskToInitiatorAlreadyAtInitiator() {
+        // BPMN 模型：start → task1
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        builder.addSequenceFlow("f1", start, task1);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        // 当前任务就是发起人节点 task1
+        Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
+        stubTaskQuery(mockTask);
+
+        assertThatThrownBy(() -> flowablePlus.rejectTaskToInitiator("task-001", "驳回"))
+                .isInstanceOf(NoPreviousNodeException.class)
+                .hasMessageContaining("当前已是发起人节点");
+    }
+
+    /**
+     * 任务不存在（运行时和历史均查不到）。
+     */
+    @Test
+    public void testRejectTaskToInitiatorNotFound() {
+        stubTaskQuery(null);
+        stubHistoricTaskQuery(null);
+
+        assertThatThrownBy(() -> flowablePlus.rejectTaskToInitiator("task-nonexistent", "驳回"))
+                .isInstanceOf(NotFoundException.class);
+    }
+
+    /**
+     * 任务已完成。
+     */
+    @Test
+    public void testRejectTaskToInitiatorAlreadyCompleted() {
+        stubTaskQuery(null);
+        HistoricTaskInstance mockHistoric = mock(HistoricTaskInstance.class);
+        stubHistoricTaskQuery(mockHistoric);
+
+        assertThatThrownBy(() -> flowablePlus.rejectTaskToInitiator("task-completed", "驳回"))
+                .isInstanceOf(TaskAlreadyCompletedException.class);
+    }
+
+    /**
+     * 非审批人无权驳回至发起人。
+     */
+    @Test
+    public void testRejectTaskToInitiatorPermissionDenied() {
+        Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task2", "otherUser");
+        stubTaskQuery(mockTask);
+
+        assertThatThrownBy(() -> flowablePlus.rejectTaskToInitiator("task-001", "驳回"))
+                .isInstanceOf(PermissionDeniedException.class);
+    }
+
+    /**
+     * null taskId 校验。
+     */
+    @Test
+    public void testRejectTaskToInitiatorNullId() {
+        assertThatThrownBy(() -> flowablePlus.rejectTaskToInitiator(null, "驳回"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("taskId");
+    }
+
+    // ======================== Test Helpers ========================
+
+    private Task createMockTask(String taskId, String processInstanceId,
+            String processDefinitionId, String activityId, String assignee) {
+        Task task = mock(Task.class);
+        when(task.getId()).thenReturn(taskId);
+        when(task.getProcessInstanceId()).thenReturn(processInstanceId);
+        when(task.getProcessDefinitionId()).thenReturn(processDefinitionId);
+        when(task.getTaskDefinitionKey()).thenReturn(activityId);
+        when(task.getAssignee()).thenReturn(assignee);
+        return task;
+    }
+
+    private void stubTaskQuery(Task result) {
+        TaskQuery mockTaskQuery = mock(TaskQuery.class);
+        when(mockTaskService.createTaskQuery()).thenReturn(mockTaskQuery);
+        when(mockTaskQuery.taskId(anyString())).thenReturn(mockTaskQuery);
+        when(mockTaskQuery.singleResult()).thenReturn(result);
+    }
+
+    private void stubHistoricTaskQuery(HistoricTaskInstance result) {
+        HistoricTaskInstanceQuery mockHistoricQuery = mock(HistoricTaskInstanceQuery.class);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(mockHistoricQuery);
+        when(mockHistoricQuery.taskId(anyString())).thenReturn(mockHistoricQuery);
+        when(mockHistoricQuery.singleResult()).thenReturn(result);
+    }
+
+    private ChangeActivityStateBuilder stubChangeActivityStateBuilder() {
+        ChangeActivityStateBuilder mockBuilder = mock(ChangeActivityStateBuilder.class);
+        when(mockBuilder.processInstanceId(anyString())).thenReturn(mockBuilder);
+        when(mockBuilder.moveActivityIdTo(anyString(), anyString())).thenReturn(mockBuilder);
+        when(mockRuntimeService.createChangeActivityStateBuilder()).thenReturn(mockBuilder);
+        return mockBuilder;
     }
 }

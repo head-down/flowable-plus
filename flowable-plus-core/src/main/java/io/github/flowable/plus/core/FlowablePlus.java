@@ -1,5 +1,9 @@
 package io.github.flowable.plus.core;
 
+import io.github.flowable.plus.core.exception.NotFoundException;
+import io.github.flowable.plus.core.exception.NoPreviousNodeException;
+import io.github.flowable.plus.core.exception.PermissionDeniedException;
+import io.github.flowable.plus.core.exception.TaskAlreadyCompletedException;
 import io.github.flowable.plus.core.spi.UserContext;
 import lombok.Getter;
 import org.flowable.engine.HistoryService;
@@ -8,7 +12,10 @@ import org.flowable.engine.ProcessEngine;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
+import org.flowable.task.api.history.HistoricTaskInstance;
+import org.flowable.engine.runtime.ChangeActivityStateBuilder;
 import org.flowable.engine.runtime.ProcessInstance;
+import org.flowable.task.api.Task;
 
 import java.util.List;
 import java.util.Map;
@@ -191,5 +198,123 @@ public class FlowablePlus {
 
         String userId = userContext.getCurrentUserId();
         taskService.claim(taskId, userId);
+    }
+
+    // ======================== 驳回 ========================
+
+    /**
+     * 驳回至上一审批节点。
+     *
+     * <p>审批人不同意当前任务，退回至上一审批节点。仅支持串行流程中的驳回，
+     * 并行网关汇合后的节点无法驳回至单一上级节点。</p>
+     *
+     * @param taskId 任务 ID，不可为 null
+     * @param reason 驳回原因，可为 null
+     * @throws NotFoundException            任务不存在时抛出
+     * @throws TaskAlreadyCompletedException 任务已完成时抛出
+     * @throws PermissionDeniedException     调用者不是当前任务审批人时抛出
+     * @throws NoPreviousNodeException       无上一审批节点或处于并行网关汇合之后时抛出
+     */
+    public void rejectTask(String taskId, String reason) {
+        Task task = validateTaskAndPermission(taskId, "驳回");
+
+        String processDefinitionId = task.getProcessDefinitionId();
+        String currentActivityId = task.getTaskDefinitionKey();
+        String processInstanceId = task.getProcessInstanceId();
+
+        List<String> prevNodes = findPreviousNodes(processDefinitionId, currentActivityId, processInstanceId);
+
+        // 并行网关汇合场景：多个上一节点时拒绝驳回
+        if (prevNodes.size() > 1) {
+            throw new NoPreviousNodeException("当前节点位于并行网关汇合之后，无法驳回至单一上级节点");
+        }
+
+        String targetNode = prevNodes.get(0);
+        executeReject(task, targetNode, reason);
+    }
+
+    /**
+     * 驳回至流程发起人节点。
+     *
+     * <p>审批人不同意当前任务，退回至流程的第一个审批节点（发起人所在节点）。</p>
+     *
+     * @param taskId 任务 ID，不可为 null
+     * @param reason 驳回原因，可为 null
+     * @throws NotFoundException            任务或流程定义不存在时抛出
+     * @throws TaskAlreadyCompletedException 任务已完成时抛出
+     * @throws PermissionDeniedException     调用者不是当前任务审批人时抛出
+     * @throws NoPreviousNodeException       当前已是发起人节点时抛出
+     */
+    public void rejectTaskToInitiator(String taskId, String reason) {
+        Task task = validateTaskAndPermission(taskId, "驳回");
+
+        String processDefinitionId = task.getProcessDefinitionId();
+        String initiatorNode = findInitiatorNode(processDefinitionId);
+
+        // 当前节点已经是发起人节点，无法继续驳回
+        if (task.getTaskDefinitionKey().equals(initiatorNode)) {
+            throw new NoPreviousNodeException("当前已是发起人节点，无法继续驳回");
+        }
+
+        executeReject(task, initiatorNode, reason);
+    }
+
+    // ======================== 驳回内部辅助 ========================
+
+    /**
+     * 校验任务存在性、完成状态和当前用户权限。
+     *
+     * @param taskId    任务 ID
+     * @param operation 操作名称（用于错误消息）
+     * @return 运行时任务对象
+     * @throws NotFoundException            任务不存在时抛出
+     * @throws TaskAlreadyCompletedException 任务已完成时抛出
+     * @throws PermissionDeniedException     权限不足时抛出
+     */
+    private Task validateTaskAndPermission(String taskId, String operation) {
+        if (taskId == null) {
+            throw new IllegalArgumentException("taskId 不可为 null");
+        }
+
+        // 查询运行时任务
+        Task task = taskService.createTaskQuery().taskId(taskId).singleResult();
+        if (task == null) {
+            // 查历史区分"已完成"和"不存在"
+            HistoricTaskInstance historic = historyService.createHistoricTaskInstanceQuery()
+                    .taskId(taskId).singleResult();
+            if (historic != null) {
+                throw new TaskAlreadyCompletedException("任务 " + taskId + " 已完成，无法" + operation);
+            }
+            throw new NotFoundException("任务 " + taskId + " 不存在");
+        }
+
+        // 权限校验：调用者必须是当前任务的审批人
+        String currentUserId = userContext.getCurrentUserId();
+        if (task.getAssignee() == null || !task.getAssignee().equals(currentUserId)) {
+            throw new PermissionDeniedException(
+                    "用户 " + currentUserId + " 不是任务 " + taskId + " 的审批人，无权" + operation);
+        }
+
+        return task;
+    }
+
+    /**
+     * 执行驳回节点跳转：先写入驳回意见，再通过 ChangeActivityStateBuilder 跳转节点。
+     *
+     * @param task             当前任务
+     * @param targetActivityId 目标节点 ID
+     * @param reason           驳回原因，可为 null
+     */
+    private void executeReject(Task task, String targetActivityId, String reason) {
+        // 跳转前写入驳回意见
+        if (reason != null && !reason.isEmpty()) {
+            taskService.addComment(task.getId(), task.getProcessInstanceId(), reason);
+        }
+
+        // 执行节点跳转
+        ChangeActivityStateBuilder builder = runtimeService.createChangeActivityStateBuilder();
+        builder.processInstanceId(task.getProcessInstanceId())
+                .moveActivityIdTo(task.getTaskDefinitionKey(), targetActivityId)
+                .changeState();
     }
 }
