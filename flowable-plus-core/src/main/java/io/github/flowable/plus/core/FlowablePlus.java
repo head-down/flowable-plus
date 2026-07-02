@@ -9,7 +9,6 @@ import lombok.Getter;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.IdentityService;
 import org.flowable.engine.ProcessEngine;
-import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
 import org.flowable.task.api.history.HistoricTaskInstance;
@@ -23,9 +22,8 @@ import java.util.Map;
 /**
  * Flowable-Plus 统一入口类，封装 Flowable 引擎操作，提供增强的中国式审批 API。
  *
- * <p>构造器注入 {@link ProcessEngine} 和 {@link UserContext}，内部持有对 RuntimeService、TaskService、
- * RepositoryService、HistoryService 的引用，并组合 {@link NodeFinder} 提供
- * BPMN 模型遍历能力。</p>
+ * <p>构造器注入 {@link ProcessEngine}、{@link UserContext} 和 {@link NodeFinder}，
+ * 内部持有 RuntimeService、TaskService、HistoryService 的引用。</p>
  *
  * <p>所有业务方法的参数校验和异常转换在此层完成，NodeFinder 仅负责纯遍历逻辑。</p>
  */
@@ -35,35 +33,10 @@ public class FlowablePlus {
     private final ProcessEngine processEngine;
     @Getter
     private final UserContext userContext;
-    private final RepositoryService repositoryService;
     private final RuntimeService runtimeService;
     private final TaskService taskService;
     private final HistoryService historyService;
-    private final IdentityService identityService;
     private final NodeFinder nodeFinder;
-
-    /**
-     * 构造器注入 ProcessEngine 和 UserContext，使用默认 BPMN 遍历策略。
-     *
-     * @param processEngine Flowable 流程引擎实例，不可为 null
-     * @param userContext   用户上下文，用于获取当前操作用户，不可为 null
-     */
-    public FlowablePlus(ProcessEngine processEngine, UserContext userContext) {
-        if (processEngine == null) {
-            throw new IllegalArgumentException("ProcessEngine 不可为 null");
-        }
-        if (userContext == null) {
-            throw new IllegalArgumentException("UserContext 不可为 null");
-        }
-        this.processEngine = processEngine;
-        this.userContext = userContext;
-        this.repositoryService = processEngine.getRepositoryService();
-        this.runtimeService = processEngine.getRuntimeService();
-        this.taskService = processEngine.getTaskService();
-        this.historyService = processEngine.getHistoryService();
-        this.identityService = processEngine.getIdentityService();
-        this.nodeFinder = new DefaultNodeFinder(repositoryService, historyService);
-    }
 
     /**
      * 构造器注入 ProcessEngine、UserContext 和自定义 NodeFinder。
@@ -84,11 +57,9 @@ public class FlowablePlus {
         }
         this.processEngine = processEngine;
         this.userContext = userContext;
-        this.repositoryService = processEngine.getRepositoryService();
         this.runtimeService = processEngine.getRuntimeService();
         this.taskService = processEngine.getTaskService();
         this.historyService = processEngine.getHistoryService();
-        this.identityService = processEngine.getIdentityService();
         this.nodeFinder = nodeFinder;
     }
 
@@ -145,6 +116,7 @@ public class FlowablePlus {
         }
 
         String userId = userContext.getCurrentUserId();
+        IdentityService identityService = processEngine.getIdentityService();
         identityService.setAuthenticatedUserId(userId);
         try {
             return runtimeService.startProcessInstanceByKey(processDefinitionKey, businessKey, variables);

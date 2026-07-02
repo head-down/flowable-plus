@@ -33,7 +33,7 @@ import java.util.Set;
  * <p>本类内聚了 BPMN 模型加载和节点存在性校验，调用方通过接口无需预加载模型。</p>
  */
 @RequiredArgsConstructor
-class DefaultNodeFinder implements NodeFinder {
+public class DefaultNodeFinder implements NodeFinder {
 
     private final RepositoryService repositoryService;
     private final HistoryService historyService;

@@ -70,8 +70,24 @@ flowable:
 public class MyConfig {
 
     @Bean
-    public FlowablePlus flowablePlus(ProcessEngine processEngine) {
-        return new FlowablePlus(processEngine);
+    public FlowablePlus flowablePlus(ProcessEngine processEngine, UserContext userContext, NodeFinder nodeFinder) {
+        return new FlowablePlus(processEngine, userContext, nodeFinder);
     }
+}
+```
+
+也可分别覆盖 NodeFinder 或 UserContext：
+
+```java
+@Bean
+public NodeFinder nodeFinder(ProcessEngine processEngine) {
+    return new CachedNodeFinder(new DefaultNodeFinder(
+        processEngine.getRepositoryService(), processEngine.getHistoryService()
+    ));
+}
+
+@Bean
+public UserContext userContext() {
+    return () -> "currentUser";
 }
 ```

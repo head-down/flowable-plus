@@ -53,6 +53,7 @@ public class FlowablePlusTest {
     private FlowablePlus flowablePlus;
 
     private UserContext userContext;
+    private NodeFinder mockNodeFinder;
 
     @BeforeEach
     public void setUp() {
@@ -63,6 +64,7 @@ public class FlowablePlusTest {
         mockHistoryService = mock(HistoryService.class);
         mockIdentityService = mock(IdentityService.class);
         userContext = () -> "testUser";
+        mockNodeFinder = mock(NodeFinder.class);
 
         when(mockEngine.getRepositoryService()).thenReturn(mockRepoService);
         when(mockEngine.getRuntimeService()).thenReturn(mockRuntimeService);
@@ -70,7 +72,7 @@ public class FlowablePlusTest {
         when(mockEngine.getHistoryService()).thenReturn(mockHistoryService);
         when(mockEngine.getIdentityService()).thenReturn(mockIdentityService);
 
-        flowablePlus = new FlowablePlus(mockEngine, userContext);
+        flowablePlus = new FlowablePlus(mockEngine, userContext, new DefaultNodeFinder(mockRepoService, mockHistoryService));
     }
 
     // ======================== 构造注入 ========================
@@ -82,14 +84,14 @@ public class FlowablePlusTest {
 
     @Test
     public void testConstructorRejectsNullProcessEngine() {
-        assertThatThrownBy(() -> new FlowablePlus(null, userContext))
+        assertThatThrownBy(() -> new FlowablePlus(null, userContext, mockNodeFinder))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("ProcessEngine 不可为 null");
     }
 
     @Test
     public void testConstructorRejectsNullUserContext() {
-        assertThatThrownBy(() -> new FlowablePlus(mockEngine, null))
+        assertThatThrownBy(() -> new FlowablePlus(mockEngine, null, mockNodeFinder))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("UserContext 不可为 null");
     }
