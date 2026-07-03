@@ -6,9 +6,13 @@ import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.exception.TaskAlreadyCompletedException;
 import io.github.flowable.plus.core.spi.UserContext;
 import lombok.Getter;
+import org.flowable.bpmn.model.BpmnModel;
+import org.flowable.bpmn.model.FlowElement;
+import org.flowable.bpmn.model.MultiInstanceLoopCharacteristics;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.IdentityService;
 import org.flowable.engine.ProcessEngine;
+import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
 import org.flowable.engine.history.HistoricProcessInstance;
@@ -34,6 +38,7 @@ public class FlowablePlus {
     private final ProcessEngine processEngine;
     @Getter
     private final UserContext userContext;
+    private final RepositoryService repositoryService;
     private final RuntimeService runtimeService;
     private final TaskService taskService;
     private final HistoryService historyService;
@@ -58,6 +63,7 @@ public class FlowablePlus {
         }
         this.processEngine = processEngine;
         this.userContext = userContext;
+        this.repositoryService = processEngine.getRepositoryService();
         this.runtimeService = processEngine.getRuntimeService();
         this.taskService = processEngine.getTaskService();
         this.historyService = processEngine.getHistoryService();
@@ -135,11 +141,11 @@ public class FlowablePlus {
      * @param variables 流程变量，可为 null
      * @param comment   审批意见，可为 null
      * @throws NotFoundException 任务不存在时抛出
+     * @throws IllegalArgumentException 任务为多实例子任务时抛出（请使用会签操作）
      */
     public void completeTask(String taskId, Map<String, Object> variables, String comment) {
-        if (taskId == null) {
-            throw new IllegalArgumentException("taskId 不可为 null");
-        }
+        Task task = validateTaskExists(taskId, "审批");
+        assertNotMultiInstance(task, taskId);
 
         String userId = userContext.getCurrentUserId();
 
@@ -152,6 +158,48 @@ public class FlowablePlus {
         }
 
         // 完成任务
+        taskService.complete(taskId, variables);
+    }
+
+    // ======================== 会签 ========================
+
+    /**
+     * 会签操作：完成当前用户的会签子任务。
+     *
+     * <p>自动认领任务后，根据 {@code approved} 参数写入 AGREE 或 COUNTER_SIGN_REJECT
+     * 类型的审批意见，最后调用引擎 complete。多实例的完成条件由 BPMN 模型中定义的
+     * {@code completionCondition} 表达式控制。</p>
+     *
+     * @param taskId    任务 ID，不可为 null
+     * @param approved  true 表示同意，false 表示驳回
+     * @param variables 流程变量，可为 null
+     * @param comment   审批意见，可为 null
+     * @throws NotFoundException            任务不存在时抛出
+     * @throws TaskAlreadyCompletedException 任务已完成时抛出
+     * @throws PermissionDeniedException     调用者不是当前任务审批人时抛出
+     * @throws IllegalArgumentException     非多实例子任务时抛出（请使用审批操作）
+     */
+    public void counterSign(String taskId, boolean approved, Map<String, Object> variables, String comment) {
+        Task task = validateTaskAndPermission(taskId, "会签");
+
+        MultiInstanceInfo mi = resolveMultiInstance(task);
+        if (mi == null) {
+            throw new IllegalArgumentException(
+                    "任务 " + taskId + " 不是多实例子任务，请使用审批操作(completeTask)");
+        }
+
+        String userId = userContext.getCurrentUserId();
+
+        // 自动认领
+        taskService.claim(taskId, userId);
+
+        // 写入审批意见（AGREE / COUNTER_SIGN_REJECT）
+        if (comment != null && !comment.isEmpty()) {
+            String commentType = approved ? "AGREE" : "COUNTER_SIGN_REJECT";
+            taskService.addComment(taskId, null, commentType, comment);
+        }
+
+        // 完成当前子任务，引擎自动评估 completionCondition
         taskService.complete(taskId, variables);
     }
 
@@ -190,6 +238,7 @@ public class FlowablePlus {
      */
     public void rejectTask(String taskId, String reason) {
         Task task = validateTaskAndPermission(taskId, "驳回");
+        assertNotMultiInstance(task, taskId);
 
         String processDefinitionId = task.getProcessDefinitionId();
         String currentActivityId = task.getTaskDefinitionKey();
@@ -220,6 +269,7 @@ public class FlowablePlus {
      */
     public void rejectTaskToInitiator(String taskId, String reason) {
         Task task = validateTaskAndPermission(taskId, "驳回");
+        assertNotMultiInstance(task, taskId);
 
         String processDefinitionId = task.getProcessDefinitionId();
         String initiatorNode = findInitiatorNode(processDefinitionId);
@@ -250,6 +300,7 @@ public class FlowablePlus {
     public void withdrawTask(String taskId, String reason) {
         String currentUserId = userContext.getCurrentUserId();
         Task task = validateTaskExists(taskId, "撤回");
+        assertNotMultiInstance(task, taskId);
 
         // 不能撤回自己当前正在处理的任务
         if (currentUserId.equals(task.getAssignee())) {
@@ -384,6 +435,16 @@ public class FlowablePlus {
     }
 
     /**
+     * 断言当前任务不是多实例子任务，否则抛出异常引导使用正确的 API。
+     */
+    private void assertNotMultiInstance(Task task, String taskId) {
+        if (resolveMultiInstance(task) != null) {
+            throw new IllegalArgumentException(
+                    "任务 " + taskId + " 是多实例子任务，请使用会签操作(counterSign)");
+        }
+    }
+
+    /**
      * 执行审批节点回退：写入原因，再通过 ChangeActivityStateBuilder 跳转节点。
      *
      * @param task             当前任务
@@ -400,5 +461,60 @@ public class FlowablePlus {
         builder.processInstanceId(task.getProcessInstanceId())
                 .moveActivityIdTo(task.getTaskDefinitionKey(), targetActivityId)
                 .changeState();
+    }
+
+    /**
+     * 解析 Task 的多实例信息。
+     *
+     * <p>通过 BPMN 模型层检测 Task 对应的 FlowElement 是否配置了
+     * {@link MultiInstanceLoopCharacteristics}。不限制节点类型，
+     * 任何 Activity 上的多实例都可以检测。</p>
+     *
+     * @param task 已校验的任务对象，不可为 null
+     * @return 多实例信息，若非多实例则返回 null
+     */
+    MultiInstanceInfo resolveMultiInstance(Task task) {
+        BpmnModel bpmnModel = repositoryService.getBpmnModel(task.getProcessDefinitionId());
+        if (bpmnModel == null) {
+            return null;
+        }
+        FlowElement flowElement = bpmnModel.getFlowElement(task.getTaskDefinitionKey());
+        if (flowElement == null) {
+            return null;
+        }
+
+        // 检查节点是否配置了多实例循环特征
+        if (flowElement instanceof org.flowable.bpmn.model.Activity) {
+            org.flowable.bpmn.model.Activity activity = (org.flowable.bpmn.model.Activity) flowElement;
+            if (activity.getLoopCharacteristics() instanceof MultiInstanceLoopCharacteristics) {
+                MultiInstanceLoopCharacteristics mic =
+                        (MultiInstanceLoopCharacteristics) activity.getLoopCharacteristics();
+                return new MultiInstanceInfo(mic.isSequential(), mic.getCompletionCondition());
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 多实例信息，包含运行时判断多实例子任务所需的属性。
+     */
+    public static class MultiInstanceInfo {
+        /** 是否为串行多实例 */
+        private final boolean sequential;
+        /** 完成条件表达式，如 {@code ${nrOfCompletedInstances/nrOfInstances >= 0.5}} */
+        private final String completionCondition;
+
+        MultiInstanceInfo(boolean sequential, String completionCondition) {
+            this.sequential = sequential;
+            this.completionCondition = completionCondition;
+        }
+
+        public boolean isSequential() {
+            return sequential;
+        }
+
+        public String getCompletionCondition() {
+            return completionCondition;
+        }
     }
 }

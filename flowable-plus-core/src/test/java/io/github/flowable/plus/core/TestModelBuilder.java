@@ -3,6 +3,7 @@ package io.github.flowable.plus.core;
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.bpmn.model.ExclusiveGateway;
 import org.flowable.bpmn.model.FlowElement;
+import org.flowable.bpmn.model.MultiInstanceLoopCharacteristics;
 import org.flowable.bpmn.model.ParallelGateway;
 import org.flowable.bpmn.model.Process;
 import org.flowable.bpmn.model.SequenceFlow;
@@ -36,6 +37,17 @@ class TestModelBuilder {
         UserTask task = new UserTask();
         task.setId(id);
         process.addFlowElement(task);
+        return task;
+    }
+
+    UserTask addMultiInstanceUserTask(String id, boolean sequential, String completionCondition) {
+        UserTask task = addUserTask(id);
+        MultiInstanceLoopCharacteristics mic = new MultiInstanceLoopCharacteristics();
+        mic.setSequential(sequential);
+        if (completionCondition != null) {
+            mic.setCompletionCondition(completionCondition);
+        }
+        task.setLoopCharacteristics(mic);
         return task;
     }
 

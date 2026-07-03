@@ -67,11 +67,38 @@
 
 | Slice | 内容 | 状态 |
 |-------|------|------|
-| S1: 多实例检测 | 判断 Task 是否属于多实例子任务的工具方法 | 待开发 |
-| S2: counterSign 核心 | `counterSign(taskId, approved, comment)` 方法 + completionCondition 辅助 | 待开发 |
+| S1: 多实例检测 | 判断 Task 是否属于多实例子任务的工具方法 | 已完成 |
+| S2: counterSign 核心 | `counterSign(taskId, approved, comment)` 方法 + completionCondition 辅助 | 已完成 |
 | S3: SPI 回调机制 | `CounterSignCallback` 接口定义 + FlowablePlus 中的调用点 | 待开发 |
 | S4: 加签/减签 | `addCounterSigner` / `removeCounterSigner` | 待开发 |
 | S5: Starter 适配 | 自动配置注册 CounterSignCallback、健康检查扩展 | 待开发 |
 | S6: 测试 + 文档 | 多实例 BPMN 集成测试、completionCondition 示例模板 | 待开发 |
 
 S1+S2 优先实现最小可用版本。
+
+## S1 实现记录
+
+- **实现位置**：`FlowablePlus.resolveMultiInstance(Task task)`（包级私有方法）+ `FlowablePlus.MultiInstanceInfo`（静态内部类）
+- **决策记录**：
+  - 检测依据：BPMN 模型层 `MultiInstanceLoopCharacteristics`
+  - 返回类型：`MultiInstanceInfo`（`isSequential` + `completionCondition`），非多实例返回 `null`
+  - 不限制 Activity 类型（UserTask/ServiceTask/CallActivity 均可检测）
+  - 构造器新增 `RepositoryService` 字段
+- **测试**：6 个单元测试覆盖普通节点、并行多实例、串行多实例、completionCondition、BPMN 模型 null、FlowElement 不存在
+- **完成时间**：2026-07-03
+
+## S2 实现记录
+
+- **实现位置**：
+  - `FlowablePlus.counterSign(taskId, approved, variables, comment)` — 公开方法
+  - `FlowablePlus.assertNotMultiInstance(task, taskId)` — 私有辅助方法
+- **决策记录**：
+  - 方法签名：`counterSign(taskId, approved, variables, comment)`，三者都要
+  - 执行步骤：validateTaskAndPermission → resolveMultiInstance → claim → addComment(AGREE/COUNTER_SIGN_REJECT) → complete
+  - 非多实例任务调用：抛出 `IllegalArgumentException`（全部中文错误消息）
+  - Comment 类型：`AGREE`（同意） / `COUNTER_SIGN_REJECT`（驳回），不与 rejectTask 的 `REJECT` 混淆
+  - `completeTask`、`rejectTask`、`withdrawTask`、`rejectTaskToInitiator` 四个方法加多实例拦截
+  - `completeTask` 重构为查询 Task 后检测（接受一次额外 DB 查询）
+  - `approved` 参数不单独存为流程变量，仅通过 Comment 类型区分投票方向
+- **测试**：9 个新增测试（6 counterSign + 3 方法拦截）覆盖同意/驳回、非多实例报错、空/null 评论、拦截场景
+- **完成时间**：2026-07-03

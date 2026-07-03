@@ -262,6 +262,10 @@ public class FlowablePlusTest {
         Map<String, Object> variables = new HashMap<>();
         variables.put("approved", true);
 
+        // stub Task 查询（新增 validateTaskExists 调用）
+        Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
+        stubTaskQuery(mockTask);
+
         flowablePlus.completeTask("task-001", variables, "同意");
 
         // 验证操作顺序：先认领、再添加意见、最后完成
@@ -272,6 +276,9 @@ public class FlowablePlusTest {
 
     @Test
     public void testCompleteTaskWithoutComment() {
+        Task mockTask = createMockTask("task-002", "pi-002", "proc-1", "task1", "testUser");
+        stubTaskQuery(mockTask);
+
         flowablePlus.completeTask("task-002", null, null);
 
         verify(mockTaskService).claim("task-002", "testUser");
@@ -281,6 +288,9 @@ public class FlowablePlusTest {
 
     @Test
     public void testCompleteTaskWithEmptyComment() {
+        Task mockTask = createMockTask("task-003", "pi-003", "proc-1", "task1", "testUser");
+        stubTaskQuery(mockTask);
+
         flowablePlus.completeTask("task-003", null, "");
 
         verify(mockTaskService).claim("task-003", "testUser");
@@ -1020,6 +1030,295 @@ public class FlowablePlusTest {
         flowablePlus.revokeProcess("pi-001", null);
 
         verify(mockRuntimeService).deleteProcessInstance("pi-001", null);
+    }
+
+    // ======================== resolveMultiInstance ========================
+
+    /**
+     * 普通 UserTask 节点（非多实例）应返回 null。
+     */
+    @Test
+    public void testResolveMultiInstanceNormalUserTask() {
+        TestModelBuilder builder = new TestModelBuilder();
+        builder.addStartEvent("start");
+        builder.addUserTask("task1");
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task task = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
+
+        FlowablePlus.MultiInstanceInfo result = flowablePlus.resolveMultiInstance(task);
+
+        assertThat(result).isNull();
+    }
+
+    /**
+     * 并行多实例 UserTask 应返回 isSequential=false。
+     */
+    @Test
+    public void testResolveMultiInstanceParallel() {
+        TestModelBuilder builder = new TestModelBuilder();
+        builder.addStartEvent("start");
+        builder.addMultiInstanceUserTask("task1", false, null);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task task = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
+
+        FlowablePlus.MultiInstanceInfo result = flowablePlus.resolveMultiInstance(task);
+
+        assertThat(result).isNotNull();
+        assertThat(result.isSequential()).isFalse();
+        assertThat(result.getCompletionCondition()).isNull();
+    }
+
+    /**
+     * 串行多实例 UserTask 应返回 isSequential=true。
+     */
+    @Test
+    public void testResolveMultiInstanceSequential() {
+        TestModelBuilder builder = new TestModelBuilder();
+        builder.addStartEvent("start");
+        builder.addMultiInstanceUserTask("task1", true, null);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task task = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
+
+        FlowablePlus.MultiInstanceInfo result = flowablePlus.resolveMultiInstance(task);
+
+        assertThat(result).isNotNull();
+        assertThat(result.isSequential()).isTrue();
+        assertThat(result.getCompletionCondition()).isNull();
+    }
+
+    /**
+     * 带 completionCondition 的并行多实例（或签场景）。
+     */
+    @Test
+    public void testResolveMultiInstanceWithCompletionCondition() {
+        TestModelBuilder builder = new TestModelBuilder();
+        builder.addStartEvent("start");
+        builder.addMultiInstanceUserTask("task1", false,
+                "${nrOfCompletedInstances/nrOfInstances >= 0.5}");
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task task = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
+
+        FlowablePlus.MultiInstanceInfo result = flowablePlus.resolveMultiInstance(task);
+
+        assertThat(result).isNotNull();
+        assertThat(result.isSequential()).isFalse();
+        assertThat(result.getCompletionCondition())
+                .isEqualTo("${nrOfCompletedInstances/nrOfInstances >= 0.5}");
+    }
+
+    /**
+     * BPMN 模型为 null 时返回 null。
+     */
+    @Test
+    public void testResolveMultiInstanceBpmnModelNull() {
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(null);
+
+        Task task = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
+
+        FlowablePlus.MultiInstanceInfo result = flowablePlus.resolveMultiInstance(task);
+
+        assertThat(result).isNull();
+    }
+
+    /**
+     * FlowElement 不存在于 BPMN 模型中时返回 null。
+     */
+    @Test
+    public void testResolveMultiInstanceFlowElementNotFound() {
+        TestModelBuilder builder = new TestModelBuilder();
+        builder.addStartEvent("start");
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task task = createMockTask("task-001", "pi-001", "proc-1", "nonexistent", "testUser");
+
+        FlowablePlus.MultiInstanceInfo result = flowablePlus.resolveMultiInstance(task);
+
+        assertThat(result).isNull();
+    }
+
+    // ======================== counterSign ========================
+
+    /**
+     * 正常会签同意：应写入 AGREE 评论并完成任务。
+     */
+    @Test
+    public void testCounterSignAgree() {
+        // BPMN 模型：start → task1 (多实例)
+        TestModelBuilder builder = new TestModelBuilder();
+        builder.addStartEvent("start");
+        builder.addMultiInstanceUserTask("task1", false, null);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
+        stubTaskQuery(mockTask);
+
+        Map<String, Object> variables = new HashMap<>();
+        flowablePlus.counterSign("task-001", true, variables, "同意");
+
+        verify(mockTaskService).claim("task-001", "testUser");
+        verify(mockTaskService).addComment("task-001", null, "AGREE", "同意");
+        verify(mockTaskService).complete("task-001", variables);
+    }
+
+    /**
+     * 会签驳回：应写入 COUNTER_SIGN_REJECT 评论并完成任务。
+     */
+    @Test
+    public void testCounterSignReject() {
+        TestModelBuilder builder = new TestModelBuilder();
+        builder.addStartEvent("start");
+        builder.addMultiInstanceUserTask("task1", false, null);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
+        stubTaskQuery(mockTask);
+
+        flowablePlus.counterSign("task-001", false, null, "不同意");
+
+        verify(mockTaskService).claim("task-001", "testUser");
+        verify(mockTaskService).addComment("task-001", null, "COUNTER_SIGN_REJECT", "不同意");
+        verify(mockTaskService).complete("task-001", null);
+    }
+
+    /**
+     * 非多实例任务上调用 counterSign 应抛出 IllegalArgumentException。
+     */
+    @Test
+    public void testCounterSignNotMultiInstance() {
+        TestModelBuilder builder = new TestModelBuilder();
+        builder.addStartEvent("start");
+        builder.addUserTask("task1");
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
+        stubTaskQuery(mockTask);
+
+        assertThatThrownBy(() -> flowablePlus.counterSign("task-001", true, null, "同意"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("不是多实例子任务");
+    }
+
+    /**
+     * counterSign 审批意见为空字符串时不写入 Comment。
+     */
+    @Test
+    public void testCounterSignEmptyComment() {
+        TestModelBuilder builder = new TestModelBuilder();
+        builder.addStartEvent("start");
+        builder.addMultiInstanceUserTask("task1", false, null);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
+        stubTaskQuery(mockTask);
+
+        flowablePlus.counterSign("task-001", true, null, "");
+
+        verify(mockTaskService).claim("task-001", "testUser");
+        verify(mockTaskService, never()).addComment(anyString(), anyString(), anyString(), anyString());
+        verify(mockTaskService).complete("task-001", null);
+    }
+
+    /**
+     * counterSign 审批意见 null 时不写入 Comment。
+     */
+    @Test
+    public void testCounterSignNullComment() {
+        TestModelBuilder builder = new TestModelBuilder();
+        builder.addStartEvent("start");
+        builder.addMultiInstanceUserTask("task1", false, null);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
+        stubTaskQuery(mockTask);
+
+        flowablePlus.counterSign("task-001", false, null, null);
+
+        verify(mockTaskService).claim("task-001", "testUser");
+        verify(mockTaskService, never()).addComment(anyString(), anyString(), anyString(), anyString());
+        verify(mockTaskService).complete("task-001", null);
+    }
+
+    /**
+     * counterSign 空 taskId 应抛出 IllegalArgumentException。
+     */
+    @Test
+    public void testCounterSignNullId() {
+        assertThatThrownBy(() -> flowablePlus.counterSign(null, true, null, "同意"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("taskId");
+    }
+
+    // ======================== 多实例方法拦截 ========================
+
+    /**
+     * completeTask 在多实例子任务上调用应报错。
+     */
+    @Test
+    public void testCompleteTaskBlockedOnMultiInstance() {
+        TestModelBuilder builder = new TestModelBuilder();
+        builder.addStartEvent("start");
+        builder.addMultiInstanceUserTask("task1", false, null);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
+        stubTaskQuery(mockTask);
+
+        assertThatThrownBy(() -> flowablePlus.completeTask("task-001", null, "同意"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("请使用会签操作(counterSign)");
+    }
+
+    /**
+     * rejectTask 在多实例子任务上调用应报错。
+     */
+    @Test
+    public void testRejectTaskBlockedOnMultiInstance() {
+        TestModelBuilder builder = new TestModelBuilder();
+        builder.addStartEvent("start");
+        builder.addMultiInstanceUserTask("task1", false, null);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
+        stubTaskQuery(mockTask);
+
+        assertThatThrownBy(() -> flowablePlus.rejectTask("task-001", "不同意"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("请使用会签操作(counterSign)");
+    }
+
+    /**
+     * withdrawTask 在多实例子任务上调用应报错。
+     */
+    @Test
+    public void testWithdrawTaskBlockedOnMultiInstance() {
+        TestModelBuilder builder = new TestModelBuilder();
+        builder.addStartEvent("start");
+        builder.addMultiInstanceUserTask("task1", false, null);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task1", "otherUser");
+        stubTaskQuery(mockTask);
+
+        assertThatThrownBy(() -> flowablePlus.withdrawTask("task-001", "撤回"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("请使用会签操作(counterSign)");
     }
 
     // ======================== Test Helpers ========================
