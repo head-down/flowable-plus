@@ -91,7 +91,7 @@ starter 模块通过 `META-INF/spring.factories` 注册 `FlowablePlusAutoConfigu
 - `BpmnModelCache` — 基于 ConcurrentHashMap 的 BPMN 模型缓存，永不过期
 - `NodeFinder` — DefaultNodeFinder，注入 BpmnModelCache
 - `FlowablePlus` — 统一入口，注入 ProcessEngine、UserContext、NodeFinder、BpmnModelCache
-- `UserContext` — 仅当 classpath 存在 Spring Security 时注册 SecurityContextUserContext
+- `UserContext` — 仅当 classpath 存在 Spring Security 时注册 SecurityContextUserContext；否则注册 SystemPropertyUserContext 兜底（从系统属性 `flowable.plus.user-id` 读取）
 
 当前配置项为 `flowable.plus.enabled`（布尔值，默认 `true`）。
 

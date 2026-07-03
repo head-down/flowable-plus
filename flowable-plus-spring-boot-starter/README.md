@@ -68,7 +68,7 @@ flowable:
 | `bpmnModelCache` | `BpmnModelCache` | 基于 ConcurrentHashMap 的 BPMN 模型缓存，永不过期 |
 | `nodeFinder` | `NodeFinder` | DefaultNodeFinder，注入 BpmnModelCache |
 | `flowablePlus` | `FlowablePlus` | 审批统一入口，注入 ProcessEngine、UserContext、NodeFinder、BpmnModelCache |
-| `userContext` | `UserContext` | 仅 classpath 存在 Spring Security 时注册 SecurityContextUserContext |
+| `userContext` | `UserContext` | classpath 存在 Spring Security 时注册 SecurityContextUserContext；否则注册 SystemPropertyUserContext 兜底（`flowable.plus.user-id` 系统属性，默认 `"system"`） |
 
 如需自定义，可声明同名 Bean 覆盖：
 
@@ -101,4 +101,10 @@ public NodeFinder nodeFinder(BpmnModelCache bpmnModelCache, ProcessEngine proces
 public UserContext userContext() {
     return () -> "currentUser";
 }
+```
+
+如果不想引入 Spring Security，可通过系统属性指定用户 ID：
+
+```bash
+java -Dflowable.plus.user-id=admin -jar app.jar
 ```

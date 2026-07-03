@@ -92,15 +92,28 @@ public class FlowablePlusAutoConfiguration {
     }
 
     /**
-     * 默认 UserContext Bean，从 Spring Security 上下文读取当前用户。
+     * Spring Security 环境的 UserContext Bean，从认证上下文读取当前用户。
      *
      * <p>仅在 classpath 上存在 Spring Security 时生效。
-     * 应用可通过声明同名 Bean 覆盖此默认实现。</p>
+     * 应用可通过声明同名 Bean 覆盖此实现。</p>
      */
     @Bean
     @ConditionalOnClass(name = "org.springframework.security.core.Authentication")
     @ConditionalOnMissingBean
-    public UserContext userContext() {
+    public UserContext securityContextUserContext() {
         return new SecurityContextUserContext();
+    }
+
+    /**
+     * 非 Spring Security 环境的 UserContext 兜底 Bean。
+     *
+     * <p>当 classpath 上不存在 Spring Security 且未自定义 UserContext 时生效。
+     * 从系统属性 {@code flowable.plus.user-id} 读取当前用户 ID，
+     * 未设置时返回 {@code "system"}。生产环境建议注入认证框架对应的实现。</p>
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public UserContext systemPropertyUserContext() {
+        return new SystemPropertyUserContext();
     }
 }
