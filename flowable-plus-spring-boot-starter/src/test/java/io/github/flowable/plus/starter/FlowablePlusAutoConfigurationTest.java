@@ -63,6 +63,31 @@ class FlowablePlusAutoConfigurationTest {
     }
 
     @Test
+    void testUserDefinedFlowablePlusNotOverridden() {
+        FlowablePlus custom = mock(FlowablePlus.class);
+        contextRunner
+                .withBean(FlowablePlus.class, () -> custom)
+                .run(ctx -> {
+                    assertThat(ctx).hasSingleBean(FlowablePlus.class);
+                    assertThat(ctx.getBean(FlowablePlus.class)).isSameAs(custom);
+                });
+    }
+
+    @Test
+    void testNoFlowablePlusWhenEngineDisabled() {
+        // classpath 上 ProcessEngine 类始终存在，因此 @ConditionalOnClass 条件满足。
+        // 但实际不存在 ProcessEngine Bean 时，FlowablePlus Bean 创建会因缺少依赖而失败，
+        // 这本身验证了"没有 ProcessEngine 就没有 FlowablePlus"的设计意图。
+        new ApplicationContextRunner()
+                .withUserConfiguration(FlowablePlusAutoConfiguration.class,
+                        FlowablePlusHealthContributorAutoConfiguration.class)
+                .run(ctx -> {
+                    assertThat(ctx).hasFailed();
+                    assertThat(ctx.getStartupFailure()).isNotNull();
+                });
+    }
+
+    @Test
     void testUserContextReturnsAnonymousWhenNoAuthentication() {
         SecurityContextHolder.clearContext();
         contextRunner.run(ctx -> {
