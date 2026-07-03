@@ -202,7 +202,7 @@ public class FlowablePlus {
         }
 
         String targetNode = prevNodes.get(0);
-        executeReject(task, targetNode, reason);
+        executeRollback(task, targetNode, reason, "REJECT");
     }
 
     /**
@@ -228,30 +228,78 @@ public class FlowablePlus {
             throw new NoPreviousNodeException("当前已是发起人节点，无法继续驳回");
         }
 
-        executeReject(task, initiatorNode, reason);
+        executeRollback(task, initiatorNode, reason, "REJECT");
     }
 
-    // ======================== 驳回内部辅助 ========================
+    // ======================== 撤回 ========================
 
     /**
-     * 校验任务存在性、完成状态和当前用户权限。
+     * 撤回已提交的任务。
+     *
+     * <p>上一节点审批人主动收回已提交的待办，阻止当前审批人继续处理。
+     * 执行后任务回到撤回人的待办列表，保留表单数据。</p>
+     *
+     * @param taskId 任务 ID，不可为 null
+     * @param reason 撤回原因，可为 null
+     * @throws NotFoundException            任务不存在时抛出
+     * @throws TaskAlreadyCompletedException 任务已完成时抛出
+     * @throws PermissionDeniedException     调用者不是上一节点审批人或尝试撤回自己的任务时抛出
+     * @throws NoPreviousNodeException       无上一审批节点或处于并行网关汇合之后时抛出
+     */
+    public void withdrawTask(String taskId, String reason) {
+        String currentUserId = userContext.getCurrentUserId();
+        Task task = validateTaskExists(taskId, "撤回");
+
+        // 不能撤回自己当前正在处理的任务
+        if (currentUserId.equals(task.getAssignee())) {
+            throw new PermissionDeniedException("无法撤回自己当前处理的任务 " + taskId);
+        }
+
+        String processInstanceId = task.getProcessInstanceId();
+        List<String> prevNodes = findPreviousNodes(
+                task.getProcessDefinitionId(), task.getTaskDefinitionKey(), processInstanceId);
+
+        if (prevNodes.size() > 1) {
+            throw new NoPreviousNodeException("当前节点位于并行网关汇合之后，无法确定撤回目标");
+        }
+
+        String prevNodeId = prevNodes.get(0);
+
+        // 校验当前用户是否为上一节点审批人
+        HistoricTaskInstance prevTask = historyService.createHistoricTaskInstanceQuery()
+                .processInstanceId(processInstanceId)
+                .taskDefinitionKey(prevNodeId)
+                .finished()
+                .orderByHistoricTaskInstanceEndTime().desc()
+                .listPage(0, 1)
+                .stream().findFirst().orElse(null);
+
+        if (prevTask == null || !currentUserId.equals(prevTask.getAssignee())) {
+            throw new PermissionDeniedException(
+                    "用户 " + currentUserId + " 不是上一节点审批人，无权撤回任务 " + taskId);
+        }
+
+        executeRollback(task, prevNodeId, reason, "WITHDRAW");
+    }
+
+    // ======================== 内部辅助 ========================
+
+    /**
+     * 校验任务存在性和完成状态（不做权限校验）。
      *
      * @param taskId    任务 ID
      * @param operation 操作名称（用于错误消息）
      * @return 运行时任务对象
      * @throws NotFoundException            任务不存在时抛出
      * @throws TaskAlreadyCompletedException 任务已完成时抛出
-     * @throws PermissionDeniedException     权限不足时抛出
      */
-    private Task validateTaskAndPermission(String taskId, String operation) {
+    private Task validateTaskExists(String taskId, String operation) {
         if (taskId == null) {
             throw new IllegalArgumentException("taskId 不可为 null");
         }
 
-        // 查询运行时任务
         Task task = taskService.createTaskQuery().taskId(taskId).singleResult();
         if (task == null) {
-            // 查历史区分"已完成"和"不存在"
             HistoricTaskInstance historic = historyService.createHistoricTaskInstanceQuery()
                     .taskId(taskId).singleResult();
             if (historic != null) {
@@ -260,7 +308,15 @@ public class FlowablePlus {
             throw new NotFoundException("任务 " + taskId + " 不存在");
         }
 
-        // 权限校验：调用者必须是当前任务的审批人
+        return task;
+    }
+
+    /**
+     * 校验任务存在性、完成状态和当前审批人权限。
+     */
+    private Task validateTaskAndPermission(String taskId, String operation) {
+        Task task = validateTaskExists(taskId, operation);
+
         String currentUserId = userContext.getCurrentUserId();
         if (task.getAssignee() == null || !task.getAssignee().equals(currentUserId)) {
             throw new PermissionDeniedException(
@@ -271,19 +327,18 @@ public class FlowablePlus {
     }
 
     /**
-     * 执行驳回节点跳转：先写入驳回意见，再通过 ChangeActivityStateBuilder 跳转节点。
+     * 执行审批节点回退：写入原因，再通过 ChangeActivityStateBuilder 跳转节点。
      *
      * @param task             当前任务
      * @param targetActivityId 目标节点 ID
-     * @param reason           驳回原因，可为 null
+     * @param reason           操作原因，可为 null
+     * @param commentType      Flowable Comment 类型，用于区分驳回/撤回
      */
-    private void executeReject(Task task, String targetActivityId, String reason) {
-        // 跳转前写入驳回意见
+    private void executeRollback(Task task, String targetActivityId, String reason, String commentType) {
         if (reason != null && !reason.isEmpty()) {
-            taskService.addComment(task.getId(), task.getProcessInstanceId(), reason);
+            taskService.addComment(task.getId(), task.getProcessInstanceId(), commentType, reason);
         }
 
-        // 执行节点跳转
         ChangeActivityStateBuilder builder = runtimeService.createChangeActivityStateBuilder();
         builder.processInstanceId(task.getProcessInstanceId())
                 .moveActivityIdTo(task.getTaskDefinitionKey(), targetActivityId)
