@@ -31,13 +31,15 @@ public class NodeFinderTest {
 
     private RepositoryService repositoryService;
     private HistoryService historyService;
+    private BpmnModelCache bpmnModelCache;
     private DefaultNodeFinder nodeFinder;
 
     @BeforeEach
     public void setUp() {
         repositoryService = Mockito.mock(RepositoryService.class);
         historyService = Mockito.mock(HistoryService.class);
-        nodeFinder = new DefaultNodeFinder(repositoryService, historyService);
+        bpmnModelCache = new DefaultBpmnModelCache(repositoryService);
+        nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService);
     }
 
     // ======================== 向后查找 ========================

@@ -12,7 +12,6 @@ import org.flowable.bpmn.model.MultiInstanceLoopCharacteristics;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.IdentityService;
 import org.flowable.engine.ProcessEngine;
-import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
 import org.flowable.engine.history.HistoricProcessInstance;
@@ -38,20 +37,22 @@ public class FlowablePlus {
     private final ProcessEngine processEngine;
     @Getter
     private final UserContext userContext;
-    private final RepositoryService repositoryService;
     private final RuntimeService runtimeService;
     private final TaskService taskService;
     private final HistoryService historyService;
     private final NodeFinder nodeFinder;
+    private final BpmnModelCache bpmnModelCache;
 
     /**
      * 构造器注入 ProcessEngine、UserContext 和自定义 NodeFinder。
      *
-     * @param processEngine Flowable 流程引擎实例，不可为 null
-     * @param userContext   用户上下文，用于获取当前操作用户，不可为 null
-     * @param nodeFinder    BPMN 节点遍历策略，不可为 null。可用于注入 Mock 或缓存适配器
+     * @param processEngine  Flowable 流程引擎实例，不可为 null
+     * @param userContext    用户上下文，用于获取当前操作用户，不可为 null
+     * @param nodeFinder     BPMN 节点遍历策略，不可为 null。可用于注入 Mock 或缓存适配器
+     * @param bpmnModelCache BPMN 模型缓存，不可为 null
      */
-    public FlowablePlus(ProcessEngine processEngine, UserContext userContext, NodeFinder nodeFinder) {
+    public FlowablePlus(ProcessEngine processEngine, UserContext userContext, NodeFinder nodeFinder,
+                        BpmnModelCache bpmnModelCache) {
         if (processEngine == null) {
             throw new IllegalArgumentException("ProcessEngine 不可为 null");
         }
@@ -61,13 +62,16 @@ public class FlowablePlus {
         if (nodeFinder == null) {
             throw new IllegalArgumentException("NodeFinder 不可为 null");
         }
+        if (bpmnModelCache == null) {
+            throw new IllegalArgumentException("BpmnModelCache 不可为 null");
+        }
         this.processEngine = processEngine;
         this.userContext = userContext;
-        this.repositoryService = processEngine.getRepositoryService();
         this.runtimeService = processEngine.getRuntimeService();
         this.taskService = processEngine.getTaskService();
         this.historyService = processEngine.getHistoryService();
         this.nodeFinder = nodeFinder;
+        this.bpmnModelCache = bpmnModelCache;
     }
 
     /**
@@ -474,7 +478,7 @@ public class FlowablePlus {
      * @return 多实例信息，若非多实例则返回 null
      */
     MultiInstanceInfo resolveMultiInstance(Task task) {
-        BpmnModel bpmnModel = repositoryService.getBpmnModel(task.getProcessDefinitionId());
+        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(task.getProcessDefinitionId());
         if (bpmnModel == null) {
             return null;
         }

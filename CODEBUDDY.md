@@ -37,7 +37,7 @@ flowable-plus-extension
 ```
 
 ### 各模块职责
-- **flowable-plus-core** — 框架无关的包装层，封装 Flowable 的 RuntimeService、TaskService、HistoryService 等核心服务。可在任意 Java 8+ 应用中使用。
+- **flowable-plus-core** — 框架无关的包装层，封装 Flowable 的 RuntimeService、TaskService、HistoryService 等核心服务。包含 BPMN 模型缓存（`BpmnModelCache`）以消除重复引擎 I/O。可在任意 Java 8+ 应用中使用。
 - **flowable-plus-spring-boot-starter** — 通过 `META-INF/spring.factories` 实现自动配置。配置属性前缀为 `flowable.plus.*`。当 classpath 上存在 `org.flowable.engine.ProcessEngine` 时条件激活。
 - **flowable-plus-extension** — 可选模块，提供高级功能（多实例处理、高级审批模式等）。仅依赖 core 模块。
 
@@ -87,11 +87,17 @@ starter 模块通过 `META-INF/spring.factories` 注册 `FlowablePlusAutoConfigu
 - `@ConditionalOnClass("org.flowable.engine.ProcessEngine")` — 仅在 Flowable 引擎存在时激活
 - `@ConditionalOnProperty(name = "flowable.plus.enabled")` — 通过 `flowable.plus.enabled` 属性控制开关，默认 `true`
 
-当前唯一配置项为 `flowable.plus.enabled`（布尔值，默认 `true`）。
+自动注册的 Bean：
+- `BpmnModelCache` — 基于 ConcurrentHashMap 的 BPMN 模型缓存，永不过期
+- `NodeFinder` — DefaultNodeFinder，注入 BpmnModelCache
+- `FlowablePlus` — 统一入口，注入 ProcessEngine、UserContext、NodeFinder、BpmnModelCache
+- `UserContext` — 仅当 classpath 存在 Spring Security 时注册 SecurityContextUserContext
+
+当前配置项为 `flowable.plus.enabled`（布尔值，默认 `true`）。
 
 ## 当前状态
 
-三个模块均处于骨架阶段。每个模块仅包含一个 `package-info.java`，starter 模块额外包含一个空壳自动配置类和一个布尔开关属性。核心领域服务、测试用例和扩展功能尚未实现。
+Core 模块已实现审批核心操作（发起、同意、驳回、撤回、撤销、会签），含 BPMN 节点遍历、多实例检测和模型缓存。Starter 模块提供自动配置。Extension 模块为空壳。
 
 ## Agent skills
 
@@ -106,3 +112,13 @@ starter 模块通过 `META-INF/spring.factories` 注册 `FlowablePlusAutoConfigu
 ### Domain docs
 
 单一上下文布局：`CONTEXT.md` + `docs/adr/` 在仓库根目录。详见 `docs/agents/domain.md`。
+
+### 架构决策记录 (ADR)
+
+| 编号 | 标题 | 日期 |
+|------|------|------|
+| ADR-0001 | 使用自定义跳转逻辑实现中式审批流转 | 2026-07-03 |
+| ADR-0002 | 并行网关汇合节点驳回：直接拒绝 | 2026-07-03 |
+| ADR-0003 | 会签采用 Flowable 原生多实例 | 2026-07-03 |
+| ADR-0004 | 会签驳回计数否决模式 | 2026-07-03 |
+| ADR-0005 | BPMN 模型加载使用独立缓存模块 | 2026-07-03 |

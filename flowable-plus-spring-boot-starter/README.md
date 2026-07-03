@@ -61,7 +61,14 @@ flowable:
 
 ## 自动配置
 
-当 classpath 上存在 `ProcessEngine` 时（由 `flowable-spring-boot-starter` 提供），自动配置类 `FlowablePlusAutoConfiguration` 会注册一个 `FlowablePlus` Bean。
+当 classpath 上存在 `ProcessEngine` 时（由 `flowable-spring-boot-starter` 提供），自动配置类 `FlowablePlusAutoConfiguration` 会注册以下 Bean：
+
+| Bean | 类型 | 说明 |
+|------|------|------|
+| `bpmnModelCache` | `BpmnModelCache` | 基于 ConcurrentHashMap 的 BPMN 模型缓存，永不过期 |
+| `nodeFinder` | `NodeFinder` | DefaultNodeFinder，注入 BpmnModelCache |
+| `flowablePlus` | `FlowablePlus` | 审批统一入口，注入 ProcessEngine、UserContext、NodeFinder、BpmnModelCache |
+| `userContext` | `UserContext` | 仅 classpath 存在 Spring Security 时注册 SecurityContextUserContext |
 
 如需自定义，可声明同名 Bean 覆盖：
 
@@ -70,20 +77,24 @@ flowable:
 public class MyConfig {
 
     @Bean
-    public FlowablePlus flowablePlus(ProcessEngine processEngine, UserContext userContext, NodeFinder nodeFinder) {
-        return new FlowablePlus(processEngine, userContext, nodeFinder);
+    public FlowablePlus flowablePlus(ProcessEngine processEngine, UserContext userContext,
+                                     NodeFinder nodeFinder, BpmnModelCache bpmnModelCache) {
+        return new FlowablePlus(processEngine, userContext, nodeFinder, bpmnModelCache);
     }
 }
 ```
 
-也可分别覆盖 NodeFinder 或 UserContext：
+也可分别覆盖 NodeFinder、BpmnModelCache 或 UserContext：
 
 ```java
 @Bean
-public NodeFinder nodeFinder(ProcessEngine processEngine) {
-    return new CachedNodeFinder(new DefaultNodeFinder(
-        processEngine.getRepositoryService(), processEngine.getHistoryService()
-    ));
+public BpmnModelCache bpmnModelCache(ProcessEngine processEngine) {
+    return new DefaultBpmnModelCache(processEngine.getRepositoryService());
+}
+
+@Bean
+public NodeFinder nodeFinder(BpmnModelCache bpmnModelCache, ProcessEngine processEngine) {
+    return new DefaultNodeFinder(bpmnModelCache, processEngine.getHistoryService());
 }
 
 @Bean

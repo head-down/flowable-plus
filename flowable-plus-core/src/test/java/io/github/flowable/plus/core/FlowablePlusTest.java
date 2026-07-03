@@ -53,6 +53,7 @@ public class FlowablePlusTest {
     private TaskService mockTaskService;
     private HistoryService mockHistoryService;
     private IdentityService mockIdentityService;
+    private BpmnModelCache bpmnModelCache;
     private FlowablePlus flowablePlus;
 
     private UserContext userContext;
@@ -68,6 +69,7 @@ public class FlowablePlusTest {
         mockIdentityService = mock(IdentityService.class);
         userContext = () -> "testUser";
         mockNodeFinder = mock(NodeFinder.class);
+        bpmnModelCache = new DefaultBpmnModelCache(mockRepoService);
 
         when(mockEngine.getRepositoryService()).thenReturn(mockRepoService);
         when(mockEngine.getRuntimeService()).thenReturn(mockRuntimeService);
@@ -75,7 +77,8 @@ public class FlowablePlusTest {
         when(mockEngine.getHistoryService()).thenReturn(mockHistoryService);
         when(mockEngine.getIdentityService()).thenReturn(mockIdentityService);
 
-        flowablePlus = new FlowablePlus(mockEngine, userContext, new DefaultNodeFinder(mockRepoService, mockHistoryService));
+        flowablePlus = new FlowablePlus(mockEngine, userContext,
+                new DefaultNodeFinder(bpmnModelCache, mockHistoryService), bpmnModelCache);
     }
 
     // ======================== 构造注入 ========================
@@ -87,14 +90,14 @@ public class FlowablePlusTest {
 
     @Test
     public void testConstructorRejectsNullProcessEngine() {
-        assertThatThrownBy(() -> new FlowablePlus(null, userContext, mockNodeFinder))
+        assertThatThrownBy(() -> new FlowablePlus(null, userContext, mockNodeFinder, bpmnModelCache))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("ProcessEngine 不可为 null");
     }
 
     @Test
     public void testConstructorRejectsNullUserContext() {
-        assertThatThrownBy(() -> new FlowablePlus(mockEngine, null, mockNodeFinder))
+        assertThatThrownBy(() -> new FlowablePlus(mockEngine, null, mockNodeFinder, bpmnModelCache))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("UserContext 不可为 null");
     }
@@ -321,13 +324,20 @@ public class FlowablePlusTest {
                 .hasMessageContaining("taskId");
     }
 
-    // ======================== 三参构造器 (NodeFinder 注入) ========================
+    // ======================== 四参构造器 (NodeFinder + BpmnModelCache 注入) ========================
 
     @Test
     public void testConstructorRejectsNullNodeFinder() {
-        assertThatThrownBy(() -> new FlowablePlus(mockEngine, userContext, null))
+        assertThatThrownBy(() -> new FlowablePlus(mockEngine, userContext, null, bpmnModelCache))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("NodeFinder");
+    }
+
+    @Test
+    public void testConstructorRejectsNullBpmnModelCache() {
+        assertThatThrownBy(() -> new FlowablePlus(mockEngine, userContext, mockNodeFinder, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("BpmnModelCache");
     }
 
     @Test
@@ -338,7 +348,7 @@ public class FlowablePlusTest {
         when(mockNodeFinder.findInitiatorNode("proc-1"))
                 .thenReturn("initiatorTask");
 
-        FlowablePlus customFp = new FlowablePlus(mockEngine, userContext, mockNodeFinder);
+        FlowablePlus customFp = new FlowablePlus(mockEngine, userContext, mockNodeFinder, bpmnModelCache);
 
         assertThat(customFp.findPreviousNodes("proc-1", "task1", null)).containsExactly("task0");
         assertThat(customFp.findInitiatorNode("proc-1")).isEqualTo("initiatorTask");

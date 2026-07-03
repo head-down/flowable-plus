@@ -83,7 +83,7 @@ S1+S2 优先实现最小可用版本。
   - 检测依据：BPMN 模型层 `MultiInstanceLoopCharacteristics`
   - 返回类型：`MultiInstanceInfo`（`isSequential` + `completionCondition`），非多实例返回 `null`
   - 不限制 Activity 类型（UserTask/ServiceTask/CallActivity 均可检测）
-  - 构造器新增 `RepositoryService` 字段
+  - 构造器新增 `BpmnModelCache` 字段（通过缓存消除重复的 BPMN 模型 I/O）
 - **测试**：6 个单元测试覆盖普通节点、并行多实例、串行多实例、completionCondition、BPMN 模型 null、FlowElement 不存在
 - **完成时间**：2026-07-03
 

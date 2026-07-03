@@ -2,7 +2,6 @@ package io.github.flowable.plus.core;
 
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;
-import lombok.RequiredArgsConstructor;
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.bpmn.model.ExclusiveGateway;
 import org.flowable.bpmn.model.FlowElement;
@@ -12,7 +11,6 @@ import org.flowable.bpmn.model.SequenceFlow;
 import org.flowable.bpmn.model.StartEvent;
 import org.flowable.bpmn.model.UserTask;
 import org.flowable.engine.HistoryService;
-import org.flowable.engine.RepositoryService;
 import org.flowable.engine.history.HistoricActivityInstance;
 
 import java.util.ArrayList;
@@ -32,15 +30,25 @@ import java.util.Set;
  *
  * <p>本类内聚了 BPMN 模型加载和节点存在性校验，调用方通过接口无需预加载模型。</p>
  */
-@RequiredArgsConstructor
 public class DefaultNodeFinder implements NodeFinder {
 
-    private final RepositoryService repositoryService;
     private final HistoryService historyService;
+    private final BpmnModelCache bpmnModelCache;
+
+    public DefaultNodeFinder(BpmnModelCache bpmnModelCache, HistoryService historyService) {
+        if (bpmnModelCache == null) {
+            throw new IllegalArgumentException("BpmnModelCache 不可为 null");
+        }
+        if (historyService == null) {
+            throw new IllegalArgumentException("HistoryService 不可为 null");
+        }
+        this.bpmnModelCache = bpmnModelCache;
+        this.historyService = historyService;
+    }
 
     @Override
     public List<String> findPreviousNodes(String processDefinitionId, String currentActivityId, String processInstanceId) {
-        BpmnModel bpmnModel = repositoryService.getBpmnModel(processDefinitionId);
+        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(processDefinitionId);
         if (bpmnModel == null) {
             throw new NotFoundException("流程定义 " + processDefinitionId + " 不存在");
         }
@@ -62,7 +70,7 @@ public class DefaultNodeFinder implements NodeFinder {
 
     @Override
     public String findInitiatorNode(String processDefinitionId) {
-        BpmnModel bpmnModel = repositoryService.getBpmnModel(processDefinitionId);
+        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(processDefinitionId);
         if (bpmnModel == null) {
             throw new NotFoundException("流程定义 " + processDefinitionId + " 不存在");
         }

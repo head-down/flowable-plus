@@ -45,7 +45,7 @@ mvn test
 
 ## 当前状态
 
-处于骨架搭建阶段，核心领域服务开发中。
+处于开发阶段。`flowable-plus-core` 已实现审批核心操作（发起、同意、驳回、撤回、撤销、会签），含 BPMN 模型缓存。`flowable-plus-extension` 为空壳模块。
 
 ## 许可证
 

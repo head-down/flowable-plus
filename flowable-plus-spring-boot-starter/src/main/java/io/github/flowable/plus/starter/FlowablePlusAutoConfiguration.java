@@ -1,5 +1,7 @@
 package io.github.flowable.plus.starter;
 
+import io.github.flowable.plus.core.BpmnModelCache;
+import io.github.flowable.plus.core.DefaultBpmnModelCache;
 import io.github.flowable.plus.core.DefaultNodeFinder;
 import io.github.flowable.plus.core.FlowablePlus;
 import io.github.flowable.plus.core.NodeFinder;
@@ -40,20 +42,33 @@ public class FlowablePlusAutoConfiguration {
     }
 
     /**
+     * 注册默认 BpmnModelCache Bean。
+     *
+     * <p>基于 ConcurrentHashMap，BPMN 模型部署后不可变，永不过期。
+     * 应用可通过声明同名 Bean 替换缓存策略（如 LRU、TTL 等）。</p>
+     *
+     * @param processEngine Flowable 流程引擎
+     * @return DefaultBpmnModelCache 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public BpmnModelCache bpmnModelCache(ProcessEngine processEngine) {
+        return new DefaultBpmnModelCache(processEngine.getRepositoryService());
+    }
+
+    /**
      * 注册默认 NodeFinder Bean。
      *
      * <p>应用可通过声明同名 Bean 替换默认的 BPMN 节点遍历策略。</p>
      *
-     * @param processEngine Flowable 流程引擎
+     * @param bpmnModelCache BPMN 模型缓存
+     * @param processEngine  Flowable 流程引擎
      * @return DefaultNodeFinder 实例
      */
     @Bean
     @ConditionalOnMissingBean
-    public NodeFinder nodeFinder(ProcessEngine processEngine) {
-        return new DefaultNodeFinder(
-                processEngine.getRepositoryService(),
-                processEngine.getHistoryService()
-        );
+    public NodeFinder nodeFinder(BpmnModelCache bpmnModelCache, ProcessEngine processEngine) {
+        return new DefaultNodeFinder(bpmnModelCache, processEngine.getHistoryService());
     }
 
     /**
@@ -62,16 +77,18 @@ public class FlowablePlusAutoConfiguration {
      * <p>当 {@code flowable.plus.enabled=true}（默认）时生效，
      * 且允许用户通过自定义同类型 Bean 覆盖。</p>
      *
-     * @param processEngine Flowable 流程引擎（由 flowable-spring-boot-starter 提供）
-     * @param userContext    用户上下文（可被应用覆盖）
-     * @param nodeFinder     BPMN 节点遍历策略（可被应用覆盖）
+     * @param processEngine  Flowable 流程引擎（由 flowable-spring-boot-starter 提供）
+     * @param userContext     用户上下文（可被应用覆盖）
+     * @param nodeFinder      BPMN 节点遍历策略（可被应用覆盖）
+     * @param bpmnModelCache  BPMN 模型缓存（可被应用覆盖）
      * @return FlowablePlus 实例
      */
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnProperty(name = "flowable.plus.enabled", havingValue = "true", matchIfMissing = true)
-    public FlowablePlus flowablePlus(ProcessEngine processEngine, UserContext userContext, NodeFinder nodeFinder) {
-        return new FlowablePlus(processEngine, userContext, nodeFinder);
+    public FlowablePlus flowablePlus(ProcessEngine processEngine, UserContext userContext,
+                                     NodeFinder nodeFinder, BpmnModelCache bpmnModelCache) {
+        return new FlowablePlus(processEngine, userContext, nodeFinder, bpmnModelCache);
     }
 
     /**
