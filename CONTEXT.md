@@ -28,6 +28,22 @@ _Avoid_: 收回、取回
 发起人取消整个流程实例，历史记录保留。
 _Avoid_: 取消
 
+**会签**:
+同一审批节点上多个审批人并行审批，全部同意后流程才继续推进。基于 Flowable 原生多实例实现。
+_Avoid_: 多人审批、并行审批
+
+**或签**:
+同一审批节点上多个审批人并行审批，任一同意后流程即推进。通过 BPMN completionCondition 与会签区分，API 层复用 counterSign。
+_Avoid_: 竞签、抢签
+
+**加签**:
+会签/或签进行中由发起人动态追加审批人，通过 RuntimeService.addMultiInstanceExecution() 实现。
+_Avoid_: 追加审批人
+
+**减签**:
+会签/或签进行中由发起人动态移除审批人，通过 RuntimeService.deleteMultiInstanceExecution() 实现。
+_Avoid_: 移除审批人
+
 **用户上下文**:
 框架通过此 SPI 接口获取当前操作用户 ID，实现方可按需适配认证机制。
 _Avoid_: 当前用户
