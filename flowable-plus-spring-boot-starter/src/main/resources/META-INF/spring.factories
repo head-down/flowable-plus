@@ -1,2 +1,3 @@
 org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
-io.github.flowable.plus.starter.FlowablePlusAutoConfiguration
+io.github.flowable.plus.starter.FlowablePlusAutoConfiguration,\
+io.github.flowable.plus.starter.FlowablePlusHealthContributorAutoConfiguration

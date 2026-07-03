@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- 控制台输出 -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- flowable-plus 开发调试 -->
+    <logger name="io.github.flowable.plus" level="DEBUG" />
+
+    <!-- Spring 框架日志 -->
+    <logger name="org.springframework" level="INFO" />
+    <logger name="org.springframework.boot" level="INFO" />
+    <logger name="org.springframework.context" level="WARN" />
+
+    <!-- Flowable 引擎日志 -->
+    <logger name="org.flowable" level="INFO" />
+    <logger name="org.flowable.engine" level="WARN" />
+
+    <!-- 根日志级别 -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE" />
+    </root>
+</configuration>

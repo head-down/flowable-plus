@@ -46,5 +46,19 @@
             <artifactId>spring-security-core</artifactId>
             <optional>true</optional>
         </dependency>
+
+        <!-- Spring Boot Actuator (optional, for health check) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-actuator</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Spring Boot Actuator (test, for health indicator tests) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>

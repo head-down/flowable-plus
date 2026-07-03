@@ -5,11 +5,15 @@ import io.github.flowable.plus.core.FlowablePlus;
 import io.github.flowable.plus.core.NodeFinder;
 import io.github.flowable.plus.core.spi.UserContext;
 import org.flowable.engine.ProcessEngine;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import javax.annotation.PostConstruct;
 
 /**
  * Flowable Plus auto-configuration.
@@ -24,6 +28,16 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 @ConditionalOnClass(name = "org.flowable.engine.ProcessEngine")
 public class FlowablePlusAutoConfiguration {
+
+    private static final Logger log = LoggerFactory.getLogger(FlowablePlusAutoConfiguration.class);
+
+    /**
+     * 启动时输出自动配置激活日志，便于排查配置是否生效。
+     */
+    @PostConstruct
+    void logActivation() {
+        log.info("FlowablePlus auto-configuration activated");
+    }
 
     /**
      * 注册默认 NodeFinder Bean。
@@ -70,14 +84,6 @@ public class FlowablePlusAutoConfiguration {
     @ConditionalOnClass(name = "org.springframework.security.core.Authentication")
     @ConditionalOnMissingBean
     public UserContext userContext() {
-        return () -> {
-            org.springframework.security.core.Authentication auth =
-                    org.springframework.security.core.context.SecurityContextHolder
-                            .getContext().getAuthentication();
-            if (auth == null || !auth.isAuthenticated()) {
-                return "anonymous";
-            }
-            return auth.getName();
-        };
+        return new SecurityContextUserContext();
     }
 }

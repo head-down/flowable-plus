@@ -10,6 +10,8 @@ import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.actuate.health.HealthIndicator;
+import org.springframework.boot.actuate.health.Status;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.security.core.context.SecurityContextHolder;
 
@@ -19,7 +21,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * FlowablePlusAutoConfiguration 集成测试：
- * 验证自动配置的条件装配、属性开关和 UserContext 回退行为。
+ * 验证自动配置的条件装配、属性开关、UserContext 回退行为以及健康检查。
  */
 class FlowablePlusAutoConfigurationTest {
 
@@ -38,7 +40,8 @@ class FlowablePlusAutoConfigurationTest {
     @BeforeEach
     void setUp() {
         contextRunner = new ApplicationContextRunner()
-                .withUserConfiguration(FlowablePlusAutoConfiguration.class)
+                .withUserConfiguration(FlowablePlusAutoConfiguration.class,
+                        FlowablePlusHealthContributorAutoConfiguration.class)
                 .withBean(ProcessEngine.class, FlowablePlusAutoConfigurationTest::mockProcessEngine);
     }
 
@@ -66,5 +69,26 @@ class FlowablePlusAutoConfigurationTest {
             UserContext userContext = ctx.getBean(UserContext.class);
             assertThat(userContext.getCurrentUserId()).isEqualTo("anonymous");
         });
+    }
+
+    @Test
+    void testHealthIndicatorReportsUp() {
+        contextRunner.run(ctx -> {
+            assertThat(ctx).hasSingleBean(HealthIndicator.class);
+            HealthIndicator indicator = ctx.getBean(HealthIndicator.class);
+            assertThat(indicator.health().getStatus()).isEqualTo(Status.UP);
+            assertThat(indicator.health().getDetails())
+                    .containsEntry("component", "flowable-plus");
+        });
+    }
+
+    @Test
+    void testHealthIndicatorDisabledWhenFlowablePlusDisabled() {
+        contextRunner
+                .withPropertyValues("flowable.plus.enabled=false")
+                .run(ctx -> {
+                    assertThat(ctx).doesNotHaveBean(FlowablePlus.class);
+                    assertThat(ctx).doesNotHaveBean(HealthIndicator.class);
+                });
     }
 }
