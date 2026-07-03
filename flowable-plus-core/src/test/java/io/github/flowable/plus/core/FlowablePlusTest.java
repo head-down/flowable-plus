@@ -15,8 +15,11 @@ import org.flowable.engine.ProcessEngine;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
+import org.flowable.engine.history.HistoricProcessInstance;
+import org.flowable.engine.history.HistoricProcessInstanceQuery;
 import org.flowable.engine.runtime.ChangeActivityStateBuilder;
 import org.flowable.engine.runtime.ProcessInstance;
+import org.flowable.engine.runtime.ProcessInstanceQuery;
 import org.flowable.task.api.Task;
 import org.flowable.task.api.TaskQuery;
 import org.flowable.task.api.history.HistoricTaskInstance;
@@ -871,6 +874,154 @@ public class FlowablePlusTest {
         verify(mockTaskService, never()).addComment(anyString(), anyString(), anyString(), anyString());
     }
 
+    // ======================== revokeProcess ========================
+
+    /**
+     * 正常撤销：发起人节点上的流程实例被撤销。
+     */
+    @Test
+    public void testRevokeProcessNormalFlow() {
+        // BPMN 模型：start → task1
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        builder.addSequenceFlow("f1", start, task1);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        // 历史流程实例，发起人为 testUser
+        HistoricProcessInstance historicPi = mock(HistoricProcessInstance.class);
+        when(historicPi.getStartUserId()).thenReturn("testUser");
+        when(historicPi.getProcessDefinitionId()).thenReturn("proc-1");
+        stubHistoricProcessInstanceQuery("pi-001", historicPi);
+
+        // 运行时流程实例存在
+        ProcessInstance runtimePi = mock(ProcessInstance.class);
+        stubRuntimeProcessInstanceQuery("pi-001", runtimePi);
+
+        // 当前活跃任务在发起人节点 task1
+        Task activeTask = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
+        stubActiveTaskQuery("pi-001", activeTask);
+
+        flowablePlus.revokeProcess("pi-001", "发起人撤销流程");
+
+        // 验证软删除
+        verify(mockRuntimeService).deleteProcessInstance("pi-001", "发起人撤销流程");
+    }
+
+    /**
+     * 非发起人撤销，应抛出 PermissionDeniedException。
+     */
+    @Test
+    public void testRevokeProcessNotInitiator() {
+        HistoricProcessInstance historicPi = mock(HistoricProcessInstance.class);
+        when(historicPi.getStartUserId()).thenReturn("otherUser");
+        stubHistoricProcessInstanceQuery("pi-001", historicPi);
+
+        assertThatThrownBy(() -> flowablePlus.revokeProcess("pi-001", "撤销"))
+                .isInstanceOf(PermissionDeniedException.class)
+                .hasMessageContaining("不是流程实例 pi-001 的发起人");
+    }
+
+    /**
+     * 流程已推进后续节点（活跃任务不在发起人节点），应抛出 TaskAlreadyCompletedException。
+     */
+    @Test
+    public void testRevokeProcessPastInitiatorNode() {
+        // BPMN 模型：start → task1 → task2
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        UserTask task2 = builder.addUserTask("task2");
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, task2);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        HistoricProcessInstance historicPi = mock(HistoricProcessInstance.class);
+        when(historicPi.getStartUserId()).thenReturn("testUser");
+        when(historicPi.getProcessDefinitionId()).thenReturn("proc-1");
+        stubHistoricProcessInstanceQuery("pi-001", historicPi);
+
+        ProcessInstance runtimePi = mock(ProcessInstance.class);
+        stubRuntimeProcessInstanceQuery("pi-001", runtimePi);
+
+        // 活跃任务在 task2（已过发起人节点）
+        Task activeTask = createMockTask("task-002", "pi-001", "proc-1", "task2", "otherUser");
+        stubActiveTaskQuery("pi-001", activeTask);
+
+        assertThatThrownBy(() -> flowablePlus.revokeProcess("pi-001", "撤销"))
+                .isInstanceOf(TaskAlreadyCompletedException.class)
+                .hasMessageContaining("已推进后续节点");
+    }
+
+    /**
+     * 流程实例不存在（历史查不到），应抛出 NotFoundException。
+     */
+    @Test
+    public void testRevokeProcessNotFound() {
+        stubHistoricProcessInstanceQuery("pi-001", null);
+
+        assertThatThrownBy(() -> flowablePlus.revokeProcess("pi-001", "撤销"))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining("流程实例 pi-001 不存在");
+    }
+
+    /**
+     * 流程已结束（历史有但运行时无），应抛出 TaskAlreadyCompletedException。
+     */
+    @Test
+    public void testRevokeProcessAlreadyCompleted() {
+        HistoricProcessInstance historicPi = mock(HistoricProcessInstance.class);
+        when(historicPi.getStartUserId()).thenReturn("testUser");
+        stubHistoricProcessInstanceQuery("pi-001", historicPi);
+
+        // 运行时查不到
+        stubRuntimeProcessInstanceQuery("pi-001", null);
+
+        assertThatThrownBy(() -> flowablePlus.revokeProcess("pi-001", "撤销"))
+                .isInstanceOf(TaskAlreadyCompletedException.class)
+                .hasMessageContaining("流程实例 pi-001 已结束");
+    }
+
+    /**
+     * null processInstanceId 校验。
+     */
+    @Test
+    public void testRevokeProcessNullId() {
+        assertThatThrownBy(() -> flowablePlus.revokeProcess(null, "撤销"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("processInstanceId");
+    }
+
+    /**
+     * 撤销原因 null 也可正常执行。
+     */
+    @Test
+    public void testRevokeProcessNullReason() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        builder.addSequenceFlow("f1", start, task1);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        HistoricProcessInstance historicPi = mock(HistoricProcessInstance.class);
+        when(historicPi.getStartUserId()).thenReturn("testUser");
+        when(historicPi.getProcessDefinitionId()).thenReturn("proc-1");
+        stubHistoricProcessInstanceQuery("pi-001", historicPi);
+
+        ProcessInstance runtimePi = mock(ProcessInstance.class);
+        stubRuntimeProcessInstanceQuery("pi-001", runtimePi);
+
+        Task activeTask = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
+        stubActiveTaskQuery("pi-001", activeTask);
+
+        flowablePlus.revokeProcess("pi-001", null);
+
+        verify(mockRuntimeService).deleteProcessInstance("pi-001", null);
+    }
+
     // ======================== Test Helpers ========================
 
     private Task createMockTask(String taskId, String processInstanceId,
@@ -911,6 +1062,28 @@ public class FlowablePlusTest {
                 ? java.util.Collections.singletonList(result) : java.util.Collections.emptyList();
         when(mockQuery.listPage(0, 1)).thenReturn(list);
         return mockQuery;
+    }
+
+    private void stubHistoricProcessInstanceQuery(String processInstanceId, HistoricProcessInstance result) {
+        HistoricProcessInstanceQuery mockQuery = mock(HistoricProcessInstanceQuery.class);
+        when(mockHistoryService.createHistoricProcessInstanceQuery()).thenReturn(mockQuery);
+        when(mockQuery.processInstanceId(processInstanceId)).thenReturn(mockQuery);
+        when(mockQuery.singleResult()).thenReturn(result);
+    }
+
+    private void stubRuntimeProcessInstanceQuery(String processInstanceId, ProcessInstance result) {
+        ProcessInstanceQuery mockQuery = mock(ProcessInstanceQuery.class);
+        when(mockRuntimeService.createProcessInstanceQuery()).thenReturn(mockQuery);
+        when(mockQuery.processInstanceId(processInstanceId)).thenReturn(mockQuery);
+        when(mockQuery.singleResult()).thenReturn(result);
+    }
+
+    private void stubActiveTaskQuery(String processInstanceId, Task result) {
+        TaskQuery mockQuery = mock(TaskQuery.class);
+        when(mockTaskService.createTaskQuery()).thenReturn(mockQuery);
+        when(mockQuery.processInstanceId(processInstanceId)).thenReturn(mockQuery);
+        when(mockQuery.active()).thenReturn(mockQuery);
+        when(mockQuery.singleResult()).thenReturn(result);
     }
 
     private ChangeActivityStateBuilder stubChangeActivityStateBuilder() {

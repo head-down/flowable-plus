@@ -11,6 +11,7 @@ import org.flowable.engine.IdentityService;
 import org.flowable.engine.ProcessEngine;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
+import org.flowable.engine.history.HistoricProcessInstance;
 import org.flowable.task.api.history.HistoricTaskInstance;
 import org.flowable.engine.runtime.ChangeActivityStateBuilder;
 import org.flowable.engine.runtime.ProcessInstance;
@@ -280,6 +281,62 @@ public class FlowablePlus {
         }
 
         executeRollback(task, prevNodeId, reason, "WITHDRAW");
+    }
+
+    // ======================== 撤销 ========================
+
+    /**
+     * 撤销整个流程实例。
+     *
+     * <p>流程发起人撤销运行中的流程实例，采用软删除策略——
+     * 删除运行时实例但保留历史记录供审计。
+     * 仅当流程停留在发起人节点时允许撤销，一旦有人审批同意则不可撤销。</p>
+     *
+     * @param processInstanceId 流程实例 ID，不可为 null
+     * @param reason            撤销原因，可为 null
+     * @throws NotFoundException            流程实例不存在时抛出
+     * @throws TaskAlreadyCompletedException 流程已结束或已推进后续节点时抛出
+     * @throws PermissionDeniedException     调用者不是流程发起人时抛出
+     */
+    public void revokeProcess(String processInstanceId, String reason) {
+        if (processInstanceId == null) {
+            throw new IllegalArgumentException("processInstanceId 不可为 null");
+        }
+
+        String currentUserId = userContext.getCurrentUserId();
+
+        // 1. 查历史流程实例，校验存在性和发起人身份
+        HistoricProcessInstance historicPi = historyService.createHistoricProcessInstanceQuery()
+                .processInstanceId(processInstanceId).singleResult();
+        if (historicPi == null) {
+            throw new NotFoundException("流程实例 " + processInstanceId + " 不存在");
+        }
+
+        // 2. 权限校验：调用者必须是发起人
+        if (!currentUserId.equals(historicPi.getStartUserId())) {
+            throw new PermissionDeniedException(
+                    "用户 " + currentUserId + " 不是流程实例 " + processInstanceId + " 的发起人，无权撤销");
+        }
+
+        // 3. 校验流程仍在运行
+        ProcessInstance runtimePi = runtimeService.createProcessInstanceQuery()
+                .processInstanceId(processInstanceId).singleResult();
+        if (runtimePi == null) {
+            throw new TaskAlreadyCompletedException(
+                    "流程实例 " + processInstanceId + " 已结束，无法撤销");
+        }
+
+        // 4. 校验流程仍在发起人节点
+        String initiatorNode = findInitiatorNode(historicPi.getProcessDefinitionId());
+        Task activeTask = taskService.createTaskQuery()
+                .processInstanceId(processInstanceId).active().singleResult();
+        if (activeTask == null || !initiatorNode.equals(activeTask.getTaskDefinitionKey())) {
+            throw new TaskAlreadyCompletedException(
+                    "流程实例 " + processInstanceId + " 已推进后续节点，无法撤销");
+        }
+
+        // 5. 软删除：删除运行时实例，历史自动保留
+        runtimeService.deleteProcessInstance(processInstanceId, reason);
     }
 
     // ======================== 内部辅助 ========================
