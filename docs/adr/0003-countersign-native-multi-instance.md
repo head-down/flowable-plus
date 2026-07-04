@@ -14,7 +14,7 @@
 
 ## 选项
 
-### 选项 A：自定义表实现（参考 jw-zhyg-api）
+### 选项 A：自定义表实现（参考某成熟工作流业务系统的做法）
 
 在 Flowable 引擎外部，通过 `oa_countersign` + `oa_countersign_task` 两张自定义表管理会签任务生命周期。
 
