@@ -14,6 +14,9 @@
 | 待办列表查询 | P1 | 查询指定用户的待办任务列表，含流程实例摘要信息 |
 | 已办列表查询 | P1 | 查询指定用户已完成的审批历史 |
 | 流程追踪 | P2 | 查询流程实例的审批轨迹（节点流转历史、各节点审批人/时间/意见） |
+| 下一节点审批人（发起前） | P0 | 发起流程前，查询初始审批节点及对应审批人 |
+| 下一任务审批人（审批中） | P1 | 审批过程中，查询当前任务下一节点的审批人 |
+| 下一任务节点（审批中） | P1 | 审批过程中，查询当前任务可流转至的下游节点（含分支选择） |
 
 ### 下期预留
 
@@ -109,18 +112,134 @@ PageResult<DoneTaskVO> queryDoneTasks(String userId, TaskQueryDTO query);
 List<ApprovalTraceVO> getApprovalTrace(String processInstanceId);
 ```
 
+### S5: 下一节点审批人—发起前（P0）
+
+```java
+/**
+ * 根据流程定义 Key 获取初始审批节点及审批人。
+ * 用于发起流程前展示审批链路，支持多节点。
+ *
+ * @param processKey 流程定义 Key
+ * @return 初始审批节点列表，每个节点包含审批人列表
+ */
+List<NodeApproverVO> getNextNodeApproversByProcessKey(String processKey);
+```
+
+### NodeApproverVO
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `nodeId` | String | 节点 definitionKey |
+| `nodeName` | String | 节点名称 |
+| `approvers` | List\<ApproverInfoVO\> | 该节点的审批人列表 |
+
+### ApproverInfoVO
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | String | 审批人ID（用户名） |
+| `name` | String | 审批人显示名称 |
+| `type` | String | 来源类型：`assignee`（指定人）、`candidateUser`（候选用户）、`candidateGroup`（候选组内成员） |
+| `groupId` | String | 候选组ID（type=candidateGroup 时有值） |
+| `groupName` | String | 候选组名称（type=candidateGroup 时有值） |
+
+### S6: 下一任务审批人—审批中（P1）
+
+```java
+/**
+ * 根据当前任务获取下一节点的审批人。
+ * 支持传入目标节点ID筛选特定分支，不传则返回所有下一节点的审批人。
+ *
+ * @param taskId        当前任务ID
+ * @param targetNodeId  目标节点 definitionKey（可选，空字符串表示所有下一节点）
+ * @return 下一节点的审批人列表（扁平，不分组）
+ */
+List<ApproverInfoVO> getNextTaskApprovers(String taskId, String targetNodeId);
+```
+
+### S7: 下一任务节点—审批中（P1）
+
+```java
+/**
+ * 获取当前任务可流转至的下游节点列表。
+ * 用于审批页面展示分支选项（如多分支网关后的不同节点）。
+ *
+ * @param processInstanceId 流程实例ID
+ * @param taskId            当前任务ID
+ * @return 下一任务节点列表，含节点信息和表单配置
+ */
+List<NextTaskNodeVO> getNextTaskNodes(String processInstanceId, String taskId);
+```
+
+### NextTaskNodeVO
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `taskCode` | String | 节点 definitionKey |
+| `taskName` | String | 节点名称 |
+| `formData` | String | 节点扩展属性 customfield 内容（JSON，可包含表单配置等） |
+
 ## 架构决策
 
 - **返回类型**：独立 VO 对象，不要求用户继承基类。与某些项目的反射注入方式不同，flowable-plus 保持库的中立性。
 - **批量优先**：所有查询 API 的批量版本优先设计（S1 批量、S2/S3 分页、S4 单条详情）。
 - **分页工具**：`PageResult` 为内部简单 POJO，不引入 MyBatis-Plus 等第三方分页依赖。用户可自行转换。
 - **实现位置**：核心查询逻辑放 `flowable-plus-core`，仅依赖 Flowable 引擎 API。不使用自定义 SQL 表。
+- **BPMN 节点遍历**：S5/S6/S7 通过 BPMN 模型的递归拓扑遍历查找下一 UserTask 节点，递归深入网关、子流程、调用活动。遍历中通过 `visited` 集合防止循环引用。
+- **审批人解析**：S5/S6 的审批人解析分为三种来源——候选组（`candidateGroups`）、候选用户（`candidateUsers`）、指定人（`assignee`）。候选组需展开为组内成员列表。
+- **网关条件评估**：S6/S7 在运行时上下文中评估排他/包容网关的条件表达式。S5 为发起前静态预览，不评估条件，仅返回所有初始可达节点。
+
+### S5 实现思路
+
+```java
+public List<NodeApproverVO> getNextNodeApproversByProcessKey(String processKey) {
+    // 1. 通过 repositoryService 获取最新版本活跃的 ProcessDefinition
+    // 2. 获取 BPMN 模型（复用 BpmnModelCache）
+    // 3. 从 StartEvent 出发，递归遍历所有下游 UserTask 节点
+    // 4. 对每个 UserTask 解析审批人（candidateGroups/candidateUsers/assignee）
+    // 5. 按节点分组返回 NodeApproverVO
+}
+```
+
+**关键简化**：不引入参考项目的 draft 节点和 initialNodes 扩展属性概念。flowable-plus 直接从标准 StartEvent 出发，返回所有初始可达的 UserTask。
+
+### S6 实现思路
+
+```java
+public List<ApproverInfoVO> getNextTaskApprovers(String taskId, String targetNodeId) {
+    // 1. 通过 taskService 获取当前 Task
+    // 2. 获取 BPMN 模型（复用 BpmnModelCache）
+    // 3. 从当前任务所在的 FlowNode 出发，递归查找所有直接下游 UserTask
+    // 4. 评估网关条件表达式（传入 processInstanceId 获取运行时变量）
+    // 5. 按 targetNodeId 筛选（为空则全返回）
+    // 6. 解析审批人并返回扁平列表
+}
+```
+
+**与 S5 的关键差异**：S6 基于运行时任务（有 processInstanceId），可评估网关条件表达式，只返回条件满足的分支。S5 为静态预览，不评估条件。
+
+### S7 实现思路
+
+```java
+public List<NextTaskNodeVO> getNextTaskNodes(String processInstanceId, String taskId) {
+    // 1. 获取当前 Task 和 BPMN 模型
+    // 2. 从当前节点递归找出所有下一 UserTask（含条件评估）
+    // 3. 从节点的 customfield 扩展属性中提取 formData
+    // 4. 返回节点信息（不含审批人）
+}
+```
+
+**与 S6 的差异**：S7 返回节点元信息（含表单配置），供前端做分支选择；S6 返回审批人信息，供前端展示谁会审批。
 
 ## 决策记录
 
 - 2026-07-04：三期聚焦查询与视图。任意跳转/自动提交（原三期）移至 Phase 4，流程历史/流程图（原四期）移至 Phase 5。
 - 2026-07-04：采用独立 VO 返回而非反射注入基类，保持库的中立性，不与用户实体设计耦合。
 - 2026-07-04：参考成熟业务项目的批量补充模式，但去除反射和实体绑定的耦合。
+- 2026-07-05：新增 S5/S6/S7 三个"向前预审"功能，补齐发起前和审批中展示下一节点/审批人的能力。
+- 2026-07-05：S5 基于标准 BPMN StartEvent 遍历，不引入 draft 节点和 initialNodes 扩展属性概念，保持框架中立。
+- 2026-07-05：S6/S7 支持网关条件表达式评估，因为基于运行时任务有 processInstanceId 可用。
+- 2026-07-05：S7 设计 `NextNodeFilterStrategy` 扩展点（预留），允许业务模块注册过滤器排除不应展示的节点。
 
 ## 实现切片
 
@@ -130,9 +249,12 @@ List<ApprovalTraceVO> getApprovalTrace(String processInstanceId);
 | S2: 待办列表查询 | `TodoTaskQuery` + `TodoTaskVO`，基于引擎 TaskService/TaskQuery 封装分页 | P1 | 待开发 |
 | S3: 已办列表查询 | `DoneTaskQuery` + `DoneTaskVO`，基于引擎 HistoryService 封装分页 | P1 | 待开发 |
 | S4: 流程追踪 | `ApprovalTraceVO`，基于 HistoryService 查询历史活动实例并聚合审批意见 | P2 | 待开发 |
-| S5: Starter 适配 + 测试 | 自动配置注册、集成测试、文档 | — | 待开发 |
+| S5: 下一节点审批人（发起前） | `getNextNodeApproversByProcessKey` + `NodeApproverVO` + `ApproverInfoVO`，基于 BPMN 模型遍历和审批人解析 | P0 | 待开发 |
+| S6: 下一任务审批人（审批中） | `getNextTaskApprovers` + 条件分支评估，基于当前任务获取下一节点审批人 | P1 | 待开发 |
+| S7: 下一任务节点（审批中） | `getNextTaskNodes` + `NextTaskNodeVO`，基于当前任务获取可流转的下游节点 | P1 | 待开发 |
+| S8: Starter 适配 + 测试 | 自动配置注册、集成测试、文档 | — | 待开发 |
 
-S1 优先实现最小可用版本——解决最高频的列表页流程状态展示需求。
+S1 和 S5 优先实现——解决最高频的列表页流程状态展示和发起前审批人预览需求。
 
 ## S1 详细设计
 
