@@ -4,9 +4,13 @@ import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.exception.TaskAlreadyCompletedException;
+import io.github.flowable.plus.core.spi.CounterSignCallback;
 import io.github.flowable.plus.core.spi.UserContext;
+import cn.hutool.core.util.StrUtil;
 import lombok.Getter;
 import org.flowable.bpmn.model.BpmnModel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.flowable.bpmn.model.FlowElement;
 import org.flowable.bpmn.model.MultiInstanceLoopCharacteristics;
 import org.flowable.engine.HistoryService;
@@ -20,8 +24,11 @@ import org.flowable.engine.runtime.ChangeActivityStateBuilder;
 import org.flowable.engine.runtime.ProcessInstance;
 import org.flowable.task.api.Task;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Flowable-Plus 统一入口类，封装 Flowable 引擎操作，提供增强的中国式审批 API。
@@ -33,6 +40,8 @@ import java.util.Map;
  */
 public class FlowablePlus {
 
+    private static final Logger log = LoggerFactory.getLogger(FlowablePlus.class);
+
     @Getter
     private final ProcessEngine processEngine;
     @Getter
@@ -42,17 +51,19 @@ public class FlowablePlus {
     private final HistoryService historyService;
     private final NodeFinder nodeFinder;
     private final BpmnModelCache bpmnModelCache;
+    private final List<CounterSignCallback> counterSignCallbacks;
 
     /**
-     * 构造器注入 ProcessEngine、UserContext 和自定义 NodeFinder。
+     * 构造器注入所有依赖。
      *
-     * @param processEngine  Flowable 流程引擎实例，不可为 null
-     * @param userContext    用户上下文，用于获取当前操作用户，不可为 null
-     * @param nodeFinder     BPMN 节点遍历策略，不可为 null。可用于注入 Mock 或缓存适配器
-     * @param bpmnModelCache BPMN 模型缓存，不可为 null
+     * @param processEngine       Flowable 流程引擎实例，不可为 null
+     * @param userContext          用户上下文，用于获取当前操作用户，不可为 null
+     * @param nodeFinder           BPMN 节点遍历策略，不可为 null
+     * @param bpmnModelCache       BPMN 模型缓存，不可为 null
+     * @param counterSignCallbacks 会签回调列表，可为 null（自动转为空列表）
      */
     public FlowablePlus(ProcessEngine processEngine, UserContext userContext, NodeFinder nodeFinder,
-                        BpmnModelCache bpmnModelCache) {
+                        BpmnModelCache bpmnModelCache, List<CounterSignCallback> counterSignCallbacks) {
         if (processEngine == null) {
             throw new IllegalArgumentException("ProcessEngine 不可为 null");
         }
@@ -72,6 +83,8 @@ public class FlowablePlus {
         this.historyService = processEngine.getHistoryService();
         this.nodeFinder = nodeFinder;
         this.bpmnModelCache = bpmnModelCache;
+        this.counterSignCallbacks = counterSignCallbacks != null
+                ? new ArrayList<>(counterSignCallbacks) : Collections.emptyList();
     }
 
     /**
@@ -157,7 +170,7 @@ public class FlowablePlus {
         taskService.claim(taskId, userId);
 
         // 添加审批意见
-        if (comment != null && !comment.isEmpty()) {
+        if (StrUtil.isNotBlank(comment)) {
             taskService.addComment(taskId, null, comment);
         }
 
@@ -186,25 +199,40 @@ public class FlowablePlus {
     public void counterSign(String taskId, boolean approved, Map<String, Object> variables, String comment) {
         Task task = validateTaskAndPermission(taskId, "会签");
 
-        MultiInstanceInfo mi = resolveMultiInstance(task);
-        if (mi == null) {
+        if (!isMultiInstance(task)) {
             throw new IllegalArgumentException(
                     "任务 " + taskId + " 不是多实例子任务，请使用审批操作(completeTask)");
         }
 
         String userId = userContext.getCurrentUserId();
+        String processInstanceId = task.getProcessInstanceId();
+
+        // onStart: 当前用户首次投票时触发
+        // ponytail: assignees 从 active 子任务取，串行多实例下首个投票人触发时列表可能不完整
+        if (!hasVoted(task, userId)) {
+            List<String> assignees = resolveCurrentAssignees(task);
+            invokeCallbacks(cb -> cb.onStart(processInstanceId, taskId, assignees));
+        }
 
         // 自动认领
         taskService.claim(taskId, userId);
 
         // 写入审批意见（AGREE / COUNTER_SIGN_REJECT）
-        if (comment != null && !comment.isEmpty()) {
+        if (StrUtil.isNotBlank(comment)) {
             String commentType = approved ? "AGREE" : "COUNTER_SIGN_REJECT";
             taskService.addComment(taskId, null, commentType, comment);
         }
 
+        // onVote: 投票完成（在 complete 之前）
+        invokeCallbacks(cb -> cb.onVote(processInstanceId, taskId, userId, approved, comment));
+
         // 完成当前子任务，引擎自动评估 completionCondition
         taskService.complete(taskId, variables);
+
+        // onFinish: 整轮会签结束（active 子任务全部完成）
+        if (isMultiInstanceFinished(task)) {
+            invokeCallbacks(cb -> cb.onFinish(processInstanceId, taskId, "finished"));
+        }
     }
 
     /**
@@ -442,7 +470,7 @@ public class FlowablePlus {
      * 断言当前任务不是多实例子任务，否则抛出异常引导使用正确的 API。
      */
     private void assertNotMultiInstance(Task task, String taskId) {
-        if (resolveMultiInstance(task) != null) {
+        if (isMultiInstance(task)) {
             throw new IllegalArgumentException(
                     "任务 " + taskId + " 是多实例子任务，请使用会签操作(counterSign)");
         }
@@ -457,7 +485,7 @@ public class FlowablePlus {
      * @param commentType      Flowable Comment 类型，用于区分驳回/撤回
      */
     private void executeRollback(Task task, String targetActivityId, String reason, String commentType) {
-        if (reason != null && !reason.isEmpty()) {
+        if (StrUtil.isNotBlank(reason)) {
             taskService.addComment(task.getId(), task.getProcessInstanceId(), commentType, reason);
         }
 
@@ -468,57 +496,81 @@ public class FlowablePlus {
     }
 
     /**
-     * 解析 Task 的多实例信息。
+     * 判断 Task 是否为多实例子任务。
      *
      * <p>通过 BPMN 模型层检测 Task 对应的 FlowElement 是否配置了
-     * {@link MultiInstanceLoopCharacteristics}。不限制节点类型，
-     * 任何 Activity 上的多实例都可以检测。</p>
+     * {@link MultiInstanceLoopCharacteristics}。</p>
      *
      * @param task 已校验的任务对象，不可为 null
-     * @return 多实例信息，若非多实例则返回 null
+     * @return true 表示是多实例子任务
      */
-    MultiInstanceInfo resolveMultiInstance(Task task) {
+    boolean isMultiInstance(Task task) {
         BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(task.getProcessDefinitionId());
         if (bpmnModel == null) {
-            return null;
+            return false;
         }
         FlowElement flowElement = bpmnModel.getFlowElement(task.getTaskDefinitionKey());
         if (flowElement == null) {
-            return null;
+            return false;
         }
 
-        // 检查节点是否配置了多实例循环特征
         if (flowElement instanceof org.flowable.bpmn.model.Activity) {
             org.flowable.bpmn.model.Activity activity = (org.flowable.bpmn.model.Activity) flowElement;
-            if (activity.getLoopCharacteristics() instanceof MultiInstanceLoopCharacteristics) {
-                MultiInstanceLoopCharacteristics mic =
-                        (MultiInstanceLoopCharacteristics) activity.getLoopCharacteristics();
-                return new MultiInstanceInfo(mic.isSequential(), mic.getCompletionCondition());
-            }
+            return activity.getLoopCharacteristics() != null;
         }
-        return null;
+        return false;
     }
 
     /**
-     * 多实例信息，包含运行时判断多实例子任务所需的属性。
+     * 检查指定用户是否已对当前多实例节点投过票。
      */
-    public static class MultiInstanceInfo {
-        /** 是否为串行多实例 */
-        private final boolean sequential;
-        /** 完成条件表达式，如 {@code ${nrOfCompletedInstances/nrOfInstances >= 0.5}} */
-        private final String completionCondition;
+    private boolean hasVoted(Task task, String userId) {
+        return historyService.createHistoricTaskInstanceQuery()
+                .processInstanceId(task.getProcessInstanceId())
+                .taskDefinitionKey(task.getTaskDefinitionKey())
+                .taskAssignee(userId)
+                .finished()
+                .count() > 0;
+    }
 
-        MultiInstanceInfo(boolean sequential, String completionCondition) {
-            this.sequential = sequential;
-            this.completionCondition = completionCondition;
-        }
+    /**
+     * 获取当前多实例节点所有激活子任务的审批人。
+     * ponytail: 串行多实例下首个投票人触发时，后续 assignee 尚未生成，返回列表可能不完整。
+     */
+    private List<String> resolveCurrentAssignees(Task task) {
+        return taskService.createTaskQuery()
+                .processInstanceId(task.getProcessInstanceId())
+                .taskDefinitionKey(task.getTaskDefinitionKey())
+                .active()
+                .list()
+                .stream()
+                .map(Task::getAssignee)
+                .filter(Objects::nonNull)
+                .collect(ArrayList::new, ArrayList::add, ArrayList::addAll);
+    }
 
-        public boolean isSequential() {
-            return sequential;
-        }
+    /**
+     * 判断当前多实例节点是否已全部完成（所有子任务都结束）。
+     */
+    private boolean isMultiInstanceFinished(Task task) {
+        return taskService.createTaskQuery()
+                .processInstanceId(task.getProcessInstanceId())
+                .taskDefinitionKey(task.getTaskDefinitionKey())
+                .active()
+                .count() == 0;
+    }
 
-        public String getCompletionCondition() {
-            return completionCondition;
+    /**
+     * 遍历所有回调，单个回调异常不影响主流程和后续回调。
+     */
+    private void invokeCallbacks(java.util.function.Consumer<CounterSignCallback> action) {
+        for (CounterSignCallback cb : counterSignCallbacks) {
+            try {
+                action.accept(cb);
+            } catch (Exception e) {
+                log.warn("CounterSignCallback 回调异常: {}", cb.getClass().getName(), e);
+            }
         }
     }
+
 }

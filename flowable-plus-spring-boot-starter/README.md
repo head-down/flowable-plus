@@ -78,8 +78,9 @@ public class MyConfig {
 
     @Bean
     public FlowablePlus flowablePlus(ProcessEngine processEngine, UserContext userContext,
-                                     NodeFinder nodeFinder, BpmnModelCache bpmnModelCache) {
-        return new FlowablePlus(processEngine, userContext, nodeFinder, bpmnModelCache);
+                                     NodeFinder nodeFinder, BpmnModelCache bpmnModelCache,
+                                     List<CounterSignCallback> counterSignCallbacks) {
+        return new FlowablePlus(processEngine, userContext, nodeFinder, bpmnModelCache, counterSignCallbacks);
     }
 }
 ```

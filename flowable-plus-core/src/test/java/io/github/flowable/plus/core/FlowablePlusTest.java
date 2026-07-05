@@ -27,6 +27,7 @@ import org.flowable.task.api.history.HistoricTaskInstanceQuery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -78,7 +79,7 @@ public class FlowablePlusTest {
         when(mockEngine.getIdentityService()).thenReturn(mockIdentityService);
 
         flowablePlus = new FlowablePlus(mockEngine, userContext,
-                new DefaultNodeFinder(bpmnModelCache, mockHistoryService), bpmnModelCache);
+                new DefaultNodeFinder(bpmnModelCache, mockHistoryService), bpmnModelCache, null);
     }
 
     // ======================== 构造注入 ========================
@@ -90,14 +91,14 @@ public class FlowablePlusTest {
 
     @Test
     public void testConstructorRejectsNullProcessEngine() {
-        assertThatThrownBy(() -> new FlowablePlus(null, userContext, mockNodeFinder, bpmnModelCache))
+        assertThatThrownBy(() -> new FlowablePlus(null, userContext, mockNodeFinder, bpmnModelCache, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("ProcessEngine 不可为 null");
     }
 
     @Test
     public void testConstructorRejectsNullUserContext() {
-        assertThatThrownBy(() -> new FlowablePlus(mockEngine, null, mockNodeFinder, bpmnModelCache))
+        assertThatThrownBy(() -> new FlowablePlus(mockEngine, null, mockNodeFinder, bpmnModelCache, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("UserContext 不可为 null");
     }
@@ -324,18 +325,18 @@ public class FlowablePlusTest {
                 .hasMessageContaining("taskId");
     }
 
-    // ======================== 四参构造器 (NodeFinder + BpmnModelCache 注入) ========================
+    // ======================== 五参构造器 (NodeFinder + BpmnModelCache + Callbacks 注入) ========================
 
     @Test
     public void testConstructorRejectsNullNodeFinder() {
-        assertThatThrownBy(() -> new FlowablePlus(mockEngine, userContext, null, bpmnModelCache))
+        assertThatThrownBy(() -> new FlowablePlus(mockEngine, userContext, null, bpmnModelCache, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("NodeFinder");
     }
 
     @Test
     public void testConstructorRejectsNullBpmnModelCache() {
-        assertThatThrownBy(() -> new FlowablePlus(mockEngine, userContext, mockNodeFinder, null))
+        assertThatThrownBy(() -> new FlowablePlus(mockEngine, userContext, mockNodeFinder, null, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("BpmnModelCache");
     }
@@ -348,7 +349,7 @@ public class FlowablePlusTest {
         when(mockNodeFinder.findInitiatorNode("proc-1"))
                 .thenReturn("initiatorTask");
 
-        FlowablePlus customFp = new FlowablePlus(mockEngine, userContext, mockNodeFinder, bpmnModelCache);
+        FlowablePlus customFp = new FlowablePlus(mockEngine, userContext, mockNodeFinder, bpmnModelCache, null);
 
         assertThat(customFp.findPreviousNodes("proc-1", "task1", null)).containsExactly("task0");
         assertThat(customFp.findInitiatorNode("proc-1")).isEqualTo("initiatorTask");
@@ -1042,13 +1043,13 @@ public class FlowablePlusTest {
         verify(mockRuntimeService).deleteProcessInstance("pi-001", null);
     }
 
-    // ======================== resolveMultiInstance ========================
+    // ======================== isMultiInstance ========================
 
     /**
-     * 普通 UserTask 节点（非多实例）应返回 null。
+     * 普通 UserTask 节点（非多实例）应返回 false。
      */
     @Test
-    public void testResolveMultiInstanceNormalUserTask() {
+    public void testIsMultiInstanceNormalUserTask() {
         TestModelBuilder builder = new TestModelBuilder();
         builder.addStartEvent("start");
         builder.addUserTask("task1");
@@ -1057,16 +1058,14 @@ public class FlowablePlusTest {
 
         Task task = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
 
-        FlowablePlus.MultiInstanceInfo result = flowablePlus.resolveMultiInstance(task);
-
-        assertThat(result).isNull();
+        assertThat(flowablePlus.isMultiInstance(task)).isFalse();
     }
 
     /**
-     * 并行多实例 UserTask 应返回 isSequential=false。
+     * 并行多实例 UserTask 应返回 true。
      */
     @Test
-    public void testResolveMultiInstanceParallel() {
+    public void testIsMultiInstanceParallel() {
         TestModelBuilder builder = new TestModelBuilder();
         builder.addStartEvent("start");
         builder.addMultiInstanceUserTask("task1", false, null);
@@ -1075,18 +1074,14 @@ public class FlowablePlusTest {
 
         Task task = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
 
-        FlowablePlus.MultiInstanceInfo result = flowablePlus.resolveMultiInstance(task);
-
-        assertThat(result).isNotNull();
-        assertThat(result.isSequential()).isFalse();
-        assertThat(result.getCompletionCondition()).isNull();
+        assertThat(flowablePlus.isMultiInstance(task)).isTrue();
     }
 
     /**
-     * 串行多实例 UserTask 应返回 isSequential=true。
+     * 串行多实例 UserTask 应返回 true。
      */
     @Test
-    public void testResolveMultiInstanceSequential() {
+    public void testIsMultiInstanceSequential() {
         TestModelBuilder builder = new TestModelBuilder();
         builder.addStartEvent("start");
         builder.addMultiInstanceUserTask("task1", true, null);
@@ -1095,18 +1090,14 @@ public class FlowablePlusTest {
 
         Task task = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
 
-        FlowablePlus.MultiInstanceInfo result = flowablePlus.resolveMultiInstance(task);
-
-        assertThat(result).isNotNull();
-        assertThat(result.isSequential()).isTrue();
-        assertThat(result.getCompletionCondition()).isNull();
+        assertThat(flowablePlus.isMultiInstance(task)).isTrue();
     }
 
     /**
-     * 带 completionCondition 的并行多实例（或签场景）。
+     * 带 completionCondition 的并行多实例也应返回 true。
      */
     @Test
-    public void testResolveMultiInstanceWithCompletionCondition() {
+    public void testIsMultiInstanceWithCompletionCondition() {
         TestModelBuilder builder = new TestModelBuilder();
         builder.addStartEvent("start");
         builder.addMultiInstanceUserTask("task1", false,
@@ -1116,33 +1107,26 @@ public class FlowablePlusTest {
 
         Task task = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
 
-        FlowablePlus.MultiInstanceInfo result = flowablePlus.resolveMultiInstance(task);
-
-        assertThat(result).isNotNull();
-        assertThat(result.isSequential()).isFalse();
-        assertThat(result.getCompletionCondition())
-                .isEqualTo("${nrOfCompletedInstances/nrOfInstances >= 0.5}");
+        assertThat(flowablePlus.isMultiInstance(task)).isTrue();
     }
 
     /**
-     * BPMN 模型为 null 时返回 null。
+     * BPMN 模型为 null 时返回 false。
      */
     @Test
-    public void testResolveMultiInstanceBpmnModelNull() {
+    public void testIsMultiInstanceBpmnModelNull() {
         when(mockRepoService.getBpmnModel("proc-1")).thenReturn(null);
 
         Task task = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
 
-        FlowablePlus.MultiInstanceInfo result = flowablePlus.resolveMultiInstance(task);
-
-        assertThat(result).isNull();
+        assertThat(flowablePlus.isMultiInstance(task)).isFalse();
     }
 
     /**
-     * FlowElement 不存在于 BPMN 模型中时返回 null。
+     * FlowElement 不存在于 BPMN 模型中时返回 false。
      */
     @Test
-    public void testResolveMultiInstanceFlowElementNotFound() {
+    public void testIsMultiInstanceFlowElementNotFound() {
         TestModelBuilder builder = new TestModelBuilder();
         builder.addStartEvent("start");
         BpmnModel model = builder.build();
@@ -1150,9 +1134,7 @@ public class FlowablePlusTest {
 
         Task task = createMockTask("task-001", "pi-001", "proc-1", "nonexistent", "testUser");
 
-        FlowablePlus.MultiInstanceInfo result = flowablePlus.resolveMultiInstance(task);
-
-        assertThat(result).isNull();
+        assertThat(flowablePlus.isMultiInstance(task)).isFalse();
     }
 
     // ======================== counterSign ========================
@@ -1170,7 +1152,7 @@ public class FlowablePlusTest {
         when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
 
         Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
-        stubTaskQuery(mockTask);
+        stubCounterSignAuxQueries(mockTask);
 
         Map<String, Object> variables = new HashMap<>();
         flowablePlus.counterSign("task-001", true, variables, "同意");
@@ -1192,7 +1174,7 @@ public class FlowablePlusTest {
         when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
 
         Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
-        stubTaskQuery(mockTask);
+        stubCounterSignAuxQueries(mockTask);
 
         flowablePlus.counterSign("task-001", false, null, "不同意");
 
@@ -1232,7 +1214,7 @@ public class FlowablePlusTest {
         when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
 
         Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
-        stubTaskQuery(mockTask);
+        stubCounterSignAuxQueries(mockTask);
 
         flowablePlus.counterSign("task-001", true, null, "");
 
@@ -1253,7 +1235,7 @@ public class FlowablePlusTest {
         when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
 
         Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
-        stubTaskQuery(mockTask);
+        stubCounterSignAuxQueries(mockTask);
 
         flowablePlus.counterSign("task-001", false, null, null);
 
@@ -1349,6 +1331,39 @@ public class FlowablePlusTest {
         when(mockTaskService.createTaskQuery()).thenReturn(mockTaskQuery);
         when(mockTaskQuery.taskId(anyString())).thenReturn(mockTaskQuery);
         when(mockTaskQuery.singleResult()).thenReturn(result);
+    }
+
+    /**
+     * 为 counterSign 方法的回调辅助查询搭建 mock。
+     * 需额外 stub hasVoted（历史查询）、resolveCurrentAssignees（当前 assignee 列表）、
+     * isMultiInstanceFinished（active 子任务数）。
+     */
+    private void stubCounterSignAuxQueries(Task result) {
+        // TaskQuery：同时支持单结果查任务 + counterSign 辅助链
+        TaskQuery mockTaskQuery = mock(TaskQuery.class);
+        when(mockTaskService.createTaskQuery()).thenReturn(mockTaskQuery);
+        when(mockTaskQuery.taskId(anyString())).thenReturn(mockTaskQuery);
+        when(mockTaskQuery.singleResult()).thenReturn(result);
+        when(mockTaskQuery.processInstanceId(anyString())).thenReturn(mockTaskQuery);
+        when(mockTaskQuery.taskDefinitionKey(anyString())).thenReturn(mockTaskQuery);
+        when(mockTaskQuery.active()).thenReturn(mockTaskQuery);
+        // resolveCurrentAssignees: 返回包含当前任务 assignee 的列表
+        List<Task> activeList = new ArrayList<>();
+        if (result != null && result.getAssignee() != null) {
+            activeList.add(result);
+        }
+        when(mockTaskQuery.list()).thenReturn(activeList);
+        // isMultiInstanceFinished: active count == 1（还有当前任务未完成时）
+        when(mockTaskQuery.count()).thenReturn((long) activeList.size());
+
+        // hasVoted: 历史查询返回 0（首次投票）
+        HistoricTaskInstanceQuery mockHistoricQuery = mock(HistoricTaskInstanceQuery.class);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(mockHistoricQuery);
+        when(mockHistoricQuery.processInstanceId(anyString())).thenReturn(mockHistoricQuery);
+        when(mockHistoricQuery.taskDefinitionKey(anyString())).thenReturn(mockHistoricQuery);
+        when(mockHistoricQuery.taskAssignee(anyString())).thenReturn(mockHistoricQuery);
+        when(mockHistoricQuery.finished()).thenReturn(mockHistoricQuery);
+        when(mockHistoricQuery.count()).thenReturn(0L);
     }
 
     private void stubHistoricTaskQuery(HistoricTaskInstance result) {
