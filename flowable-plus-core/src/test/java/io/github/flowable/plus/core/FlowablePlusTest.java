@@ -1313,6 +1313,336 @@ public class FlowablePlusTest {
                 .hasMessageContaining("请使用会签操作(counterSign)");
     }
 
+    // ======================== addCounterSigner ========================
+
+    /**
+     * 正常加签：验证 addMultiInstanceExecution 调用参数、Comment 写入、回调触发。
+     */
+    @Test
+    public void testAddCounterSignerNormal() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        UserTask task2 = builder.addMultiInstanceUserTask("task2", false, null);
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, task2);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task mockTask = createMockTask("task-002", "pi-001", "proc-1", "task2", "existingUser");
+        stubSignManageTaskQuery(mockTask, java.util.Collections.singletonList(mockTask), null);
+
+        HistoricTaskInstance prevHistoric = mock(HistoricTaskInstance.class);
+        when(prevHistoric.getAssignee()).thenReturn("testUser");
+        stubSignManageHistoricQuery(prevHistoric, 0L);
+
+        List<String> newAssignees = java.util.Arrays.asList("user1", "user2");
+        flowablePlus.addCounterSigner("task-002", newAssignees);
+
+        verify(mockRuntimeService).addMultiInstanceExecution(eq("task2"), eq("pi-001"),
+                org.mockito.ArgumentMatchers.argThat(m -> "user1".equals(m.get("assignee"))));
+        verify(mockRuntimeService).addMultiInstanceExecution(eq("task2"), eq("pi-001"),
+                org.mockito.ArgumentMatchers.argThat(m -> "user2".equals(m.get("assignee"))));
+        verify(mockTaskService).addComment(eq("task-002"), eq("pi-001"), eq("ADD_SIGN"),
+                org.mockito.ArgumentMatchers.argThat(msg ->
+                        msg.toString().contains("user1") && msg.toString().contains("user2")));
+    }
+
+    /**
+     * 加签去重：已存在的审批人应被静默跳过。
+     */
+    @Test
+    public void testAddCounterSignerDeduplication() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        UserTask task2 = builder.addMultiInstanceUserTask("task2", false, null);
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, task2);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task mockTask = createMockTask("task-002", "pi-001", "proc-1", "task2", "existingUser");
+        stubSignManageTaskQuery(mockTask, java.util.Collections.singletonList(mockTask), null);
+
+        HistoricTaskInstance prevHistoric = mock(HistoricTaskInstance.class);
+        when(prevHistoric.getAssignee()).thenReturn("testUser");
+        stubSignManageHistoricQuery(prevHistoric, 0L);
+
+        List<String> assignees = java.util.Arrays.asList("existingUser", "user2");
+        flowablePlus.addCounterSigner("task-002", assignees);
+
+        verify(mockRuntimeService).addMultiInstanceExecution(eq("task2"), eq("pi-001"),
+                org.mockito.ArgumentMatchers.argThat(m -> "user2".equals(m.get("assignee"))));
+        verify(mockTaskService).addComment(eq("task-002"), eq("pi-001"), eq("ADD_SIGN"),
+                org.mockito.ArgumentMatchers.argThat(msg ->
+                        msg.toString().contains("跳过已存在") && msg.toString().contains("existingUser")));
+    }
+
+    /**
+     * 加签传入的 assignees 全部重复，不调用 addMultiInstanceExecution。
+     */
+    @Test
+    public void testAddCounterSignerAllDuplicate() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        UserTask task2 = builder.addMultiInstanceUserTask("task2", false, null);
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, task2);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task mockTask = createMockTask("task-002", "pi-001", "proc-1", "task2", "existingUser");
+        stubSignManageTaskQuery(mockTask, java.util.Collections.singletonList(mockTask), null);
+
+        HistoricTaskInstance prevHistoric = mock(HistoricTaskInstance.class);
+        when(prevHistoric.getAssignee()).thenReturn("testUser");
+        stubSignManageHistoricQuery(prevHistoric, 0L);
+
+        List<String> assignees = java.util.Collections.singletonList("existingUser");
+        flowablePlus.addCounterSigner("task-002", assignees);
+
+        verify(mockRuntimeService, never()).addMultiInstanceExecution(anyString(), anyString(), any());
+    }
+
+    /**
+     * 非上一节点审批人加签，应抛出 PermissionDeniedException。
+     */
+    @Test
+    public void testAddCounterSignerPermissionDenied() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        UserTask task2 = builder.addMultiInstanceUserTask("task2", false, null);
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, task2);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task mockTask = createMockTask("task-002", "pi-001", "proc-1", "task2", "existingUser");
+        stubSignManageTaskQuery(mockTask, java.util.Collections.singletonList(mockTask), null);
+
+        HistoricTaskInstance prevHistoric = mock(HistoricTaskInstance.class);
+        when(prevHistoric.getAssignee()).thenReturn("anotherUser");
+        stubSignManageHistoricQuery(prevHistoric, 0L);
+
+        assertThatThrownBy(() -> flowablePlus.addCounterSigner("task-002",
+                java.util.Collections.singletonList("user1")))
+                .isInstanceOf(PermissionDeniedException.class)
+                .hasMessageContaining("无权加签");
+    }
+
+    /**
+     * 无上一审批节点时回退到流程发起人。
+     */
+    @Test
+    public void testAddCounterSignerFallbackToInitiator() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addMultiInstanceUserTask("task1", false, null);
+        builder.addSequenceFlow("f1", start, task1);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task1", "existingUser");
+        stubSignManageTaskQuery(mockTask, java.util.Collections.singletonList(mockTask), null);
+
+        // 无上一节点，传入 null 作为 prevHistoric
+        stubSignManageHistoricQuery(null, 0L);
+
+        HistoricProcessInstance historicPi = mock(HistoricProcessInstance.class);
+        when(historicPi.getStartUserId()).thenReturn("testUser");
+        stubHistoricProcessInstanceQuery("pi-001", historicPi);
+
+        List<String> newAssignees = java.util.Collections.singletonList("user1");
+        flowablePlus.addCounterSigner("task-001", newAssignees);
+
+        verify(mockRuntimeService).addMultiInstanceExecution(eq("task1"), eq("pi-001"),
+                org.mockito.ArgumentMatchers.argThat(m -> "user1".equals(m.get("assignee"))));
+    }
+
+    /**
+     * 非多实例节点上加签应抛出 IllegalArgumentException。
+     */
+    @Test
+    public void testAddCounterSignerNotMultiInstance() {
+        TestModelBuilder builder = new TestModelBuilder();
+        builder.addStartEvent("start");
+        builder.addUserTask("task1");
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
+        stubSignManageTaskQuery(mockTask, java.util.Collections.singletonList(mockTask), null);
+
+        assertThatThrownBy(() -> flowablePlus.addCounterSigner("task-001",
+                java.util.Collections.singletonList("user1")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("不是多实例子任务");
+    }
+
+    /**
+     * 加签 null/空参数校验。
+     */
+    @Test
+    public void testAddCounterSignerNullParams() {
+        assertThatThrownBy(() -> flowablePlus.addCounterSigner(null, java.util.Collections.singletonList("user1")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("taskId");
+        assertThatThrownBy(() -> flowablePlus.addCounterSigner("task-001", null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("assignees");
+        assertThatThrownBy(() -> flowablePlus.addCounterSigner("task-001", java.util.Collections.emptyList()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("assignees");
+    }
+
+    // ======================== removeCounterSigner ========================
+
+    /**
+     * 正常减签：验证 deleteMultiInstanceExecution 调用参数和 Comment 写入。
+     */
+    @Test
+    public void testRemoveCounterSignerNormal() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        UserTask task2 = builder.addMultiInstanceUserTask("task2", false, null);
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, task2);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task mockTask = createMockTask("task-002", "pi-001", "proc-1", "task2", "existingUser");
+        Task targetTask = createMockTask("task-003", "pi-001", "proc-1", "task2", "user2");
+        List<Task> allActive = java.util.Arrays.asList(mockTask, targetTask);
+        stubSignManageTaskQuery(mockTask, allActive, targetTask);
+
+        HistoricTaskInstance prevHistoric = mock(HistoricTaskInstance.class);
+        when(prevHistoric.getAssignee()).thenReturn("testUser");
+        stubSignManageHistoricQuery(prevHistoric, 0L);
+
+        flowablePlus.removeCounterSigner("task-002", "user2");
+
+        verify(mockRuntimeService).deleteMultiInstanceExecution(targetTask.getExecutionId(), false);
+        verify(mockTaskService).addComment(eq("task-002"), eq("pi-001"), eq("DELETE_SIGN"),
+                org.mockito.ArgumentMatchers.argThat(msg -> msg.toString().contains("user2")));
+    }
+
+    /**
+     * 减签已投票审批人应抛出 IllegalArgumentException。
+     */
+    @Test
+    public void testRemoveCounterSignerAlreadyVoted() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        UserTask task2 = builder.addMultiInstanceUserTask("task2", false, null);
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, task2);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task mockTask = createMockTask("task-002", "pi-001", "proc-1", "task2", "existingUser");
+        stubSignManageTaskQuery(mockTask, java.util.Collections.singletonList(mockTask), null);
+
+        HistoricTaskInstance prevHistoric = mock(HistoricTaskInstance.class);
+        when(prevHistoric.getAssignee()).thenReturn("testUser");
+        stubSignManageHistoricQuery(prevHistoric, 1L);
+
+        assertThatThrownBy(() -> flowablePlus.removeCounterSigner("task-002", "existingUser"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("已投票");
+    }
+
+    /**
+     * 减签后剩余未投票人数不足应抛出异常。
+     */
+    @Test
+    public void testRemoveCounterSignerMinRetention() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        UserTask task2 = builder.addMultiInstanceUserTask("task2", false, null);
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, task2);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task mockTask = createMockTask("task-002", "pi-001", "proc-1", "task2", "onlyUser");
+        stubSignManageTaskQuery(mockTask, java.util.Collections.singletonList(mockTask), null);
+
+        HistoricTaskInstance prevHistoric = mock(HistoricTaskInstance.class);
+        when(prevHistoric.getAssignee()).thenReturn("testUser");
+        stubSignManageHistoricQuery(prevHistoric, 0L);
+
+        assertThatThrownBy(() -> flowablePlus.removeCounterSigner("task-002", "onlyUser"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("减签后剩余未投票审批人不足");
+    }
+
+    /**
+     * 非上一节点审批人减签，应抛出 PermissionDeniedException。
+     */
+    @Test
+    public void testRemoveCounterSignerPermissionDenied() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        UserTask task2 = builder.addMultiInstanceUserTask("task2", false, null);
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, task2);
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task mockTask = createMockTask("task-002", "pi-001", "proc-1", "task2", "existingUser");
+        stubSignManageTaskQuery(mockTask, java.util.Collections.singletonList(mockTask), null);
+
+        HistoricTaskInstance prevHistoric = mock(HistoricTaskInstance.class);
+        when(prevHistoric.getAssignee()).thenReturn("anotherUser");
+        stubSignManageHistoricQuery(prevHistoric, 0L);
+
+        assertThatThrownBy(() -> flowablePlus.removeCounterSigner("task-002", "user2"))
+                .isInstanceOf(PermissionDeniedException.class)
+                .hasMessageContaining("无权减签");
+    }
+
+    /**
+     * 非多实例节点上减签应抛出 IllegalArgumentException。
+     */
+    @Test
+    public void testRemoveCounterSignerNotMultiInstance() {
+        TestModelBuilder builder = new TestModelBuilder();
+        builder.addStartEvent("start");
+        builder.addUserTask("task1");
+        BpmnModel model = builder.build();
+        when(mockRepoService.getBpmnModel("proc-1")).thenReturn(model);
+
+        Task mockTask = createMockTask("task-001", "pi-001", "proc-1", "task1", "testUser");
+        stubSignManageTaskQuery(mockTask, java.util.Collections.singletonList(mockTask), null);
+
+        assertThatThrownBy(() -> flowablePlus.removeCounterSigner("task-001", "user1"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("不是多实例子任务");
+    }
+
+    /**
+     * 减签 null/空参数校验。
+     */
+    @Test
+    public void testRemoveCounterSignerNullParams() {
+        assertThatThrownBy(() -> flowablePlus.removeCounterSigner(null, "user1"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("taskId");
+        assertThatThrownBy(() -> flowablePlus.removeCounterSigner("task-001", null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("assignee");
+        assertThatThrownBy(() -> flowablePlus.removeCounterSigner("task-001", ""))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("assignee");
+    }
+
     // ======================== Test Helpers ========================
 
     private Task createMockTask(String taskId, String processInstanceId,
@@ -1323,6 +1653,7 @@ public class FlowablePlusTest {
         when(task.getProcessDefinitionId()).thenReturn(processDefinitionId);
         when(task.getTaskDefinitionKey()).thenReturn(activityId);
         when(task.getAssignee()).thenReturn(assignee);
+        when(task.getExecutionId()).thenReturn("exec-" + taskId);
         return task;
     }
 
@@ -1416,5 +1747,54 @@ public class FlowablePlusTest {
         when(mockBuilder.moveActivityIdTo(anyString(), anyString())).thenReturn(mockBuilder);
         when(mockRuntimeService.createChangeActivityStateBuilder()).thenReturn(mockBuilder);
         return mockBuilder;
+    }
+
+    /**
+     * 为加签/减签测试搭建统一的 HistoricTaskInstanceQuery mock。
+     * 同时处理权限查询（查上一节点历史任务）和 hasVoted 查询。
+     *
+     * @param prevHistoric 上一节点历史任务（用于权限校验），可为 null 表示无上一节点
+     * @param votedCount   hasVoted 的返回计数
+     */
+    private void stubSignManageHistoricQuery(HistoricTaskInstance prevHistoric, long votedCount) {
+        HistoricTaskInstanceQuery mockQuery = mock(HistoricTaskInstanceQuery.class);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(mockQuery);
+        when(mockQuery.processInstanceId(anyString())).thenReturn(mockQuery);
+        when(mockQuery.taskDefinitionKey(anyString())).thenReturn(mockQuery);
+        when(mockQuery.taskAssignee(anyString())).thenReturn(mockQuery);
+        when(mockQuery.finished()).thenReturn(mockQuery);
+        when(mockQuery.orderByHistoricTaskInstanceEndTime()).thenReturn(mockQuery);
+        when(mockQuery.desc()).thenReturn(mockQuery);
+        List<HistoricTaskInstance> list = prevHistoric != null
+                ? java.util.Collections.singletonList(prevHistoric) : java.util.Collections.emptyList();
+        when(mockQuery.listPage(0, 1)).thenReturn(list);
+        when(mockQuery.count()).thenReturn(votedCount);
+    }
+
+    /**
+     * 为加签/减签测试搭建统一的 TaskQuery mock。
+     * 同时处理任务查询、resolveCurrentAssignees、isMultiInstanceFinished、
+     * 以及减签时的 taskAssignee 精确查询。
+     *
+     * @param activeTask    当前查到的活跃任务（用于 taskId 查询）
+     * @param allActiveList 所有活跃任务列表
+     * @param targetTask    减签目标任务（用于 taskAssignee 精确查询），可为 null
+     */
+    private void stubSignManageTaskQuery(Task activeTask, List<Task> allActiveList, Task targetTask) {
+        TaskQuery mockTaskQuery = mock(TaskQuery.class);
+        when(mockTaskService.createTaskQuery()).thenReturn(mockTaskQuery);
+        when(mockTaskQuery.taskId(anyString())).thenReturn(mockTaskQuery);
+        when(mockTaskQuery.singleResult()).thenReturn(activeTask);
+        when(mockTaskQuery.processInstanceId(anyString())).thenReturn(mockTaskQuery);
+        when(mockTaskQuery.taskDefinitionKey(anyString())).thenReturn(mockTaskQuery);
+        when(mockTaskQuery.active()).thenReturn(mockTaskQuery);
+        when(mockTaskQuery.list()).thenReturn(allActiveList);
+        when(mockTaskQuery.count()).thenReturn((long) allActiveList.size());
+
+        // 减签时按 assignee 精确查询
+        if (targetTask != null) {
+            when(mockTaskQuery.taskAssignee(anyString())).thenReturn(mockTaskQuery);
+            when(mockTaskQuery.singleResult()).thenReturn(targetTask);
+        }
     }
 }

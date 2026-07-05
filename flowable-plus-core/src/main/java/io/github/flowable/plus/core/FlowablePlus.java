@@ -26,6 +26,7 @@ import org.flowable.task.api.Task;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -570,6 +571,214 @@ public class FlowablePlus {
             } catch (Exception e) {
                 log.warn("CounterSignCallback 回调异常: {}", cb.getClass().getName(), e);
             }
+        }
+    }
+
+    // ======================== 加签/减签 ========================
+
+    /**
+     * 加签：向当前会签节点动态追加审批人。
+     *
+     * <p>仅上一节点审批人可操作（无上一节点时回退到流程发起人）。
+     * 已是当前节点审批人的会被静默跳过。
+     * 操作完成后触发 {@link CounterSignCallback#onStart} 回调。</p>
+     *
+     * <p>BPMN 要求 UserTask 配置 {@code assignee="${assignee}"}，
+     * 引擎通过 executionVariables 的 {@code assignee} 键设置审批人。</p>
+     *
+     * @param taskId    任务 ID，不可为 null
+     * @param assignees 要追加的审批人 ID 列表，不可为 null 或空
+     * @throws NotFoundException            任务不存在时抛出
+     * @throws TaskAlreadyCompletedException 任务已完成时抛出
+     * @throws PermissionDeniedException     调用者无权操作时抛出
+     * @throws NoPreviousNodeException       并行网关汇合场景无法确定操作权限时抛出
+     * @throws IllegalArgumentException     非多实例子任务时抛出
+     */
+    public void addCounterSigner(String taskId, List<String> assignees) {
+        if (taskId == null) {
+            throw new IllegalArgumentException("taskId 不可为 null");
+        }
+        if (assignees == null || assignees.isEmpty()) {
+            throw new IllegalArgumentException("assignees 不可为 null 或空");
+        }
+
+        Task task = validateTaskExists(taskId, "加签");
+
+        if (!isMultiInstance(task)) {
+            throw new IllegalArgumentException(
+                    "任务 " + taskId + " 不是多实例子任务，无法加签");
+        }
+
+        validateCounterSignPermission(task, "加签");
+
+        String processInstanceId = task.getProcessInstanceId();
+        String activityId = task.getTaskDefinitionKey();
+
+        // 去重：获取当前活跃审批人列表
+        List<String> currentAssignees = resolveCurrentAssignees(task);
+
+        // 过滤出需要实际新增的审批人，跳过空值
+        List<String> newAssignees = new ArrayList<>();
+        List<String> skippedAssignees = new ArrayList<>();
+        for (String assignee : assignees) {
+            if (StrUtil.isBlank(assignee)) {
+                continue;
+            }
+            if (currentAssignees.contains(assignee)) {
+                skippedAssignees.add(assignee);
+            } else {
+                newAssignees.add(assignee);
+            }
+        }
+
+        if (newAssignees.isEmpty()) {
+            return;
+        }
+
+        // 逐个创建多实例执行
+        for (String assignee : newAssignees) {
+            HashMap<String, Object> executionVariables = new HashMap<>();
+            executionVariables.put("assignee", assignee);
+            runtimeService.addMultiInstanceExecution(activityId, processInstanceId, executionVariables);
+        }
+
+        // 记录 Comment
+        StringBuilder commentMsg = new StringBuilder("新增审批人: ")
+                .append(String.join(", ", newAssignees));
+        if (!skippedAssignees.isEmpty()) {
+            commentMsg.append("；跳过已存在: ").append(String.join(", ", skippedAssignees));
+        }
+        taskService.addComment(taskId, processInstanceId, "ADD_SIGN", commentMsg.toString());
+
+        // 触发 onStart 回调
+        invokeCallbacks(cb -> cb.onStart(processInstanceId, taskId, newAssignees));
+    }
+
+    /**
+     * 减签：从当前会签节点移除指定审批人。
+     *
+     * <p>仅上一节点审批人可操作（无上一节点时回退到流程发起人）。
+     * 已投票的审批人不可移除，减签后至少保留一个未投票审批人。</p>
+     *
+     * @param taskId   任务 ID，不可为 null
+     * @param assignee 要移除的审批人 ID，不可为 null
+     * @throws NotFoundException            任务或审批人不存在时抛出
+     * @throws TaskAlreadyCompletedException 任务已完成时抛出
+     * @throws PermissionDeniedException     调用者无权操作时抛出
+     * @throws NoPreviousNodeException       并行网关汇合场景无法确定操作权限时抛出
+     * @throws IllegalArgumentException     目标审批人已投票、减签后剩余人数不足或非多实例节点时抛出
+     */
+    public void removeCounterSigner(String taskId, String assignee) {
+        if (taskId == null) {
+            throw new IllegalArgumentException("taskId 不可为 null");
+        }
+        if (StrUtil.isBlank(assignee)) {
+            throw new IllegalArgumentException("assignee 不可为 null 或空");
+        }
+
+        Task task = validateTaskExists(taskId, "减签");
+
+        if (!isMultiInstance(task)) {
+            throw new IllegalArgumentException(
+                    "任务 " + taskId + " 不是多实例子任务，无法减签");
+        }
+
+        validateCounterSignPermission(task, "减签");
+
+        String processInstanceId = task.getProcessInstanceId();
+
+        // 校验目标未投票
+        if (hasVoted(task, assignee)) {
+            throw new IllegalArgumentException(
+                    "审批人 " + assignee + " 已投票，无法减签");
+        }
+
+        // 校验减签后至少保留一个未投票审批人
+        List<String> currentAssignees = resolveCurrentAssignees(task);
+        long unvotedCount = currentAssignees.stream()
+                .filter(a -> !hasVoted(task, a))
+                .count();
+        if (unvotedCount <= 1) {
+            throw new IllegalArgumentException(
+                    "减签后剩余未投票审批人不足，当前未投票人数: " + unvotedCount);
+        }
+
+        // 找到目标审批人的活跃子任务
+        Task targetTask = taskService.createTaskQuery()
+                .processInstanceId(processInstanceId)
+                .taskDefinitionKey(task.getTaskDefinitionKey())
+                .taskAssignee(assignee)
+                .active()
+                .singleResult();
+
+        if (targetTask == null) {
+            throw new NotFoundException(
+                    "未找到审批人 " + assignee + " 的活跃会签任务");
+        }
+
+        // 删除多实例执行（不标记为已完成）
+        runtimeService.deleteMultiInstanceExecution(targetTask.getExecutionId(), false);
+
+        // 记录 Comment
+        taskService.addComment(taskId, processInstanceId, "DELETE_SIGN",
+                "移除审批人: " + assignee);
+    }
+
+    // ======================== 加签/减签权限 ========================
+
+    /**
+     * 校验加签/减签权限：当前用户必须是上一节点审批人。
+     *
+     * <p>无上一审批节点时回退到流程发起人。
+     * 并行网关汇合后多个上一节点时直接拒绝。</p>
+     */
+    private void validateCounterSignPermission(Task task, String operation) {
+        String currentUserId = userContext.getCurrentUserId();
+        String processInstanceId = task.getProcessInstanceId();
+
+        List<String> prevNodes;
+        try {
+            prevNodes = findPreviousNodes(
+                    task.getProcessDefinitionId(), task.getTaskDefinitionKey(), processInstanceId);
+        } catch (NoPreviousNodeException e) {
+            // 无上一审批节点，回退到流程发起人
+            prevNodes = Collections.emptyList();
+        }
+
+        if (prevNodes.size() > 1) {
+            throw new NoPreviousNodeException("当前节点位于并行网关汇合之后，无法确定" + operation + "权限");
+        }
+
+        String authorizedUserId;
+
+        if (prevNodes.isEmpty()) {
+            // 回退到流程发起人
+            HistoricProcessInstance historicPi = historyService.createHistoricProcessInstanceQuery()
+                    .processInstanceId(processInstanceId).singleResult();
+            if (historicPi == null) {
+                throw new NotFoundException("流程实例 " + processInstanceId + " 不存在");
+            }
+            authorizedUserId = historicPi.getStartUserId();
+        } else {
+            // 查上一节点审批人
+            String prevNodeId = prevNodes.get(0);
+            HistoricTaskInstance prevTask = historyService.createHistoricTaskInstanceQuery()
+                    .processInstanceId(processInstanceId)
+                    .taskDefinitionKey(prevNodeId)
+                    .finished()
+                    .orderByHistoricTaskInstanceEndTime().desc()
+                    .listPage(0, 1)
+                    .stream().findFirst().orElse(null);
+
+            if (prevTask == null) {
+                throw new NotFoundException("未找到上一节点 " + prevNodeId + " 的历史任务");
+            }
+            authorizedUserId = prevTask.getAssignee();
+        }
+
+        if (!currentUserId.equals(authorizedUserId)) {
+            throw new PermissionDeniedException(
+                    "用户 " + currentUserId + " 无权" + operation + "，仅上一节点审批人可操作");
         }
     }
 
