@@ -16,14 +16,11 @@ import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
 import org.flowable.engine.history.HistoricProcessInstance;
-import org.flowable.engine.history.HistoricProcessInstanceQuery;
 import org.flowable.engine.runtime.ChangeActivityStateBuilder;
 import org.flowable.engine.runtime.ProcessInstance;
 import org.flowable.engine.runtime.ProcessInstanceQuery;
 import org.flowable.task.api.Task;
-import org.flowable.task.api.TaskQuery;
 import org.flowable.task.api.history.HistoricTaskInstance;
-import org.flowable.task.api.history.HistoricTaskInstanceQuery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -51,8 +48,9 @@ public class FlowablePlusTest {
     private ProcessEngine mockEngine;
     private RepositoryService mockRepoService;
     private RuntimeService mockRuntimeService;
-    private TaskService mockTaskService;
     private HistoryService mockHistoryService;
+    private TaskRepository mockTaskRepo;
+    private HistoricRepository mockHistoricRepo;
     private IdentityService mockIdentityService;
     private BpmnModelCache bpmnModelCache;
     private FlowablePlus flowablePlus;
@@ -65,8 +63,9 @@ public class FlowablePlusTest {
         mockEngine = mock(ProcessEngine.class);
         mockRepoService = mock(RepositoryService.class);
         mockRuntimeService = mock(RuntimeService.class);
-        mockTaskService = mock(TaskService.class);
         mockHistoryService = mock(HistoryService.class);
+        mockTaskRepo = mock(TaskRepository.class);
+        mockHistoricRepo = mock(HistoricRepository.class);
         mockIdentityService = mock(IdentityService.class);
         userContext = () -> "testUser";
         mockNodeFinder = mock(NodeFinder.class);
@@ -74,12 +73,13 @@ public class FlowablePlusTest {
 
         when(mockEngine.getRepositoryService()).thenReturn(mockRepoService);
         when(mockEngine.getRuntimeService()).thenReturn(mockRuntimeService);
-        when(mockEngine.getTaskService()).thenReturn(mockTaskService);
+        when(mockEngine.getTaskService()).thenReturn(mock(TaskService.class));
         when(mockEngine.getHistoryService()).thenReturn(mockHistoryService);
         when(mockEngine.getIdentityService()).thenReturn(mockIdentityService);
 
         flowablePlus = new FlowablePlus(mockEngine, userContext,
-                new DefaultNodeFinder(bpmnModelCache, mockHistoryService), bpmnModelCache, null);
+                new DefaultNodeFinder(bpmnModelCache, mockHistoryService),
+                bpmnModelCache, mockTaskRepo, mockHistoricRepo, null);
     }
 
     // ======================== 构造注入 ========================
@@ -273,9 +273,9 @@ public class FlowablePlusTest {
         flowablePlus.completeTask("task-001", variables, "同意");
 
         // 验证操作顺序：先认领、再添加意见、最后完成
-        verify(mockTaskService).claim("task-001", "testUser");
-        verify(mockTaskService).addComment("task-001", null, "同意");
-        verify(mockTaskService).complete("task-001", variables);
+        verify(mockTaskRepo).claim("task-001", "testUser");
+        verify(mockTaskRepo).addComment("task-001", null, null, "同意");
+        verify(mockTaskRepo).complete("task-001", variables);
     }
 
     @Test
@@ -285,9 +285,9 @@ public class FlowablePlusTest {
 
         flowablePlus.completeTask("task-002", null, null);
 
-        verify(mockTaskService).claim("task-002", "testUser");
-        verify(mockTaskService, never()).addComment(any(), any(), any());
-        verify(mockTaskService).complete("task-002", null);
+        verify(mockTaskRepo).claim("task-002", "testUser");
+        verify(mockTaskRepo, never()).addComment(any(), any(), any(), any());
+        verify(mockTaskRepo).complete("task-002", null);
     }
 
     @Test
@@ -297,9 +297,9 @@ public class FlowablePlusTest {
 
         flowablePlus.completeTask("task-003", null, "");
 
-        verify(mockTaskService).claim("task-003", "testUser");
-        verify(mockTaskService, never()).addComment(any(), any(), any());
-        verify(mockTaskService).complete("task-003", null);
+        verify(mockTaskRepo).claim("task-003", "testUser");
+        verify(mockTaskRepo, never()).addComment(any(), any(), any(), any());
+        verify(mockTaskRepo).complete("task-003", null);
     }
 
     @Test
@@ -315,7 +315,7 @@ public class FlowablePlusTest {
     public void testClaimTask() {
         flowablePlus.claimTask("task-001");
 
-        verify(mockTaskService).claim("task-001", "testUser");
+        verify(mockTaskRepo).claim("task-001", "testUser");
     }
 
     @Test
@@ -385,7 +385,7 @@ public class FlowablePlusTest {
         flowablePlus.rejectTask("task-001", "审批不通过");
 
         // 验证驳回意见写入
-        verify(mockTaskService).addComment("task-001", "pi-001", "REJECT", "审批不通过");
+        verify(mockTaskRepo).addComment("task-001", "pi-001", "REJECT", "审批不通过");
         // 验证节点跳转
         verify(mockBuilder).processInstanceId("pi-001");
         verify(mockBuilder).moveActivityIdTo("task2", "task1");
@@ -537,7 +537,7 @@ public class FlowablePlusTest {
         flowablePlus.rejectTask("task-001", "");
 
         // 不写入空意见
-        verify(mockTaskService, never()).addComment(anyString(), anyString(), anyString());
+        verify(mockTaskRepo, never()).addComment(anyString(), anyString(), anyString(), anyString());
     }
 
     /**
@@ -560,7 +560,7 @@ public class FlowablePlusTest {
 
         flowablePlus.rejectTask("task-001", null);
 
-        verify(mockTaskService, never()).addComment(anyString(), anyString(), anyString());
+        verify(mockTaskRepo, never()).addComment(anyString(), anyString(), anyString(), anyString());
     }
 
     // ======================== rejectTaskToInitiator ========================
@@ -589,7 +589,7 @@ public class FlowablePlusTest {
         flowablePlus.rejectTaskToInitiator("task-002", "退回发起人");
 
         // 验证驳回意见
-        verify(mockTaskService).addComment("task-002", "pi-002", "REJECT", "退回发起人");
+        verify(mockTaskRepo).addComment("task-002", "pi-002", "REJECT", "退回发起人");
         // 验证跳转到发起人节点 task1
         verify(mockBuilder).processInstanceId("pi-002");
         verify(mockBuilder).moveActivityIdTo("task2", "task1");
@@ -696,7 +696,7 @@ public class FlowablePlusTest {
         flowablePlus.withdrawTask("task-001", "需要修改内容");
 
         // 验证撤回意见写入
-        verify(mockTaskService).addComment("task-001", "pi-001", "WITHDRAW", "需要修改内容");
+        verify(mockTaskRepo).addComment("task-001", "pi-001", "WITHDRAW", "需要修改内容");
         // 验证节点跳转：从 task2 回到 task1
         verify(mockBuilder).processInstanceId("pi-001");
         verify(mockBuilder).moveActivityIdTo("task2", "task1");
@@ -864,7 +864,7 @@ public class FlowablePlusTest {
 
         flowablePlus.withdrawTask("task-001", "");
 
-        verify(mockTaskService, never()).addComment(anyString(), anyString(), anyString(), anyString());
+        verify(mockTaskRepo, never()).addComment(anyString(), anyString(), anyString(), anyString());
     }
 
     /**
@@ -892,7 +892,7 @@ public class FlowablePlusTest {
 
         flowablePlus.withdrawTask("task-001", null);
 
-        verify(mockTaskService, never()).addComment(anyString(), anyString(), anyString(), anyString());
+        verify(mockTaskRepo, never()).addComment(anyString(), anyString(), anyString(), anyString());
     }
 
     // ======================== revokeProcess ========================
@@ -1157,9 +1157,9 @@ public class FlowablePlusTest {
         Map<String, Object> variables = new HashMap<>();
         flowablePlus.counterSign("task-001", true, variables, "同意");
 
-        verify(mockTaskService).claim("task-001", "testUser");
-        verify(mockTaskService).addComment("task-001", null, "AGREE", "同意");
-        verify(mockTaskService).complete("task-001", variables);
+        verify(mockTaskRepo).claim("task-001", "testUser");
+        verify(mockTaskRepo).addComment("task-001", null, "AGREE", "同意");
+        verify(mockTaskRepo).complete("task-001", variables);
     }
 
     /**
@@ -1178,9 +1178,9 @@ public class FlowablePlusTest {
 
         flowablePlus.counterSign("task-001", false, null, "不同意");
 
-        verify(mockTaskService).claim("task-001", "testUser");
-        verify(mockTaskService).addComment("task-001", null, "COUNTER_SIGN_REJECT", "不同意");
-        verify(mockTaskService).complete("task-001", null);
+        verify(mockTaskRepo).claim("task-001", "testUser");
+        verify(mockTaskRepo).addComment("task-001", null, "COUNTER_SIGN_REJECT", "不同意");
+        verify(mockTaskRepo).complete("task-001", null);
     }
 
     /**
@@ -1218,9 +1218,9 @@ public class FlowablePlusTest {
 
         flowablePlus.counterSign("task-001", true, null, "");
 
-        verify(mockTaskService).claim("task-001", "testUser");
-        verify(mockTaskService, never()).addComment(anyString(), anyString(), anyString(), anyString());
-        verify(mockTaskService).complete("task-001", null);
+        verify(mockTaskRepo).claim("task-001", "testUser");
+        verify(mockTaskRepo, never()).addComment(anyString(), anyString(), anyString(), anyString());
+        verify(mockTaskRepo).complete("task-001", null);
     }
 
     /**
@@ -1239,9 +1239,9 @@ public class FlowablePlusTest {
 
         flowablePlus.counterSign("task-001", false, null, null);
 
-        verify(mockTaskService).claim("task-001", "testUser");
-        verify(mockTaskService, never()).addComment(anyString(), anyString(), anyString(), anyString());
-        verify(mockTaskService).complete("task-001", null);
+        verify(mockTaskRepo).claim("task-001", "testUser");
+        verify(mockTaskRepo, never()).addComment(anyString(), anyString(), anyString(), anyString());
+        verify(mockTaskRepo).complete("task-001", null);
     }
 
     /**
@@ -1343,7 +1343,7 @@ public class FlowablePlusTest {
                 org.mockito.ArgumentMatchers.argThat(m -> "user1".equals(m.get("assignee"))));
         verify(mockRuntimeService).addMultiInstanceExecution(eq("task2"), eq("pi-001"),
                 org.mockito.ArgumentMatchers.argThat(m -> "user2".equals(m.get("assignee"))));
-        verify(mockTaskService).addComment(eq("task-002"), eq("pi-001"), eq("ADD_SIGN"),
+        verify(mockTaskRepo).addComment(eq("task-002"), eq("pi-001"), eq("ADD_SIGN"),
                 org.mockito.ArgumentMatchers.argThat(msg ->
                         msg.toString().contains("user1") && msg.toString().contains("user2")));
     }
@@ -1374,7 +1374,7 @@ public class FlowablePlusTest {
 
         verify(mockRuntimeService).addMultiInstanceExecution(eq("task2"), eq("pi-001"),
                 org.mockito.ArgumentMatchers.argThat(m -> "user2".equals(m.get("assignee"))));
-        verify(mockTaskService).addComment(eq("task-002"), eq("pi-001"), eq("ADD_SIGN"),
+        verify(mockTaskRepo).addComment(eq("task-002"), eq("pi-001"), eq("ADD_SIGN"),
                 org.mockito.ArgumentMatchers.argThat(msg ->
                         msg.toString().contains("跳过已存在") && msg.toString().contains("existingUser")));
     }
@@ -1526,7 +1526,7 @@ public class FlowablePlusTest {
         flowablePlus.removeCounterSigner("task-002", "user2");
 
         verify(mockRuntimeService).deleteMultiInstanceExecution(targetTask.getExecutionId(), false);
-        verify(mockTaskService).addComment(eq("task-002"), eq("pi-001"), eq("DELETE_SIGN"),
+        verify(mockTaskRepo).addComment(eq("task-002"), eq("pi-001"), eq("DELETE_SIGN"),
                 org.mockito.ArgumentMatchers.argThat(msg -> msg.toString().contains("user2")));
     }
 
@@ -1658,72 +1658,38 @@ public class FlowablePlusTest {
     }
 
     private void stubTaskQuery(Task result) {
-        TaskQuery mockTaskQuery = mock(TaskQuery.class);
-        when(mockTaskService.createTaskQuery()).thenReturn(mockTaskQuery);
-        when(mockTaskQuery.taskId(anyString())).thenReturn(mockTaskQuery);
-        when(mockTaskQuery.singleResult()).thenReturn(result);
+        when(mockTaskRepo.findById(anyString())).thenReturn(result);
     }
 
     /**
-     * 为 counterSign 方法的回调辅助查询搭建 mock。
-     * 需额外 stub hasVoted（历史查询）、resolveCurrentAssignees（当前 assignee 列表）、
-     * isMultiInstanceFinished（active 子任务数）。
+     * 为 counterSign 方法搭建 mock。
      */
     private void stubCounterSignAuxQueries(Task result) {
-        // TaskQuery：同时支持单结果查任务 + counterSign 辅助链
-        TaskQuery mockTaskQuery = mock(TaskQuery.class);
-        when(mockTaskService.createTaskQuery()).thenReturn(mockTaskQuery);
-        when(mockTaskQuery.taskId(anyString())).thenReturn(mockTaskQuery);
-        when(mockTaskQuery.singleResult()).thenReturn(result);
-        when(mockTaskQuery.processInstanceId(anyString())).thenReturn(mockTaskQuery);
-        when(mockTaskQuery.taskDefinitionKey(anyString())).thenReturn(mockTaskQuery);
-        when(mockTaskQuery.active()).thenReturn(mockTaskQuery);
-        // resolveCurrentAssignees: 返回包含当前任务 assignee 的列表
+        // 任务查询
+        when(mockTaskRepo.findById(anyString())).thenReturn(result);
+        // resolveCurrentAssignees
         List<Task> activeList = new ArrayList<>();
         if (result != null && result.getAssignee() != null) {
             activeList.add(result);
         }
-        when(mockTaskQuery.list()).thenReturn(activeList);
-        // isMultiInstanceFinished: active count == 1（还有当前任务未完成时）
-        when(mockTaskQuery.count()).thenReturn((long) activeList.size());
-
-        // hasVoted: 历史查询返回 0（首次投票）
-        HistoricTaskInstanceQuery mockHistoricQuery = mock(HistoricTaskInstanceQuery.class);
-        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(mockHistoricQuery);
-        when(mockHistoricQuery.processInstanceId(anyString())).thenReturn(mockHistoricQuery);
-        when(mockHistoricQuery.taskDefinitionKey(anyString())).thenReturn(mockHistoricQuery);
-        when(mockHistoricQuery.taskAssignee(anyString())).thenReturn(mockHistoricQuery);
-        when(mockHistoricQuery.finished()).thenReturn(mockHistoricQuery);
-        when(mockHistoricQuery.count()).thenReturn(0L);
+        when(mockTaskRepo.listActiveTasks(anyString(), anyString())).thenReturn(activeList);
+        when(mockTaskRepo.countActiveTasks(anyString(), anyString())).thenReturn((long) activeList.size());
+        // hasVoted: 首次投票
+        when(mockHistoricRepo.countFinishedTasks(anyString(), anyString(), anyString())).thenReturn(0L);
     }
 
     private void stubHistoricTaskQuery(HistoricTaskInstance result) {
-        HistoricTaskInstanceQuery mockHistoricQuery = mock(HistoricTaskInstanceQuery.class);
-        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(mockHistoricQuery);
-        when(mockHistoricQuery.taskId(anyString())).thenReturn(mockHistoricQuery);
-        when(mockHistoricQuery.singleResult()).thenReturn(result);
+        when(mockHistoricRepo.findTaskById(anyString())).thenReturn(result);
     }
 
-    private HistoricTaskInstanceQuery stubHistoricTaskQueryByDefKey(
+    private void stubHistoricTaskQueryByDefKey(
             String processInstanceId, String taskDefinitionKey, HistoricTaskInstance result) {
-        HistoricTaskInstanceQuery mockQuery = mock(HistoricTaskInstanceQuery.class);
-        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(mockQuery);
-        when(mockQuery.processInstanceId(processInstanceId)).thenReturn(mockQuery);
-        when(mockQuery.taskDefinitionKey(taskDefinitionKey)).thenReturn(mockQuery);
-        when(mockQuery.finished()).thenReturn(mockQuery);
-        when(mockQuery.orderByHistoricTaskInstanceEndTime()).thenReturn(mockQuery);
-        when(mockQuery.desc()).thenReturn(mockQuery);
-        List<HistoricTaskInstance> list = result != null
-                ? java.util.Collections.singletonList(result) : java.util.Collections.emptyList();
-        when(mockQuery.listPage(0, 1)).thenReturn(list);
-        return mockQuery;
+        when(mockHistoricRepo.findLatestFinishedTask(processInstanceId, taskDefinitionKey))
+                .thenReturn(result);
     }
 
     private void stubHistoricProcessInstanceQuery(String processInstanceId, HistoricProcessInstance result) {
-        HistoricProcessInstanceQuery mockQuery = mock(HistoricProcessInstanceQuery.class);
-        when(mockHistoryService.createHistoricProcessInstanceQuery()).thenReturn(mockQuery);
-        when(mockQuery.processInstanceId(processInstanceId)).thenReturn(mockQuery);
-        when(mockQuery.singleResult()).thenReturn(result);
+        when(mockHistoricRepo.findProcessInstance(processInstanceId)).thenReturn(result);
     }
 
     private void stubRuntimeProcessInstanceQuery(String processInstanceId, ProcessInstance result) {
@@ -1734,11 +1700,7 @@ public class FlowablePlusTest {
     }
 
     private void stubActiveTaskQuery(String processInstanceId, Task result) {
-        TaskQuery mockQuery = mock(TaskQuery.class);
-        when(mockTaskService.createTaskQuery()).thenReturn(mockQuery);
-        when(mockQuery.processInstanceId(processInstanceId)).thenReturn(mockQuery);
-        when(mockQuery.active()).thenReturn(mockQuery);
-        when(mockQuery.singleResult()).thenReturn(result);
+        when(mockTaskRepo.findActiveByProcessInstance(processInstanceId)).thenReturn(result);
     }
 
     private ChangeActivityStateBuilder stubChangeActivityStateBuilder() {
@@ -1757,18 +1719,12 @@ public class FlowablePlusTest {
      * @param votedCount   hasVoted 的返回计数
      */
     private void stubSignManageHistoricQuery(HistoricTaskInstance prevHistoric, long votedCount) {
-        HistoricTaskInstanceQuery mockQuery = mock(HistoricTaskInstanceQuery.class);
-        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(mockQuery);
-        when(mockQuery.processInstanceId(anyString())).thenReturn(mockQuery);
-        when(mockQuery.taskDefinitionKey(anyString())).thenReturn(mockQuery);
-        when(mockQuery.taskAssignee(anyString())).thenReturn(mockQuery);
-        when(mockQuery.finished()).thenReturn(mockQuery);
-        when(mockQuery.orderByHistoricTaskInstanceEndTime()).thenReturn(mockQuery);
-        when(mockQuery.desc()).thenReturn(mockQuery);
-        List<HistoricTaskInstance> list = prevHistoric != null
-                ? java.util.Collections.singletonList(prevHistoric) : java.util.Collections.emptyList();
-        when(mockQuery.listPage(0, 1)).thenReturn(list);
-        when(mockQuery.count()).thenReturn(votedCount);
+        // 权限查询：查上一节点历史任务
+        when(mockHistoricRepo.findLatestFinishedTask(anyString(), anyString()))
+                .thenReturn(prevHistoric);
+        // hasVoted 查询
+        when(mockHistoricRepo.countFinishedTasks(anyString(), anyString(), anyString()))
+                .thenReturn(votedCount);
     }
 
     /**
@@ -1781,20 +1737,13 @@ public class FlowablePlusTest {
      * @param targetTask    减签目标任务（用于 taskAssignee 精确查询），可为 null
      */
     private void stubSignManageTaskQuery(Task activeTask, List<Task> allActiveList, Task targetTask) {
-        TaskQuery mockTaskQuery = mock(TaskQuery.class);
-        when(mockTaskService.createTaskQuery()).thenReturn(mockTaskQuery);
-        when(mockTaskQuery.taskId(anyString())).thenReturn(mockTaskQuery);
-        when(mockTaskQuery.singleResult()).thenReturn(activeTask);
-        when(mockTaskQuery.processInstanceId(anyString())).thenReturn(mockTaskQuery);
-        when(mockTaskQuery.taskDefinitionKey(anyString())).thenReturn(mockTaskQuery);
-        when(mockTaskQuery.active()).thenReturn(mockTaskQuery);
-        when(mockTaskQuery.list()).thenReturn(allActiveList);
-        when(mockTaskQuery.count()).thenReturn((long) allActiveList.size());
-
+        when(mockTaskRepo.findById(anyString())).thenReturn(activeTask);
+        when(mockTaskRepo.listActiveTasks(anyString(), anyString())).thenReturn(allActiveList);
+        when(mockTaskRepo.countActiveTasks(anyString(), anyString())).thenReturn((long) allActiveList.size());
         // 减签时按 assignee 精确查询
         if (targetTask != null) {
-            when(mockTaskQuery.taskAssignee(anyString())).thenReturn(mockTaskQuery);
-            when(mockTaskQuery.singleResult()).thenReturn(targetTask);
+            when(mockTaskRepo.findActiveTask(anyString(), anyString(), anyString()))
+                    .thenReturn(targetTask);
         }
     }
 }
