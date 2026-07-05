@@ -225,16 +225,19 @@ public class FlowablePlusTest {
         Map<String, Object> variables = new HashMap<>();
         variables.put("key", "value");
         ProcessInstance mockInstance = mock(ProcessInstance.class);
+        when(mockInstance.getProcessInstanceId()).thenReturn("pi-001");
+        when(mockInstance.getBusinessKey()).thenReturn("biz-001");
+        when(mockInstance.getProcessDefinitionId()).thenReturn("myProcess:1");
         when(mockRuntimeService.startProcessInstanceByKey("myProcess", "biz-001", variables))
                 .thenReturn(mockInstance);
 
-        ProcessInstance result = flowablePlus.startProcess("myProcess", "biz-001", variables);
+        PlusProcessInstance result = flowablePlus.startProcess("myProcess", "biz-001", variables);
 
-        assertThat(result).isSameAs(mockInstance);
-        // 验证身份服务设置
+        assertThat(result.getProcessInstanceId()).isEqualTo("pi-001");
+        assertThat(result.getBusinessKey()).isEqualTo("biz-001");
+        assertThat(result.getProcessDefinitionId()).isEqualTo("myProcess:1");
         verify(mockIdentityService).setAuthenticatedUserId("testUser");
         verify(mockIdentityService).setAuthenticatedUserId(null);
-        // 验证启动流程
         verify(mockRuntimeService).startProcessInstanceByKey("myProcess", "biz-001", variables);
     }
 
@@ -242,12 +245,16 @@ public class FlowablePlusTest {
     public void testStartProcessWithNullBusinessKey() {
         Map<String, Object> variables = new HashMap<>();
         ProcessInstance mockInstance = mock(ProcessInstance.class);
+        when(mockInstance.getProcessInstanceId()).thenReturn("pi-002");
+        when(mockInstance.getBusinessKey()).thenReturn(null);
+        when(mockInstance.getProcessDefinitionId()).thenReturn("myProcess:2");
         when(mockRuntimeService.startProcessInstanceByKey("myProcess", null, variables))
                 .thenReturn(mockInstance);
 
-        ProcessInstance result = flowablePlus.startProcess("myProcess", null, variables);
+        PlusProcessInstance result = flowablePlus.startProcess("myProcess", null, variables);
 
-        assertThat(result).isSameAs(mockInstance);
+        assertThat(result.getProcessInstanceId()).isEqualTo("pi-002");
+        assertThat(result.getBusinessKey()).isNull();
         verify(mockIdentityService).setAuthenticatedUserId("testUser");
         verify(mockIdentityService).setAuthenticatedUserId(null);
     }

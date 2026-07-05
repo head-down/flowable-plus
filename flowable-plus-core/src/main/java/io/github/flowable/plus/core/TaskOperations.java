@@ -1,7 +1,6 @@
 package io.github.flowable.plus.core;
 
 import io.github.flowable.plus.core.exception.NotFoundException;
-import org.flowable.engine.runtime.ProcessInstance;
 
 import java.util.Map;
 
@@ -22,10 +21,10 @@ public interface TaskOperations {
      * @param processDefinitionKey 流程定义 KEY，不可为 null
      * @param businessKey          业务主键，可为 null
      * @param variables            流程变量，可为 null
-     * @return 流程实例
+     * @return 流程实例领域对象
      * @throws NotFoundException 流程定义不存在时抛出
      */
-    ProcessInstance startProcess(String processDefinitionKey, String businessKey, Map<String, Object> variables);
+    PlusProcessInstance startProcess(String processDefinitionKey, String businessKey, Map<String, Object> variables);
 
     /**
      * 完成任务审批。

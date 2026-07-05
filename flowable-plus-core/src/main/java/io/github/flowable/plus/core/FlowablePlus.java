@@ -5,7 +5,6 @@ import io.github.flowable.plus.core.spi.UserContext;
 import lombok.Getter;
 import org.flowable.engine.ProcessEngine;
 import org.flowable.engine.RuntimeService;
-import org.flowable.engine.runtime.ProcessInstance;
 import org.flowable.task.api.Task;
 
 import java.util.ArrayList;
@@ -112,7 +111,7 @@ public class FlowablePlus implements
     // ======================== TaskOperations ========================
 
     @Override
-    public ProcessInstance startProcess(String processDefinitionKey, String businessKey, Map<String, Object> variables) {
+    public PlusProcessInstance startProcess(String processDefinitionKey, String businessKey, Map<String, Object> variables) {
         return taskWorkflow.startProcess(processDefinitionKey, businessKey, variables);
     }
 

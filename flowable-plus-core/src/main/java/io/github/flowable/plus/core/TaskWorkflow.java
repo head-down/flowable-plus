@@ -48,7 +48,7 @@ class TaskWorkflow {
         this.bpmnModelCache = bpmnModelCache;
     }
 
-    ProcessInstance startProcess(String processDefinitionKey, String businessKey, Map<String, Object> variables) {
+    PlusProcessInstance startProcess(String processDefinitionKey, String businessKey, Map<String, Object> variables) {
         if (processDefinitionKey == null) {
             throw new IllegalArgumentException("processDefinitionKey 不可为 null");
         }
@@ -56,7 +56,8 @@ class TaskWorkflow {
         String userId = userContext.getCurrentUserId();
         identityService.setAuthenticatedUserId(userId);
         try {
-            return runtimeService.startProcessInstanceByKey(processDefinitionKey, businessKey, variables);
+            ProcessInstance pi = runtimeService.startProcessInstanceByKey(processDefinitionKey, businessKey, variables);
+            return PlusProcessInstance.from(pi);
         } finally {
             identityService.setAuthenticatedUserId(null);
         }
