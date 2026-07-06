@@ -9,11 +9,11 @@ import org.flowable.task.api.history.HistoricTaskInstance;
  *
  * @author flowable-plus
  */
-class FlowableHistoricRepository implements HistoricRepository {
+public class FlowableHistoricRepository implements HistoricRepository {
 
     private final HistoryService historyService;
 
-    FlowableHistoricRepository(HistoryService historyService) {
+    public FlowableHistoricRepository(HistoryService historyService) {
         this.historyService = historyService;
     }
 

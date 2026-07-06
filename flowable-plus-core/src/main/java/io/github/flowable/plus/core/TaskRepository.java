@@ -14,7 +14,7 @@ import java.util.Map;
  *
  * @author flowable-plus
  */
-interface TaskRepository {
+public interface TaskRepository {
 
     // ======================== 查询 ========================
 

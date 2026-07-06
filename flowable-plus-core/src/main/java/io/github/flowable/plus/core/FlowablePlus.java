@@ -51,7 +51,7 @@ public class FlowablePlus implements
                 counterSignCallbacks);
     }
 
-    FlowablePlus(ProcessEngine processEngine, UserContext userContext, NodeFinder nodeFinder,
+    public FlowablePlus(ProcessEngine processEngine, UserContext userContext, NodeFinder nodeFinder,
                  BpmnModelCache bpmnModelCache, TaskRepository taskRepository,
                  HistoricRepository historicRepository, List<CounterSignCallback> counterSignCallbacks) {
         if (processEngine == null) {

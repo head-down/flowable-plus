@@ -11,7 +11,7 @@ import org.flowable.task.api.history.HistoricTaskInstance;
  *
  * @author flowable-plus
  */
-interface HistoricRepository {
+public interface HistoricRepository {
 
     /**
      * 按任务 ID 查找历史任务（已完成的）。

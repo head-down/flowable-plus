@@ -1,6 +1,7 @@
 package io.github.flowable.plus.starter;
 
 import io.github.flowable.plus.core.FlowablePlus;
+import io.github.flowable.plus.core.spi.CounterSignCallback;
 import io.github.flowable.plus.core.spi.UserContext;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.IdentityService;
@@ -8,6 +9,8 @@ import org.flowable.engine.ProcessEngine;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
+import org.flowable.engine.runtime.ProcessInstanceQuery;
+import org.flowable.task.api.TaskQuery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.actuate.health.HealthIndicator;
@@ -21,15 +24,27 @@ import static org.mockito.Mockito.when;
 
 /**
  * FlowablePlusAutoConfiguration 集成测试：
- * 验证自动配置的条件装配、属性开关、UserContext 回退行为以及健康检查。
+ * 验证自动配置的条件装配、属性开关、UserContext 回退行为、
+ * 会签回调注册以及健康检查。
  */
 class FlowablePlusAutoConfigurationTest {
 
     private static ProcessEngine mockProcessEngine() {
         ProcessEngine engine = mock(ProcessEngine.class);
+        RuntimeService runtimeService = mock(RuntimeService.class);
+        TaskService taskService = mock(TaskService.class);
+
+        ProcessInstanceQuery piQuery = mock(ProcessInstanceQuery.class);
+        when(piQuery.count()).thenReturn(3L);
+        when(runtimeService.createProcessInstanceQuery()).thenReturn(piQuery);
+
+        TaskQuery taskQuery = mock(TaskQuery.class);
+        when(taskQuery.count()).thenReturn(7L);
+        when(taskService.createTaskQuery()).thenReturn(taskQuery);
+
         when(engine.getRepositoryService()).thenReturn(mock(RepositoryService.class));
-        when(engine.getRuntimeService()).thenReturn(mock(RuntimeService.class));
-        when(engine.getTaskService()).thenReturn(mock(TaskService.class));
+        when(engine.getRuntimeService()).thenReturn(runtimeService);
+        when(engine.getTaskService()).thenReturn(taskService);
         when(engine.getHistoryService()).thenReturn(mock(HistoryService.class));
         when(engine.getIdentityService()).thenReturn(mock(IdentityService.class));
         return engine;
@@ -96,6 +111,52 @@ class FlowablePlusAutoConfigurationTest {
         });
     }
 
+    // ======================== CounterSignCallback 自动注册测试 ========================
+
+    @Test
+    void testCounterSignCallbackAutoRegistration() {
+        CounterSignCallback callback = mock(CounterSignCallback.class);
+        contextRunner
+                .withBean(CounterSignCallback.class, () -> callback)
+                .run(ctx -> {
+                    // 验证 FlowablePlus 正常创建（回调被注入）
+                    assertThat(ctx).hasSingleBean(FlowablePlus.class);
+                    assertThat(ctx).hasSingleBean(CounterSignCallback.class);
+                });
+    }
+
+    @Test
+    void testCounterSignDisabled() {
+        contextRunner
+                .withPropertyValues("flowable.plus.counter-sign.enabled=false")
+                .run(ctx -> {
+                    // FlowablePlus 仍然创建，但会签回调被禁用
+                    assertThat(ctx).hasSingleBean(FlowablePlus.class);
+                    // 健康检查应反映会签已禁用
+                    HealthIndicator indicator = ctx.getBean(HealthIndicator.class);
+                    assertThat(indicator.health().getDetails())
+                            .containsEntry("counter-sign-enabled", false);
+                });
+    }
+
+    @Test
+    void testCounterSignCallbackRegisteredWhenEnabled() {
+        CounterSignCallback callback = mock(CounterSignCallback.class);
+        contextRunner
+                .withBean(CounterSignCallback.class, () -> callback)
+                .run(ctx -> {
+                    // 会签启用时，回调 Bean 和 FlowablePlus 共存
+                    assertThat(ctx.getBean(CounterSignCallback.class)).isSameAs(callback);
+                    assertThat(ctx).hasSingleBean(FlowablePlus.class);
+                    // 健康检查应反映会签已启用
+                    HealthIndicator indicator = ctx.getBean(HealthIndicator.class);
+                    assertThat(indicator.health().getDetails())
+                            .containsEntry("counter-sign-enabled", true);
+                });
+    }
+
+    // ======================== 健康检查测试 ========================
+
     @Test
     void testHealthIndicatorReportsUp() {
         contextRunner.run(ctx -> {
@@ -103,7 +164,10 @@ class FlowablePlusAutoConfigurationTest {
             HealthIndicator indicator = ctx.getBean(HealthIndicator.class);
             assertThat(indicator.health().getStatus()).isEqualTo(Status.UP);
             assertThat(indicator.health().getDetails())
-                    .containsEntry("component", "flowable-plus");
+                    .containsEntry("component", "flowable-plus")
+                    .containsEntry("counter-sign-enabled", true)
+                    .containsEntry("active-process-instances", 3L)
+                    .containsEntry("active-tasks", 7L);
         });
     }
 

@@ -11,11 +11,11 @@ import java.util.Map;
  *
  * @author flowable-plus
  */
-class FlowableTaskRepository implements TaskRepository {
+public class FlowableTaskRepository implements TaskRepository {
 
     private final TaskService taskService;
 
-    FlowableTaskRepository(TaskService taskService) {
+    public FlowableTaskRepository(TaskService taskService) {
         this.taskService = taskService;
     }
 
