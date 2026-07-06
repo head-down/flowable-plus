@@ -6,9 +6,6 @@ import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.exception.TaskAlreadyCompletedException;
 import io.github.flowable.plus.core.spi.UserContext;
 import cn.hutool.core.util.StrUtil;
-import org.flowable.bpmn.model.Activity;
-import org.flowable.bpmn.model.BpmnModel;
-import org.flowable.bpmn.model.FlowElement;
 import org.flowable.engine.IdentityService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.history.HistoricProcessInstance;
@@ -187,26 +184,10 @@ class TaskWorkflow {
     // ======================== 内部辅助 ========================
 
     private void assertNotMultiInstance(Task task, String taskId) {
-        if (isMultiInstance(task)) {
+        if (bpmnModelCache.isMultiInstance(task)) {
             throw new IllegalArgumentException(
                     "任务 " + taskId + " 是多实例子任务，请使用会签操作(counterSign)");
         }
-    }
-
-    boolean isMultiInstance(Task task) {
-        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(task.getProcessDefinitionId());
-        if (bpmnModel == null) {
-            return false;
-        }
-        FlowElement flowElement = bpmnModel.getFlowElement(task.getTaskDefinitionKey());
-        if (flowElement == null) {
-            return false;
-        }
-        if (flowElement instanceof Activity) {
-            Activity activity = (Activity) flowElement;
-            return activity.getLoopCharacteristics() != null;
-        }
-        return false;
     }
 
     private void executeRollback(Task task, String targetActivityId, String reason, String commentType) {
