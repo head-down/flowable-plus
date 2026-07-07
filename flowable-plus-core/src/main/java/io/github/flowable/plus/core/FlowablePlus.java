@@ -2,15 +2,27 @@ package io.github.flowable.plus.core;
 
 import io.github.flowable.plus.core.spi.CounterSignCallback;
 import io.github.flowable.plus.core.spi.UserContext;
+import io.github.flowable.plus.core.vo.AssigneeInfo;
+import io.github.flowable.plus.core.vo.ProcessSummaryVO;
 import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
+import org.flowable.engine.HistoryService;
 import org.flowable.engine.ProcessEngine;
 import org.flowable.engine.RuntimeService;
+import org.flowable.engine.TaskService;
+import org.flowable.engine.history.HistoricProcessInstance;
+import org.flowable.engine.runtime.ProcessInstance;
 import org.flowable.task.api.Task;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Flowable-Plus 统一入口 Façade，封装 Flowable 引擎操作，提供增强的中国式审批 API。
@@ -21,9 +33,10 @@ import java.util.Map;
  *
  * @author flowable-plus
  */
+@Slf4j
 public class FlowablePlus implements
         TaskOperations, CounterSignOperations,
-        RejectionOperations, ProcessLifecycle {
+        RejectionOperations, ProcessLifecycle, ProcessQueryOperations {
 
     @Getter
     private final ProcessEngine processEngine;
@@ -164,6 +177,139 @@ public class FlowablePlus implements
     @Override
     public void revokeProcess(String processInstanceId, String reason) {
         taskWorkflow.revokeProcess(processInstanceId, reason);
+    }
+
+    // ======================== ProcessQueryOperations ========================
+
+    private static final int BATCH_SIZE = 500;
+
+    @Override
+    public Map<String, ProcessSummaryVO> batchQueryProcessSummaries(List<String> processInstanceIds) {
+        if (processInstanceIds == null || processInstanceIds.isEmpty()) {
+            throw new IllegalArgumentException("processInstanceIds 不可为 null 或空");
+        }
+
+        Map<String, ProcessSummaryVO> result = new LinkedHashMap<>();
+        boolean foundAny = false;
+
+        RuntimeService runtimeService = processEngine.getRuntimeService();
+        TaskService taskService = processEngine.getTaskService();
+        HistoryService historyService = processEngine.getHistoryService();
+
+        for (int i = 0; i < processInstanceIds.size(); i += BATCH_SIZE) {
+            List<String> batch = processInstanceIds.subList(i, Math.min(i + BATCH_SIZE, processInstanceIds.size()));
+            Set<String> batchSet = new LinkedHashSet<>(batch);
+
+            // 1. 查询运行时实例
+            List<ProcessInstance> runtimeInstances = runtimeService.createProcessInstanceQuery()
+                    .processInstanceIds(batchSet)
+                    .list();
+            Set<String> runtimeIds = new HashSet<>();
+            Map<String, ProcessInstance> runtimeMap = new HashMap<>();
+            for (ProcessInstance pi : runtimeInstances) {
+                runtimeIds.add(pi.getProcessInstanceId());
+                runtimeMap.put(pi.getProcessInstanceId(), pi);
+            }
+
+            // 2. 查询运行时活跃任务
+            Map<String, List<Task>> tasksByInstance = new HashMap<>();
+            if (!runtimeIds.isEmpty()) {
+                List<Task> activeTasks = taskService.createTaskQuery()
+                        .processInstanceIdIn(new ArrayList<>(runtimeIds))
+                        .list();
+                for (Task task : activeTasks) {
+                    tasksByInstance.computeIfAbsent(task.getProcessInstanceId(), k -> new ArrayList<>()).add(task);
+                }
+            }
+
+            // 3. 查询历史实例（已结束的）
+            List<String> deadIds = new ArrayList<>(batchSet);
+            deadIds.removeAll(runtimeIds);
+            Map<String, HistoricProcessInstance> histMap = new HashMap<>();
+            if (!deadIds.isEmpty()) {
+                List<HistoricProcessInstance> histInstances = historyService.createHistoricProcessInstanceQuery()
+                        .processInstanceIds(new HashSet<>(deadIds))
+                        .list();
+                for (HistoricProcessInstance hpi : histInstances) {
+                    histMap.put(hpi.getId(), hpi);
+                }
+            }
+
+            // 4. 按输入顺序构建 VO
+            for (String instanceId : batch) {
+                ProcessSummaryVO vo;
+                if (runtimeMap.containsKey(instanceId)) {
+                    vo = buildRunningSummary(runtimeMap.get(instanceId),
+                            tasksByInstance.getOrDefault(instanceId, Collections.emptyList()));
+                } else if (histMap.containsKey(instanceId)) {
+                    vo = buildEndedSummary(histMap.get(instanceId));
+                } else {
+                    continue;
+                }
+                result.put(instanceId, vo);
+                foundAny = true;
+            }
+        }
+
+        if (!foundAny) {
+            log.warn("batchQueryProcessSummaries: 所有 processInstanceId 均不存在，共 {} 个", processInstanceIds.size());
+        }
+
+        return result;
+    }
+
+    private ProcessSummaryVO buildRunningSummary(ProcessInstance pi, List<Task> tasks) {
+        ProcessSummaryVO.ProcessSummaryVOBuilder builder = ProcessSummaryVO.builder()
+                .instanceId(pi.getProcessInstanceId())
+                .businessKey(pi.getBusinessKey())
+                .processDefinitionKey(pi.getProcessDefinitionKey())
+                .processDefinitionName(pi.getProcessDefinitionName())
+                .startUserId(pi.getStartUserId())
+                .createTime(pi.getStartTime())
+                .endTime(null)
+                .suspendState(pi.isSuspended() ? 2 : 1)
+                .isEnded(false)
+                .endReason(null);
+
+        if (tasks.isEmpty()) {
+            // 运行时存在但无活跃任务（罕见情况，如节点创建过渡期）
+            builder.currentTaskId(null)
+                    .currentTaskName(null)
+                    .currentNodeId(null)
+                    .activeAssignees(Collections.emptyList());
+        } else {
+            Task firstTask = tasks.get(0);
+            builder.currentTaskId(firstTask.getId())
+                    .currentTaskName(firstTask.getName())
+                    .currentNodeId(firstTask.getTaskDefinitionKey());
+
+            List<AssigneeInfo> assignees = new ArrayList<>();
+            for (Task t : tasks) {
+                assignees.add(new AssigneeInfo(t.getAssignee(), t.getId(), null));
+            }
+            builder.activeAssignees(assignees);
+        }
+
+        return builder.build();
+    }
+
+    private ProcessSummaryVO buildEndedSummary(HistoricProcessInstance hpi) {
+        return ProcessSummaryVO.builder()
+                .instanceId(hpi.getId())
+                .businessKey(hpi.getBusinessKey())
+                .processDefinitionKey(hpi.getProcessDefinitionKey())
+                .processDefinitionName(hpi.getProcessDefinitionName())
+                .startUserId(hpi.getStartUserId())
+                .createTime(hpi.getStartTime())
+                .endTime(hpi.getEndTime())
+                .currentTaskId(null)
+                .currentTaskName(null)
+                .currentNodeId(null)
+                .suspendState(1)
+                .isEnded(true)
+                .endReason(hpi.getDeleteReason())
+                .activeAssignees(Collections.emptyList())
+                .build();
     }
 
     // ======================== 测试辅助 ========================
