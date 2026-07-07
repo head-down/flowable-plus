@@ -1,5 +1,6 @@
 package io.github.flowable.plus.core;
 
+import io.github.flowable.plus.core.spi.ApproverResolver;
 import io.github.flowable.plus.core.spi.UserContext;
 import org.flowable.common.engine.impl.el.ExpressionManager;
 import org.flowable.engine.ProcessEngine;
@@ -26,6 +27,7 @@ public class FlowablePlusTest {
     private BpmnModelCache bpmnModelCache;
     private UserContext userContext;
     private NodeFinder mockNodeFinder;
+    private ApproverResolver mockApproverResolver;
 
     @BeforeEach
     public void setUp() {
@@ -39,6 +41,7 @@ public class FlowablePlusTest {
 
         userContext = () -> "testUser";
         mockNodeFinder = mock(NodeFinder.class);
+        mockApproverResolver = mock(ApproverResolver.class);
         bpmnModelCache = new DefaultBpmnModelCache(mockRepoService);
     }
 
@@ -46,43 +49,50 @@ public class FlowablePlusTest {
 
     @Test
     public void testConstructorInjectsProcessEngine() {
-        FlowablePlus fp = new FlowablePlus(mockEngine, userContext, mockNodeFinder, bpmnModelCache, null);
+        FlowablePlus fp = new FlowablePlus(mockEngine, userContext, mockNodeFinder, bpmnModelCache, mockApproverResolver);
         assertThat(fp.getProcessEngine()).isSameAs(mockEngine);
     }
 
     @Test
     public void testConstructorRejectsNullProcessEngine() {
-        assertThatThrownBy(() -> new FlowablePlus(null, userContext, mockNodeFinder, bpmnModelCache, null))
+        assertThatThrownBy(() -> new FlowablePlus(null, userContext, mockNodeFinder, bpmnModelCache, mockApproverResolver))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("ProcessEngine 不可为 null");
     }
 
     @Test
     public void testConstructorRejectsNullUserContext() {
-        assertThatThrownBy(() -> new FlowablePlus(mockEngine, null, mockNodeFinder, bpmnModelCache, null))
+        assertThatThrownBy(() -> new FlowablePlus(mockEngine, null, mockNodeFinder, bpmnModelCache, mockApproverResolver))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("UserContext 不可为 null");
     }
 
     @Test
     public void testConstructorRejectsNullNodeFinder() {
-        assertThatThrownBy(() -> new FlowablePlus(mockEngine, userContext, null, bpmnModelCache, null))
+        assertThatThrownBy(() -> new FlowablePlus(mockEngine, userContext, null, bpmnModelCache, mockApproverResolver))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("NodeFinder 不可为 null");
     }
 
     @Test
     public void testConstructorRejectsNullBpmnModelCache() {
-        assertThatThrownBy(() -> new FlowablePlus(mockEngine, userContext, mockNodeFinder, null, null))
+        assertThatThrownBy(() -> new FlowablePlus(mockEngine, userContext, mockNodeFinder, null, mockApproverResolver))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("BpmnModelCache 不可为 null");
+    }
+
+    @Test
+    public void testConstructorRejectsNullApproverResolver() {
+        assertThatThrownBy(() -> new FlowablePlus(mockEngine, userContext, mockNodeFinder, bpmnModelCache, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("ApproverResolver 不可为 null");
     }
 
     // ======================== getter ========================
 
     @Test
     public void testGetUserContext() {
-        FlowablePlus fp = new FlowablePlus(mockEngine, userContext, mockNodeFinder, bpmnModelCache, null);
+        FlowablePlus fp = new FlowablePlus(mockEngine, userContext, mockNodeFinder, bpmnModelCache, mockApproverResolver);
         assertThat(fp.getUserContext()).isSameAs(userContext);
     }
 }

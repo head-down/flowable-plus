@@ -1,5 +1,6 @@
 package io.github.flowable.plus.core;
 
+import io.github.flowable.plus.core.spi.ApproverResolver;
 import io.github.flowable.plus.core.spi.GroupResolver;
 import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.vo.ApproverInfoVO;
@@ -30,6 +31,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * S5: getNextNodeApproversByProcessKey 单元测试。
+ * 审批人解析通过 {@link UserTaskApproverResolver} 委托给 {@link GroupResolver}。
  */
 public class NodePreviewOperationsTest {
 
@@ -38,6 +40,7 @@ public class NodePreviewOperationsTest {
     private NodeFinder mockNodeFinder;
     private BpmnModelCache bpmnModelCache;
     private GroupResolver mockGroupResolver;
+    private ApproverResolver approverResolver;
     private FlowablePlus flowablePlus;
 
     @BeforeEach
@@ -59,9 +62,10 @@ public class NodePreviewOperationsTest {
 
         UserContext userContext = () -> "testUser";
         bpmnModelCache = new DefaultBpmnModelCache(mockRepoService);
+        approverResolver = new UserTaskApproverResolver(mockGroupResolver);
 
         flowablePlus = new FlowablePlus(mockEngine, userContext, mockNodeFinder, bpmnModelCache,
-                mockGroupResolver);
+                approverResolver);
     }
 
     // ======================== 参数校验 ========================
@@ -193,7 +197,7 @@ public class NodePreviewOperationsTest {
 
         UserContext userContext = () -> "testUser";
         FlowablePlus fpWithoutResolver = new FlowablePlus(mockEngine, userContext, mockNodeFinder,
-                bpmnModelCache, null);
+                bpmnModelCache, new UserTaskApproverResolver(null));
 
         UserTask userTask = buildUserTask("taskA", "多级审批", null, null,
                 Collections.singletonList("dept_manager"));

@@ -7,6 +7,7 @@ import org.flowable.task.api.history.HistoricTaskInstance;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 /**
  * {@link HistoricRepository} 的 Flowable 默认适配器实现。
@@ -63,6 +64,16 @@ public class FlowableHistoricRepository implements HistoricRepository {
                 .processInstanceId(processInstanceId)
                 .finished()
                 .orderByHistoricActivityInstanceEndTime().desc()
+                .list();
+    }
+
+    @Override
+    public List<HistoricProcessInstance> findProcessInstancesByIds(Set<String> processInstanceIds) {
+        if (processInstanceIds == null || processInstanceIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return historyService.createHistoricProcessInstanceQuery()
+                .processInstanceIds(processInstanceIds)
                 .list();
     }
 }

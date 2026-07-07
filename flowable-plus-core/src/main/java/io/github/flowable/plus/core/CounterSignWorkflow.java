@@ -54,11 +54,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
     public void counterSign(String taskId, boolean approved, Map<String, Object> variables, String comment) {
         Task task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "会签");
         TaskValidation.validateCurrentUserIsAssignee(task, userContext.getCurrentUserId(), taskId, "会签");
-
-        if (!bpmnModelCache.isMultiInstance(task)) {
-            throw new IllegalArgumentException(
-                    "任务 " + taskId + " 不是多实例子任务，请使用审批操作(completeTask)");
-        }
+        TaskValidation.validateMultiInstance(bpmnModelCache, task, taskId, "会签");
 
         String userId = userContext.getCurrentUserId();
         String processInstanceId = task.getProcessInstanceId();
@@ -94,11 +90,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
         }
 
         Task task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "加签");
-
-        if (!bpmnModelCache.isMultiInstance(task)) {
-            throw new IllegalArgumentException(
-                    "任务 " + taskId + " 不是多实例子任务，无法加签");
-        }
+        TaskValidation.validateMultiInstance(bpmnModelCache, task, taskId, "加签");
 
         validateCounterSignPermission(task, "加签");
 
@@ -150,11 +142,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
         }
 
         Task task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "减签");
-
-        if (!bpmnModelCache.isMultiInstance(task)) {
-            throw new IllegalArgumentException(
-                    "任务 " + taskId + " 不是多实例子任务，无法减签");
-        }
+        TaskValidation.validateMultiInstance(bpmnModelCache, task, taskId, "减签");
 
         validateCounterSignPermission(task, "减签");
 

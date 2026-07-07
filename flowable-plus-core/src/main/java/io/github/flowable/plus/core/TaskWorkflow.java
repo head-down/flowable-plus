@@ -64,7 +64,7 @@ public class TaskWorkflow implements TaskOperations, RejectionOperations, Proces
     @Override
     public void completeTask(String taskId, Map<String, Object> variables, String comment) {
         Task task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "审批");
-        assertNotMultiInstance(task, taskId);
+        TaskValidation.validateNotMultiInstance(bpmnModelCache, task, taskId);
 
         String userId = userContext.getCurrentUserId();
 
@@ -91,7 +91,7 @@ public class TaskWorkflow implements TaskOperations, RejectionOperations, Proces
     public void rejectTask(String taskId, String reason) {
         Task task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "驳回");
         TaskValidation.validateCurrentUserIsAssignee(task, userContext.getCurrentUserId(), taskId, "驳回");
-        assertNotMultiInstance(task, taskId);
+        TaskValidation.validateNotMultiInstance(bpmnModelCache, task, taskId);
 
         String processDefinitionId = task.getProcessDefinitionId();
         String currentActivityId = task.getTaskDefinitionKey();
@@ -111,7 +111,7 @@ public class TaskWorkflow implements TaskOperations, RejectionOperations, Proces
     public void rejectTaskToInitiator(String taskId, String reason) {
         Task task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "驳回");
         TaskValidation.validateCurrentUserIsAssignee(task, userContext.getCurrentUserId(), taskId, "驳回");
-        assertNotMultiInstance(task, taskId);
+        TaskValidation.validateNotMultiInstance(bpmnModelCache, task, taskId);
 
         String processDefinitionId = task.getProcessDefinitionId();
         String initiatorNode = nodeFinder.findInitiatorNode(processDefinitionId);
@@ -127,7 +127,7 @@ public class TaskWorkflow implements TaskOperations, RejectionOperations, Proces
     public void withdrawTask(String taskId, String reason) {
         String currentUserId = userContext.getCurrentUserId();
         Task task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "撤回");
-        assertNotMultiInstance(task, taskId);
+        TaskValidation.validateNotMultiInstance(bpmnModelCache, task, taskId);
 
         if (currentUserId.equals(task.getAssignee())) {
             throw new PermissionDeniedException("无法撤回自己当前处理的任务 " + taskId);
@@ -189,13 +189,6 @@ public class TaskWorkflow implements TaskOperations, RejectionOperations, Proces
     }
 
     // ======================== 内部辅助 ========================
-
-    private void assertNotMultiInstance(Task task, String taskId) {
-        if (bpmnModelCache.isMultiInstance(task)) {
-            throw new IllegalArgumentException(
-                    "任务 " + taskId + " 是多实例子任务，请使用会签操作(counterSign)");
-        }
-    }
 
     private void executeRollback(Task task, String targetActivityId, String reason, String commentType) {
         if (StrUtil.isNotBlank(reason)) {

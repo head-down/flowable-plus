@@ -5,6 +5,7 @@ import org.flowable.engine.history.HistoricProcessInstance;
 import org.flowable.task.api.history.HistoricTaskInstance;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * 历史数据仓储接口，封装 Flowable HistoryService 的查询操作。
@@ -61,4 +62,12 @@ public interface HistoricRepository {
      * @return 已完成的历史活动实例列表
      */
     List<HistoricActivityInstance> findFinishedHistoricActivityInstances(String processInstanceId);
+
+    /**
+     * 按流程实例 ID 集合批量查询历史流程实例。
+     *
+     * @param processInstanceIds 流程实例 ID 集合，不可为 null 或空
+     * @return 历史流程实例列表，无结果返回空列表
+     */
+    List<HistoricProcessInstance> findProcessInstancesByIds(Set<String> processInstanceIds);
 }

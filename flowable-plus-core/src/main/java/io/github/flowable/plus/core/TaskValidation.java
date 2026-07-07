@@ -47,4 +47,28 @@ final class TaskValidation {
                     "用户 " + currentUserId + " 不是任务 " + taskId + " 的审批人，无权" + operation);
         }
     }
+
+    /**
+     * 断言任务为多实例子任务，适用于会签场景。
+     *
+     * @throws IllegalArgumentException 非多实例子任务时抛出
+     */
+    static void validateMultiInstance(BpmnModelCache bpmnModelCache, Task task, String taskId, String operation) {
+        if (!bpmnModelCache.isMultiInstance(task)) {
+            throw new IllegalArgumentException(
+                    "任务 " + taskId + " 不是多实例子任务，无法" + operation);
+        }
+    }
+
+    /**
+     * 断言任务为非多实例子任务，适用于常规审批/驳回/撤回场景。
+     *
+     * @throws IllegalArgumentException 多实例子任务时抛出
+     */
+    static void validateNotMultiInstance(BpmnModelCache bpmnModelCache, Task task, String taskId) {
+        if (bpmnModelCache.isMultiInstance(task)) {
+            throw new IllegalArgumentException(
+                    "任务 " + taskId + " 是多实例子任务，请使用会签操作(counterSign)");
+        }
+    }
 }

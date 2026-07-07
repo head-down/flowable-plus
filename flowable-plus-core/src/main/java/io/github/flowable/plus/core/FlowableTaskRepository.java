@@ -3,6 +3,9 @@ package io.github.flowable.plus.core;
 import org.flowable.engine.TaskService;
 import org.flowable.task.api.Task;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -73,5 +76,16 @@ public class FlowableTaskRepository implements TaskRepository {
     @Override
     public void complete(String taskId, Map<String, Object> variables) {
         taskService.complete(taskId, variables);
+    }
+
+    @Override
+    public List<Task> findActiveTasksByProcessInstanceIds(Collection<String> processInstanceIds) {
+        if (processInstanceIds == null || processInstanceIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return taskService.createTaskQuery()
+                .processInstanceIdIn(new ArrayList<>(processInstanceIds))
+                .active()
+                .list();
     }
 }

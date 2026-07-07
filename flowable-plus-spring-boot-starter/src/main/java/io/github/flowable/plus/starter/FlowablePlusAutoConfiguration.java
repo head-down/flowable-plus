@@ -9,8 +9,11 @@ import io.github.flowable.plus.core.FlowablePlus;
 import io.github.flowable.plus.core.FlowableTaskRepository;
 import io.github.flowable.plus.core.HistoricRepository;
 import io.github.flowable.plus.core.NodeFinder;
+import io.github.flowable.plus.core.ProcessQueryWorkflow;
 import io.github.flowable.plus.core.TaskRepository;
 import io.github.flowable.plus.core.TaskWorkflow;
+import io.github.flowable.plus.core.UserTaskApproverResolver;
+import io.github.flowable.plus.core.spi.ApproverResolver;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
 import io.github.flowable.plus.core.spi.GroupResolver;
 import io.github.flowable.plus.core.spi.UserContext;
@@ -177,16 +180,31 @@ public class FlowablePlusAutoConfiguration {
     }
 
     /**
+     * 注册 ApproverResolver Bean。
+     *
+     * <p>默认实现从 UserTask 的 assignee、candidateUsers 和
+     * candidateGroups 中提取审批人。应用可通过声明同名 Bean 覆盖。</p>
+     *
+     * @param groupResolver 候选组解析器（可选）
+     * @return UserTaskApproverResolver 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public ApproverResolver approverResolver(@Autowired(required = false) GroupResolver groupResolver) {
+        return new UserTaskApproverResolver(groupResolver);
+    }
+
+    /**
      * 注册 FlowablePlus Bean。
      *
      * <p>当 {@code flowable.plus.enabled=true}（默认）时生效，
      * 且允许用户通过自定义同类型 Bean 覆盖。</p>
      *
-     * @param processEngine  Flowable 流程引擎（由 flowable-spring-boot-starter 提供）
-     * @param userContext     用户上下文（可被应用覆盖）
-     * @param nodeFinder      BPMN 节点遍历策略（可被应用覆盖）
-     * @param bpmnModelCache  BPMN 模型缓存（可被应用覆盖）
-     * @param groupResolver   候选组解析器（可选）
+     * @param processEngine     Flowable 流程引擎（由 flowable-spring-boot-starter 提供）
+     * @param userContext        用户上下文（可被应用覆盖）
+     * @param nodeFinder         BPMN 节点遍历策略（可被应用覆盖）
+     * @param bpmnModelCache     BPMN 模型缓存（可被应用覆盖）
+     * @param approverResolver   审批人解析策略（可被应用覆盖）
      * @return FlowablePlus 实例
      */
     @Bean
@@ -194,8 +212,27 @@ public class FlowablePlusAutoConfiguration {
     @ConditionalOnProperty(name = "flowable.plus.enabled", havingValue = "true", matchIfMissing = true)
     public FlowablePlus flowablePlus(ProcessEngine processEngine, UserContext userContext,
                                      NodeFinder nodeFinder, BpmnModelCache bpmnModelCache,
-                                     @Autowired(required = false) GroupResolver groupResolver) {
-        return new FlowablePlus(processEngine, userContext, nodeFinder, bpmnModelCache, groupResolver);
+                                     ApproverResolver approverResolver) {
+        return new FlowablePlus(processEngine, userContext, nodeFinder, bpmnModelCache, approverResolver);
+    }
+
+    /**
+     * 注册 ProcessQueryWorkflow Bean。
+     *
+     * <p>封装批量流程实例摘要查询逻辑，通过 {@link TaskRepository}
+     * 和 {@link HistoricRepository} 接缝访问流程数据。</p>
+     *
+     * @param taskRepository     任务仓储
+     * @param historicRepository 历史数据仓储
+     * @param processEngine      Flowable 流程引擎
+     * @return ProcessQueryWorkflow 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public ProcessQueryWorkflow processQueryWorkflow(TaskRepository taskRepository,
+                                                      HistoricRepository historicRepository,
+                                                      ProcessEngine processEngine) {
+        return new ProcessQueryWorkflow(processEngine.getRuntimeService(), taskRepository, historicRepository);
     }
 
     /**

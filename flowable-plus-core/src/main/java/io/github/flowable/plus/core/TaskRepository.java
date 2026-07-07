@@ -2,6 +2,7 @@ package io.github.flowable.plus.core;
 
 import org.flowable.task.api.Task;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
@@ -89,4 +90,14 @@ public interface TaskRepository {
      * @param variables 流程变量，可为 null
      */
     void complete(String taskId, Map<String, Object> variables);
+
+    // ======================== 批量查询 ========================
+
+    /**
+     * 按流程实例 ID 集合批量查询活跃任务。
+     *
+     * @param processInstanceIds 流程实例 ID 列表，不可为 null 或空
+     * @return 活跃任务列表，无结果返回空列表
+     */
+    List<Task> findActiveTasksByProcessInstanceIds(Collection<String> processInstanceIds);
 }

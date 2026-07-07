@@ -1,19 +1,12 @@
 package io.github.flowable.plus.core;
 
-import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.vo.AssigneeInfo;
 import io.github.flowable.plus.core.vo.ProcessSummaryVO;
-import org.flowable.engine.HistoryService;
-import org.flowable.engine.ProcessEngine;
-import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
-import org.flowable.engine.TaskService;
 import org.flowable.engine.history.HistoricProcessInstance;
-import org.flowable.engine.history.HistoricProcessInstanceQuery;
 import org.flowable.engine.runtime.ProcessInstance;
 import org.flowable.engine.runtime.ProcessInstanceQuery;
 import org.flowable.task.api.Task;
-import org.flowable.task.api.TaskQuery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -26,55 +19,44 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * batchQueryProcessSummaries 集成测试。
+ * batchQueryProcessSummaries 测试：基于 ProcessQueryWorkflow，
+ * 通过 TaskRepository 和 HistoricRepository 接缝访问数据。
  */
 public class ProcessQueryOperationsTest {
 
-    private ProcessEngine mockEngine;
-    private RepositoryService mockRepoService;
     private RuntimeService mockRuntimeService;
-    private TaskService mockTaskService;
-    private HistoryService mockHistoryService;
-    private FlowablePlus flowablePlus;
+    private TaskRepository mockTaskRepository;
+    private HistoricRepository mockHistoricRepository;
+    private ProcessQueryWorkflow processQueryWorkflow;
 
     @BeforeEach
     public void setUp() {
-        mockEngine = mock(ProcessEngine.class);
-        mockRepoService = mock(RepositoryService.class);
         mockRuntimeService = mock(RuntimeService.class);
-        mockTaskService = mock(TaskService.class);
-        mockHistoryService = mock(HistoryService.class);
+        mockTaskRepository = mock(TaskRepository.class);
+        mockHistoricRepository = mock(HistoricRepository.class);
 
-        when(mockEngine.getRepositoryService()).thenReturn(mockRepoService);
-        when(mockEngine.getRuntimeService()).thenReturn(mockRuntimeService);
-        when(mockEngine.getTaskService()).thenReturn(mockTaskService);
-        when(mockEngine.getHistoryService()).thenReturn(mockHistoryService);
-
-        UserContext userContext = () -> "testUser";
-        NodeFinder mockNodeFinder = mock(NodeFinder.class);
-        BpmnModelCache bpmnModelCache = new DefaultBpmnModelCache(mockRepoService);
-
-        flowablePlus = new FlowablePlus(mockEngine, userContext, mockNodeFinder, bpmnModelCache, null);
+        processQueryWorkflow = new ProcessQueryWorkflow(
+                mockRuntimeService, mockTaskRepository, mockHistoricRepository);
     }
 
     // ======================== 参数校验 ========================
 
     @Test
     public void testRejectNullList() {
-        assertThatThrownBy(() -> flowablePlus.batchQueryProcessSummaries(null))
+        assertThatThrownBy(() -> processQueryWorkflow.batchQueryProcessSummaries(null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("processInstanceIds");
     }
 
     @Test
     public void testRejectEmptyList() {
-        assertThatThrownBy(() -> flowablePlus.batchQueryProcessSummaries(Collections.emptyList()))
+        assertThatThrownBy(() -> processQueryWorkflow.batchQueryProcessSummaries(Collections.emptyList()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("processInstanceIds");
     }
@@ -91,7 +73,7 @@ public class ProcessQueryOperationsTest {
         Task task = createMockTask("task-001", instanceId, "task1", "部门审批", "reviewer1");
         stubRunningQueries(Collections.singletonList(pi), Collections.singletonList(task));
 
-        Map<String, ProcessSummaryVO> result = flowablePlus.batchQueryProcessSummaries(
+        Map<String, ProcessSummaryVO> result = processQueryWorkflow.batchQueryProcessSummaries(
                 Collections.singletonList(instanceId));
 
         assertThat(result).hasSize(1);
@@ -125,7 +107,7 @@ public class ProcessQueryOperationsTest {
         Task task = createMockTask("task-002", instanceId, "task1", "部门审批", "reviewer1");
         stubRunningQueries(Collections.singletonList(pi), Collections.singletonList(task));
 
-        Map<String, ProcessSummaryVO> result = flowablePlus.batchQueryProcessSummaries(
+        Map<String, ProcessSummaryVO> result = processQueryWorkflow.batchQueryProcessSummaries(
                 Collections.singletonList(instanceId));
 
         ProcessSummaryVO vo = result.get(instanceId);
@@ -148,11 +130,11 @@ public class ProcessQueryOperationsTest {
         stubRunningQueries(Collections.singletonList(pi),
                 Arrays.asList(task1, task2, task3));
 
-        Map<String, ProcessSummaryVO> result = flowablePlus.batchQueryProcessSummaries(
+        Map<String, ProcessSummaryVO> result = processQueryWorkflow.batchQueryProcessSummaries(
                 Collections.singletonList(instanceId));
 
         ProcessSummaryVO vo = result.get(instanceId);
-        assertThat(vo.getCurrentTaskId()).isEqualTo("task-a"); // 第一个
+        assertThat(vo.getCurrentTaskId()).isEqualTo("task-a");
         assertThat(vo.getCurrentTaskName()).isEqualTo("会签审批");
         assertThat(vo.getActiveAssignees()).hasSize(3);
         assertThat(vo.getActiveAssignees().get(0).getUserId()).isEqualTo("reviewer1");
@@ -179,11 +161,11 @@ public class ProcessQueryOperationsTest {
         when(hpi.getStartUserId()).thenReturn("userA");
         when(hpi.getStartTime()).thenReturn(startTime);
         when(hpi.getEndTime()).thenReturn(endTime);
-        when(hpi.getDeleteReason()).thenReturn(null); // 正常结束
+        when(hpi.getDeleteReason()).thenReturn(null);
 
         stubEndedQueries(Collections.emptyList(), Collections.singletonList(hpi));
 
-        Map<String, ProcessSummaryVO> result = flowablePlus.batchQueryProcessSummaries(
+        Map<String, ProcessSummaryVO> result = processQueryWorkflow.batchQueryProcessSummaries(
                 Collections.singletonList(instanceId));
 
         ProcessSummaryVO vo = result.get(instanceId);
@@ -191,7 +173,7 @@ public class ProcessQueryOperationsTest {
         assertThat(vo.getBusinessKey()).isEqualTo("biz-ended");
         assertThat(vo.getIsEnded()).isTrue();
         assertThat(vo.getEndTime()).isNotNull();
-        assertThat(vo.getEndReason()).isNull(); // 正常结束
+        assertThat(vo.getEndReason()).isNull();
         assertThat(vo.getCurrentTaskId()).isNull();
         assertThat(vo.getCurrentTaskName()).isNull();
         assertThat(vo.getActiveAssignees()).isEmpty();
@@ -214,7 +196,7 @@ public class ProcessQueryOperationsTest {
 
         stubEndedQueries(Collections.emptyList(), Collections.singletonList(hpi));
 
-        Map<String, ProcessSummaryVO> result = flowablePlus.batchQueryProcessSummaries(
+        Map<String, ProcessSummaryVO> result = processQueryWorkflow.batchQueryProcessSummaries(
                 Collections.singletonList(instanceId));
 
         ProcessSummaryVO vo = result.get(instanceId);
@@ -249,18 +231,15 @@ public class ProcessQueryOperationsTest {
         when(hpi.getDeleteReason()).thenReturn(null);
         stubEndedQueries(Collections.singletonList(pi), Collections.singletonList(hpi));
 
-        Map<String, ProcessSummaryVO> result = flowablePlus.batchQueryProcessSummaries(
+        Map<String, ProcessSummaryVO> result = processQueryWorkflow.batchQueryProcessSummaries(
                 Arrays.asList(runningId, endedId, notFoundId));
 
-        // 运行中的存在
         assertThat(result).containsKey(runningId);
         assertThat(result.get(runningId).getIsEnded()).isFalse();
 
-        // 已结束的存在
         assertThat(result).containsKey(endedId);
         assertThat(result.get(endedId).getIsEnded()).isTrue();
 
-        // 不存在的不在 map 中
         assertThat(result).doesNotContainKey(notFoundId);
         assertThat(result).hasSize(2);
     }
@@ -285,10 +264,9 @@ public class ProcessQueryOperationsTest {
         Task t3 = createMockTask("t3", instanceId3, "n3", "节点3", "r3");
         stubRunningQueries(Arrays.asList(pi1, pi2, pi3), Arrays.asList(t1, t2, t3));
 
-        Map<String, ProcessSummaryVO> result = flowablePlus.batchQueryProcessSummaries(
+        Map<String, ProcessSummaryVO> result = processQueryWorkflow.batchQueryProcessSummaries(
                 Arrays.asList(instanceId1, instanceId2, instanceId3));
 
-        // 验证顺序
         assertThat(result).isInstanceOf(LinkedHashMap.class);
         assertThat(new ArrayList<>(result.keySet()))
                 .containsExactly(instanceId1, instanceId2, instanceId3);
@@ -303,10 +281,9 @@ public class ProcessQueryOperationsTest {
                 "userA", new Date());
         when(pi.isSuspended()).thenReturn(false);
 
-        // 运行时存在但无活跃任务
         stubRunningQueries(Collections.singletonList(pi), Collections.emptyList());
 
-        Map<String, ProcessSummaryVO> result = flowablePlus.batchQueryProcessSummaries(
+        Map<String, ProcessSummaryVO> result = processQueryWorkflow.batchQueryProcessSummaries(
                 Collections.singletonList(instanceId));
 
         ProcessSummaryVO vo = result.get(instanceId);
@@ -331,7 +308,6 @@ public class ProcessQueryOperationsTest {
         return pi;
     }
 
-    @SuppressWarnings("unchecked")
     private Task createMockTask(String taskId, String processInstanceId,
             String taskDefKey, String taskName, String assignee) {
         Task task = mock(Task.class);
@@ -347,17 +323,15 @@ public class ProcessQueryOperationsTest {
     private void stubRunningQueries(
             java.util.List<ProcessInstance> runtimeInstances,
             java.util.List<Task> activeTasks) {
-        // ProcessInstanceQuery
+        // ProcessInstanceQuery (RuntimeService — 无独立仓储)
         ProcessInstanceQuery piQuery = mock(ProcessInstanceQuery.class);
         when(mockRuntimeService.createProcessInstanceQuery()).thenReturn(piQuery);
         when(piQuery.processInstanceIds(anySet())).thenReturn(piQuery);
         when(piQuery.list()).thenReturn(runtimeInstances);
 
-        // TaskQuery
-        TaskQuery taskQuery = mock(TaskQuery.class);
-        when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
-        when(taskQuery.processInstanceIdIn(anyList())).thenReturn(taskQuery);
-        when(taskQuery.list()).thenReturn(activeTasks);
+        // TaskRepository 接缝
+        when(mockTaskRepository.findActiveTasksByProcessInstanceIds(anyCollection()))
+                .thenReturn(activeTasks);
     }
 
     private void stubEndedQueries(
@@ -369,16 +343,12 @@ public class ProcessQueryOperationsTest {
         when(piQuery.processInstanceIds(anySet())).thenReturn(piQuery);
         when(piQuery.list()).thenReturn(runtimeInstances);
 
-        // History query
-        HistoricProcessInstanceQuery hiQuery = mock(HistoricProcessInstanceQuery.class);
-        when(mockHistoryService.createHistoricProcessInstanceQuery()).thenReturn(hiQuery);
-        when(hiQuery.processInstanceIds(anySet())).thenReturn(hiQuery);
-        when(hiQuery.list()).thenReturn(histInstances);
+        // HistoricRepository 接缝
+        when(mockHistoricRepository.findProcessInstancesByIds(anySet()))
+                .thenReturn(histInstances);
 
-        // TaskQuery - 运行时无活跃任务
-        TaskQuery taskQuery = mock(TaskQuery.class);
-        when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
-        when(taskQuery.processInstanceIdIn(anyList())).thenReturn(taskQuery);
-        when(taskQuery.list()).thenReturn(Collections.emptyList());
+        // TaskRepository 接缝 — 运行时无活跃任务
+        when(mockTaskRepository.findActiveTasksByProcessInstanceIds(anyCollection()))
+                .thenReturn(Collections.emptyList());
     }
 }
