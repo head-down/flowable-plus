@@ -22,7 +22,7 @@ import java.util.Map;
  *
  * @author flowable-plus
  */
-class TaskWorkflow {
+public class TaskWorkflow implements TaskOperations, RejectionOperations, ProcessLifecycle {
 
     private final UserContext userContext;
     private final TaskRepository taskRepository;
@@ -32,7 +32,7 @@ class TaskWorkflow {
     private final NodeFinder nodeFinder;
     private final BpmnModelCache bpmnModelCache;
 
-    TaskWorkflow(UserContext userContext, TaskRepository taskRepository,
+    public TaskWorkflow(UserContext userContext, TaskRepository taskRepository,
                  HistoricRepository historicRepository, RuntimeService runtimeService,
                  IdentityService identityService, NodeFinder nodeFinder,
                  BpmnModelCache bpmnModelCache) {
@@ -45,7 +45,8 @@ class TaskWorkflow {
         this.bpmnModelCache = bpmnModelCache;
     }
 
-    PlusProcessInstance startProcess(String processDefinitionKey, String businessKey, Map<String, Object> variables) {
+    @Override
+    public PlusProcessInstance startProcess(String processDefinitionKey, String businessKey, Map<String, Object> variables) {
         if (processDefinitionKey == null) {
             throw new IllegalArgumentException("processDefinitionKey 不可为 null");
         }
@@ -60,7 +61,8 @@ class TaskWorkflow {
         }
     }
 
-    void completeTask(String taskId, Map<String, Object> variables, String comment) {
+    @Override
+    public void completeTask(String taskId, Map<String, Object> variables, String comment) {
         Task task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "审批");
         assertNotMultiInstance(task, taskId);
 
@@ -75,7 +77,8 @@ class TaskWorkflow {
         taskRepository.complete(taskId, variables);
     }
 
-    void claimTask(String taskId) {
+    @Override
+    public void claimTask(String taskId) {
         if (taskId == null) {
             throw new IllegalArgumentException("taskId 不可为 null");
         }
@@ -84,7 +87,8 @@ class TaskWorkflow {
         taskRepository.claim(taskId, userId);
     }
 
-    void rejectTask(String taskId, String reason) {
+    @Override
+    public void rejectTask(String taskId, String reason) {
         Task task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "驳回");
         TaskValidation.validateCurrentUserIsAssignee(task, userContext.getCurrentUserId(), taskId, "驳回");
         assertNotMultiInstance(task, taskId);
@@ -103,7 +107,8 @@ class TaskWorkflow {
         executeRollback(task, targetNode, reason, "REJECT");
     }
 
-    void rejectTaskToInitiator(String taskId, String reason) {
+    @Override
+    public void rejectTaskToInitiator(String taskId, String reason) {
         Task task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "驳回");
         TaskValidation.validateCurrentUserIsAssignee(task, userContext.getCurrentUserId(), taskId, "驳回");
         assertNotMultiInstance(task, taskId);
@@ -118,7 +123,8 @@ class TaskWorkflow {
         executeRollback(task, initiatorNode, reason, "REJECT");
     }
 
-    void withdrawTask(String taskId, String reason) {
+    @Override
+    public void withdrawTask(String taskId, String reason) {
         String currentUserId = userContext.getCurrentUserId();
         Task task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "撤回");
         assertNotMultiInstance(task, taskId);
@@ -147,7 +153,8 @@ class TaskWorkflow {
         executeRollback(task, prevNodeId, reason, "WITHDRAW");
     }
 
-    void revokeProcess(String processInstanceId, String reason) {
+    @Override
+    public void revokeProcess(String processInstanceId, String reason) {
         if (processInstanceId == null) {
             throw new IllegalArgumentException("processInstanceId 不可为 null");
         }

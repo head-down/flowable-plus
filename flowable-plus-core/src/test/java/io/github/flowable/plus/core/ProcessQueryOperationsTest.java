@@ -3,10 +3,8 @@ package io.github.flowable.plus.core;
 import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.vo.AssigneeInfo;
 import io.github.flowable.plus.core.vo.ProcessSummaryVO;
-import org.flowable.common.engine.impl.el.ExpressionManager;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.ProcessEngine;
-import org.flowable.engine.impl.cfg.ProcessEngineConfigurationImpl;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
@@ -24,7 +22,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -58,18 +55,12 @@ public class ProcessQueryOperationsTest {
         when(mockEngine.getRuntimeService()).thenReturn(mockRuntimeService);
         when(mockEngine.getTaskService()).thenReturn(mockTaskService);
         when(mockEngine.getHistoryService()).thenReturn(mockHistoryService);
-        when(mockEngine.getIdentityService()).thenReturn(mock(org.flowable.engine.IdentityService.class));
-
-        ProcessEngineConfigurationImpl config = mock(ProcessEngineConfigurationImpl.class);
-        when(config.getExpressionManager()).thenReturn(mock(ExpressionManager.class));
-        when(mockEngine.getProcessEngineConfiguration()).thenReturn(config);
 
         UserContext userContext = () -> "testUser";
+        NodeFinder mockNodeFinder = mock(NodeFinder.class);
         BpmnModelCache bpmnModelCache = new DefaultBpmnModelCache(mockRepoService);
-        NodeFinder nodeFinder = new DefaultNodeFinder(bpmnModelCache, mockHistoryService,
-                config.getExpressionManager());
 
-        flowablePlus = new FlowablePlus(mockEngine, userContext, nodeFinder, bpmnModelCache, null, null);
+        flowablePlus = new FlowablePlus(mockEngine, userContext, mockNodeFinder, bpmnModelCache, null);
     }
 
     // ======================== 参数校验 ========================

@@ -61,7 +61,7 @@ public class NodePreviewOperationsTest {
         bpmnModelCache = new DefaultBpmnModelCache(mockRepoService);
 
         flowablePlus = new FlowablePlus(mockEngine, userContext, mockNodeFinder, bpmnModelCache,
-                mockGroupResolver, null);
+                mockGroupResolver);
     }
 
     // ======================== 参数校验 ========================
@@ -193,7 +193,7 @@ public class NodePreviewOperationsTest {
 
         UserContext userContext = () -> "testUser";
         FlowablePlus fpWithoutResolver = new FlowablePlus(mockEngine, userContext, mockNodeFinder,
-                bpmnModelCache, null, null);
+                bpmnModelCache, null);
 
         UserTask userTask = buildUserTask("taskA", "多级审批", null, null,
                 Collections.singletonList("dept_manager"));

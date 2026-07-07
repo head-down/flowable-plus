@@ -10,7 +10,6 @@ import org.flowable.bpmn.model.ParallelGateway;
 import org.flowable.bpmn.model.SequenceFlow;
 import org.flowable.bpmn.model.StartEvent;
 import org.flowable.bpmn.model.UserTask;
-import org.flowable.engine.HistoryService;
 import org.flowable.common.engine.api.delegate.Expression;
 import org.flowable.engine.history.HistoricActivityInstance;
 import org.flowable.common.engine.impl.el.ExpressionManager;
@@ -35,23 +34,23 @@ import java.util.Set;
  */
 public class DefaultNodeFinder implements NodeFinder {
 
-    private final HistoryService historyService;
+    private final HistoricRepository historicRepository;
     private final BpmnModelCache bpmnModelCache;
     private final ExpressionManager expressionManager;
 
-    public DefaultNodeFinder(BpmnModelCache bpmnModelCache, HistoryService historyService,
+    public DefaultNodeFinder(BpmnModelCache bpmnModelCache, HistoricRepository historicRepository,
                              ExpressionManager expressionManager) {
         if (bpmnModelCache == null) {
             throw new IllegalArgumentException("BpmnModelCache 不可为 null");
         }
-        if (historyService == null) {
-            throw new IllegalArgumentException("HistoryService 不可为 null");
+        if (historicRepository == null) {
+            throw new IllegalArgumentException("HistoricRepository 不可为 null");
         }
         if (expressionManager == null) {
             throw new IllegalArgumentException("ExpressionManager 不可为 null");
         }
         this.bpmnModelCache = bpmnModelCache;
-        this.historyService = historyService;
+        this.historicRepository = historicRepository;
         this.expressionManager = expressionManager;
     }
 
@@ -174,12 +173,8 @@ public class DefaultNodeFinder implements NodeFinder {
             return incomingFlows;
         }
 
-        List<HistoricActivityInstance> historicInstances = historyService
-                .createHistoricActivityInstanceQuery()
-                .processInstanceId(processInstanceId)
-                .finished()
-                .orderByHistoricActivityInstanceEndTime().desc()
-                .list();
+        List<HistoricActivityInstance> historicInstances = historicRepository
+                .findFinishedHistoricActivityInstances(processInstanceId);
 
         for (SequenceFlow flow : incomingFlows) {
             for (HistoricActivityInstance instance : historicInstances) {

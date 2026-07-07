@@ -25,7 +25,7 @@ import java.util.Objects;
  *
  * @author flowable-plus
  */
-class CounterSignWorkflow {
+public class CounterSignWorkflow implements CounterSignOperations {
 
     private static final Logger log = LoggerFactory.getLogger(CounterSignWorkflow.class);
 
@@ -37,7 +37,7 @@ class CounterSignWorkflow {
     private final NodeFinder nodeFinder;
     private final List<CounterSignCallback> counterSignCallbacks;
 
-    CounterSignWorkflow(UserContext userContext, TaskRepository taskRepository,
+    public CounterSignWorkflow(UserContext userContext, TaskRepository taskRepository,
                         HistoricRepository historicRepository, RuntimeService runtimeService,
                         BpmnModelCache bpmnModelCache, NodeFinder nodeFinder,
                         List<CounterSignCallback> counterSignCallbacks) {
@@ -50,7 +50,8 @@ class CounterSignWorkflow {
         this.counterSignCallbacks = counterSignCallbacks;
     }
 
-    void counterSign(String taskId, boolean approved, Map<String, Object> variables, String comment) {
+    @Override
+    public void counterSign(String taskId, boolean approved, Map<String, Object> variables, String comment) {
         Task task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "会签");
         TaskValidation.validateCurrentUserIsAssignee(task, userContext.getCurrentUserId(), taskId, "会签");
 
@@ -83,7 +84,8 @@ class CounterSignWorkflow {
         }
     }
 
-    void addCounterSigner(String taskId, List<String> assignees) {
+    @Override
+    public void addCounterSigner(String taskId, List<String> assignees) {
         if (taskId == null) {
             throw new IllegalArgumentException("taskId 不可为 null");
         }
@@ -138,7 +140,8 @@ class CounterSignWorkflow {
         invokeCallbacks(cb -> cb.onStart(processInstanceId, taskId, newAssignees));
     }
 
-    void removeCounterSigner(String taskId, String assignee) {
+    @Override
+    public void removeCounterSigner(String taskId, String assignee) {
         if (taskId == null) {
             throw new IllegalArgumentException("taskId 不可为 null");
         }
