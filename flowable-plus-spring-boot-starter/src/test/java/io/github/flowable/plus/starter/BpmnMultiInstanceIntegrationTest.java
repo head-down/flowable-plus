@@ -14,7 +14,9 @@ import org.flowable.bpmn.model.Process;
 import org.flowable.bpmn.model.SequenceFlow;
 import org.flowable.bpmn.model.StartEvent;
 import org.flowable.bpmn.model.UserTask;
+import org.flowable.common.engine.impl.el.ExpressionManager;
 import org.flowable.engine.ProcessEngine;
+import org.flowable.engine.impl.cfg.ProcessEngineConfigurationImpl;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.task.api.Task;
@@ -50,6 +52,7 @@ class BpmnMultiInstanceIntegrationTest {
     private TaskRepository mockTaskRepo;
     private HistoricRepository mockHistoricRepo;
     private FlowablePlus flowablePlus;
+    private ExpressionManager expressionManager;
 
     private final AtomicInteger onStartCount = new AtomicInteger();
     private final AtomicInteger onVoteCount = new AtomicInteger();
@@ -65,6 +68,11 @@ class BpmnMultiInstanceIntegrationTest {
 
         when(mockEngine.getRuntimeService()).thenReturn(mockRuntimeService);
         when(mockEngine.getHistoryService()).thenReturn(mock(org.flowable.engine.HistoryService.class));
+
+        ProcessEngineConfigurationImpl config = mock(ProcessEngineConfigurationImpl.class);
+        expressionManager = mock(ExpressionManager.class);
+        when(config.getExpressionManager()).thenReturn(expressionManager);
+        when(mockEngine.getProcessEngineConfiguration()).thenReturn(config);
 
         BpmnModelCache bpmnModelCache = new DefaultBpmnModelCache(mockRepoService);
         UserContext userContext = () -> USER_ID;
@@ -89,8 +97,9 @@ class BpmnMultiInstanceIntegrationTest {
         };
 
         flowablePlus = new FlowablePlus(mockEngine, userContext,
-                new DefaultNodeFinder(bpmnModelCache, mockEngine.getHistoryService()),
-                bpmnModelCache, mockTaskRepo, mockHistoricRepo,
+                new DefaultNodeFinder(bpmnModelCache, mockEngine.getHistoryService(),
+                        config.getExpressionManager()),
+                bpmnModelCache, null, mockTaskRepo, mockHistoricRepo,
                 Collections.singletonList(trackingCallback));
     }
 
@@ -290,8 +299,8 @@ class BpmnMultiInstanceIntegrationTest {
 
         FlowablePlus fp = new FlowablePlus(mockEngine, userCtx,
                 new DefaultNodeFinder(new DefaultBpmnModelCache(mockRepoService),
-                        mockEngine.getHistoryService()),
-                new DefaultBpmnModelCache(mockRepoService),
+                        mockEngine.getHistoryService(), expressionManager),
+                new DefaultBpmnModelCache(mockRepoService), null,
                 mockTaskRepo, mockHistoricRepo,
                 Collections.singletonList(failingCb));
 

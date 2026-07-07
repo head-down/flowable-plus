@@ -11,12 +11,15 @@ import org.flowable.bpmn.model.SequenceFlow;
 import org.flowable.bpmn.model.StartEvent;
 import org.flowable.bpmn.model.UserTask;
 import org.flowable.engine.HistoryService;
+import org.flowable.common.engine.api.delegate.Expression;
 import org.flowable.engine.history.HistoricActivityInstance;
+import org.flowable.common.engine.impl.el.ExpressionManager;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -34,16 +37,22 @@ public class DefaultNodeFinder implements NodeFinder {
 
     private final HistoryService historyService;
     private final BpmnModelCache bpmnModelCache;
+    private final ExpressionManager expressionManager;
 
-    public DefaultNodeFinder(BpmnModelCache bpmnModelCache, HistoryService historyService) {
+    public DefaultNodeFinder(BpmnModelCache bpmnModelCache, HistoryService historyService,
+                             ExpressionManager expressionManager) {
         if (bpmnModelCache == null) {
             throw new IllegalArgumentException("BpmnModelCache 不可为 null");
         }
         if (historyService == null) {
             throw new IllegalArgumentException("HistoryService 不可为 null");
         }
+        if (expressionManager == null) {
+            throw new IllegalArgumentException("ExpressionManager 不可为 null");
+        }
         this.bpmnModelCache = bpmnModelCache;
         this.historyService = historyService;
+        this.expressionManager = expressionManager;
     }
 
     @Override
@@ -181,6 +190,135 @@ public class DefaultNodeFinder implements NodeFinder {
         }
 
         return incomingFlows;
+    }
+
+    @Override
+    public List<String> findAllReachableUserTasks(String processDefinitionId, Map<String, Object> variables) {
+        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(processDefinitionId);
+        if (bpmnModel == null) {
+            throw new NotFoundException("流程定义 " + processDefinitionId + " 不存在");
+        }
+
+        if (bpmnModel.getProcesses() == null || bpmnModel.getProcesses().isEmpty()) {
+            throw new NotFoundException("流程定义 " + processDefinitionId + " 中未找到任何流程");
+        }
+
+        StartEvent startEvent = findStartEvent(bpmnModel);
+        if (startEvent == null) {
+            throw new NotFoundException("流程定义 " + processDefinitionId + " 中未找到 StartEvent");
+        }
+
+        Set<String> visited = new HashSet<>();
+        List<String> result = new ArrayList<>();
+        traceForwardAll(bpmnModel, startEvent, variables, visited, result);
+        return result;
+    }
+
+    /**
+     * 在 BPMN 模型中查找 StartEvent。
+     */
+    private StartEvent findStartEvent(BpmnModel bpmnModel) {
+        for (FlowElement element : bpmnModel.getProcesses().get(0).getFlowElements()) {
+            if (element instanceof StartEvent) {
+                return (StartEvent) element;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 从指定元素开始正向遍历，收集所有可达的 UserTask 节点。
+     * 支持通过 variables 评估网关条件进行分支选择。
+     */
+    private void traceForwardAll(BpmnModel bpmnModel, FlowElement element,
+                                 Map<String, Object> variables, Set<String> visited, List<String> result) {
+        if (!visited.add(element.getId())) {
+            return; // 防止循环
+        }
+
+        // 遇到 UserTask，收集并继续遍历
+        if (element instanceof UserTask) {
+            result.add(element.getId());
+            // 注意：UserTask 可能后接网关，继续遍历 outgoing
+        }
+
+        if (element instanceof FlowNode) {
+            FlowNode flowNode = (FlowNode) element;
+            List<SequenceFlow> outgoingFlows = flowNode.getOutgoingFlows();
+            if (outgoingFlows == null || outgoingFlows.isEmpty()) {
+                return;
+            }
+
+            for (SequenceFlow flow : outgoingFlows) {
+                // 评估网关条件
+                if (variables != null && flow.getConditionExpression() != null
+                        && !flow.getConditionExpression().isEmpty()) {
+                    if (!evaluateCondition(flow.getConditionExpression(), variables)) {
+                        continue;
+                    }
+                }
+
+                FlowElement target = bpmnModel.getFlowElement(flow.getTargetRef());
+                if (target != null) {
+                    traceForwardAll(bpmnModel, target, variables, visited, result);
+                }
+            }
+        }
+    }
+
+    /**
+     * 评估 BPMN 条件表达式。
+     */
+    private boolean evaluateCondition(String conditionExpression, Map<String, Object> variables) {
+        try {
+            String expressionText = conditionExpression;
+            if (expressionText.startsWith("${") && expressionText.endsWith("}")) {
+                expressionText = expressionText.substring(2, expressionText.length() - 1);
+            }
+            Expression expression = expressionManager.createExpression(expressionText);
+            MapVariableContainer container = new MapVariableContainer(variables);
+            Object value = expression.getValue(container);
+            return value instanceof Boolean && (Boolean) value;
+        } catch (Exception e) {
+            // 条件评估失败时不过滤分支，保持最大兼容性
+            return true;
+        }
+    }
+
+    /**
+     * 简单的 VariableContainer 适配器，将 Map 包装为 Flowable 的 VariableContainer 接口。
+     */
+    private static class MapVariableContainer implements org.flowable.common.engine.api.variable.VariableContainer {
+        private final Map<String, Object> variables;
+
+        MapVariableContainer(Map<String, Object> variables) {
+            this.variables = variables;
+        }
+
+        @Override
+        public boolean hasVariable(String variableName) {
+            return variables != null && variables.containsKey(variableName);
+        }
+
+        @Override
+        public Object getVariable(String variableName) {
+            return variables != null ? variables.get(variableName) : null;
+        }
+
+        @Override
+        public void setVariable(String name, Object value) {
+            // 条件评估场景下只读，不修改变量
+        }
+
+        @Override
+        public void setTransientVariable(String name, Object value) {
+            // 条件评估场景下只读，不修改变量
+        }
+
+        @Override
+        public String getTenantId() {
+            return null;
+        }
     }
 
     /**

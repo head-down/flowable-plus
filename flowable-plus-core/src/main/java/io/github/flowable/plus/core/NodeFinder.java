@@ -4,6 +4,7 @@ import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * BPMN 节点遍历策略接口，定义流程定义中节点的前驱和后继查找能力。
@@ -36,4 +37,15 @@ public interface NodeFinder {
      * @throws NotFoundException 流程定义不存在或未找到发起人节点时抛出
      */
     String findInitiatorNode(String processDefinitionId);
+
+    /**
+     * 从 StartEvent 出发正向查找所有可达的 UserTask 节点。
+     * 支持通过可选变量上下文评估网关条件表达式进行分支选择。
+     *
+     * @param processDefinitionId 流程定义 ID，不可为 null
+     * @param variables 变量上下文（用于评估网关条件），为 null 时不评估条件，全部展开
+     * @return 按遍历顺序排列的 UserTask 节点 ID 列表
+     * @throws NotFoundException 流程定义不存在或未找到 StartEvent 时抛出
+     */
+    List<String> findAllReachableUserTasks(String processDefinitionId, Map<String, Object> variables);
 }

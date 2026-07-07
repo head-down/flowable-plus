@@ -7,6 +7,7 @@ import org.flowable.bpmn.model.ExclusiveGateway;
 import org.flowable.bpmn.model.ParallelGateway;
 import org.flowable.bpmn.model.StartEvent;
 import org.flowable.bpmn.model.UserTask;
+import org.flowable.common.engine.impl.el.ExpressionManager;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.history.HistoricActivityInstance;
@@ -39,7 +40,8 @@ public class NodeFinderTest {
         repositoryService = Mockito.mock(RepositoryService.class);
         historyService = Mockito.mock(HistoryService.class);
         bpmnModelCache = new DefaultBpmnModelCache(repositoryService);
-        nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService);
+        nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService,
+                Mockito.mock(ExpressionManager.class));
     }
 
     // ======================== 向后查找 ========================

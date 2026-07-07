@@ -6,8 +6,11 @@ import io.github.flowable.plus.core.DefaultNodeFinder;
 import io.github.flowable.plus.core.FlowablePlus;
 import io.github.flowable.plus.core.NodeFinder;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
+import io.github.flowable.plus.core.spi.GroupResolver;
 import io.github.flowable.plus.core.spi.UserContext;
+import org.flowable.common.engine.impl.el.ExpressionManager;
 import org.flowable.engine.ProcessEngine;
+import org.flowable.engine.impl.cfg.ProcessEngineConfigurationImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -74,7 +77,9 @@ public class FlowablePlusAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public NodeFinder nodeFinder(BpmnModelCache bpmnModelCache, ProcessEngine processEngine) {
-        return new DefaultNodeFinder(bpmnModelCache, processEngine.getHistoryService());
+        ExpressionManager expressionManager = ((ProcessEngineConfigurationImpl) processEngine
+                .getProcessEngineConfiguration()).getExpressionManager();
+        return new DefaultNodeFinder(bpmnModelCache, processEngine.getHistoryService(), expressionManager);
     }
 
     /**
@@ -90,6 +95,7 @@ public class FlowablePlusAutoConfiguration {
      * @param userContext           用户上下文（可被应用覆盖）
      * @param nodeFinder            BPMN 节点遍历策略（可被应用覆盖）
      * @param bpmnModelCache        BPMN 模型缓存（可被应用覆盖）
+     * @param groupResolver         候选组解析器（可选，不提供时 candidateGroups 跳过）
      * @param counterSignCallbacks  会签回调列表（可选，无实现时为空列表）
      * @param counterSignProps     会签配置属性
      * @return FlowablePlus 实例
@@ -99,11 +105,13 @@ public class FlowablePlusAutoConfiguration {
     @ConditionalOnProperty(name = "flowable.plus.enabled", havingValue = "true", matchIfMissing = true)
     public FlowablePlus flowablePlus(ProcessEngine processEngine, UserContext userContext,
                                      NodeFinder nodeFinder, BpmnModelCache bpmnModelCache,
+                                     @Autowired(required = false) GroupResolver groupResolver,
                                      @Autowired(required = false) List<CounterSignCallback> counterSignCallbacks,
                                      FlowablePlusCounterSignProperties counterSignProps) {
         List<CounterSignCallback> callbacks = counterSignProps.isEnabled() && counterSignCallbacks != null
                 ? counterSignCallbacks : Collections.emptyList();
-        return new FlowablePlus(processEngine, userContext, nodeFinder, bpmnModelCache, callbacks);
+        return new FlowablePlus(processEngine, userContext, nodeFinder, bpmnModelCache,
+                groupResolver, callbacks);
     }
 
     /**

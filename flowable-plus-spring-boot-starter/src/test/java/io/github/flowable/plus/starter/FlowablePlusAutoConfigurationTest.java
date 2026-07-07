@@ -6,9 +6,11 @@ import io.github.flowable.plus.core.spi.UserContext;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.IdentityService;
 import org.flowable.engine.ProcessEngine;
+import org.flowable.engine.impl.cfg.ProcessEngineConfigurationImpl;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
+import org.flowable.common.engine.impl.el.ExpressionManager;
 import org.flowable.engine.runtime.ProcessInstanceQuery;
 import org.flowable.task.api.TaskQuery;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,6 +43,10 @@ class FlowablePlusAutoConfigurationTest {
         TaskQuery taskQuery = mock(TaskQuery.class);
         when(taskQuery.count()).thenReturn(7L);
         when(taskService.createTaskQuery()).thenReturn(taskQuery);
+
+        ProcessEngineConfigurationImpl config = mock(ProcessEngineConfigurationImpl.class);
+        when(config.getExpressionManager()).thenReturn(mock(ExpressionManager.class));
+        when(engine.getProcessEngineConfiguration()).thenReturn(config);
 
         when(engine.getRepositoryService()).thenReturn(mock(RepositoryService.class));
         when(engine.getRuntimeService()).thenReturn(runtimeService);

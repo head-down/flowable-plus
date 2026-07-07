@@ -1,6 +1,7 @@
 package io.github.flowable.plus.core;
 
 import io.github.flowable.plus.core.spi.CounterSignCallback;
+import io.github.flowable.plus.core.spi.GroupResolver;
 import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.vo.ApproverInfoVO;
 import io.github.flowable.plus.core.vo.AssigneeInfo;
@@ -11,11 +12,16 @@ import io.github.flowable.plus.core.vo.ProcessSummaryVO;
 import io.github.flowable.plus.core.vo.TodoTaskVO;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.flowable.bpmn.model.BpmnModel;
+import org.flowable.bpmn.model.FlowElement;
+import org.flowable.bpmn.model.UserTask;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.ProcessEngine;
+import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
 import org.flowable.engine.history.HistoricProcessInstance;
+import org.flowable.engine.repository.ProcessDefinition;
 import org.flowable.engine.runtime.ProcessInstance;
 import org.flowable.task.api.Task;
 import org.flowable.task.api.TaskQuery;
@@ -55,6 +61,7 @@ public class FlowablePlus implements
 
     private final NodeFinder nodeFinder;
     private final BpmnModelCache bpmnModelCache;
+    private final GroupResolver groupResolver;
     private final TaskWorkflow taskWorkflow;
     private final CounterSignWorkflow counterSignWorkflow;
 
@@ -65,18 +72,21 @@ public class FlowablePlus implements
      * @param userContext          用户上下文，用于获取当前操作用户，不可为 null
      * @param nodeFinder           BPMN 节点遍历策略，不可为 null
      * @param bpmnModelCache       BPMN 模型缓存，不可为 null
+     * @param groupResolver        候选组解析器，可为 null（S5/S6 解析 candidateGroups 时跳过）
      * @param counterSignCallbacks 会签回调列表，可为 null（自动转为空列表）
      */
     public FlowablePlus(ProcessEngine processEngine, UserContext userContext, NodeFinder nodeFinder,
-                        BpmnModelCache bpmnModelCache, List<CounterSignCallback> counterSignCallbacks) {
-        this(processEngine, userContext, nodeFinder, bpmnModelCache,
+                        BpmnModelCache bpmnModelCache, GroupResolver groupResolver,
+                        List<CounterSignCallback> counterSignCallbacks) {
+        this(processEngine, userContext, nodeFinder, bpmnModelCache, groupResolver,
                 processEngine != null ? new FlowableTaskRepository(processEngine.getTaskService()) : null,
                 processEngine != null ? new FlowableHistoricRepository(processEngine.getHistoryService()) : null,
                 counterSignCallbacks);
     }
 
     public FlowablePlus(ProcessEngine processEngine, UserContext userContext, NodeFinder nodeFinder,
-                 BpmnModelCache bpmnModelCache, TaskRepository taskRepository,
+                 BpmnModelCache bpmnModelCache, GroupResolver groupResolver,
+                 TaskRepository taskRepository,
                  HistoricRepository historicRepository, List<CounterSignCallback> counterSignCallbacks) {
         if (processEngine == null) {
             throw new IllegalArgumentException("ProcessEngine 不可为 null");
@@ -100,6 +110,7 @@ public class FlowablePlus implements
         this.userContext = userContext;
         this.nodeFinder = nodeFinder;
         this.bpmnModelCache = bpmnModelCache;
+        this.groupResolver = groupResolver;
 
         RuntimeService runtimeService = processEngine.getRuntimeService();
 
@@ -345,11 +356,84 @@ public class FlowablePlus implements
         throw new UnsupportedOperationException("queryDoneTasks 尚未实现，将在 S3 中完成");
     }
 
-    // ======================== NodePreviewOperations (S5/S6/S7 — 待实现) ========================
+    // ======================== NodePreviewOperations (S5 已实现, S6/S7 — 待实现) ========================
 
     @Override
     public List<NodeApproverVO> getNextNodeApproversByProcessKey(String processKey) {
-        throw new UnsupportedOperationException("getNextNodeApproversByProcessKey 尚未实现，将在 S5 中完成");
+        return getNextNodeApproversByProcessKey(processKey, null);
+    }
+
+    @Override
+    public List<NodeApproverVO> getNextNodeApproversByProcessKey(String processKey, Map<String, Object> variables) {
+        if (processKey == null || processKey.isEmpty()) {
+            throw new IllegalArgumentException("processKey 不可为 null 或空");
+        }
+
+        RepositoryService repositoryService = processEngine.getRepositoryService();
+        ProcessDefinition definition = repositoryService.createProcessDefinitionQuery()
+                .processDefinitionKey(processKey)
+                .latestVersion()
+                .active()
+                .singleResult();
+        if (definition == null) {
+            throw new IllegalArgumentException("未找到流程定义，processKey=" + processKey);
+        }
+
+        String definitionId = definition.getId();
+        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(definitionId);
+
+        List<String> nodeIds = nodeFinder.findAllReachableUserTasks(definitionId, variables);
+
+        List<NodeApproverVO> result = new ArrayList<>();
+        for (String nodeId : nodeIds) {
+            FlowElement flowElement = bpmnModel.getFlowElement(nodeId);
+            if (!(flowElement instanceof UserTask)) {
+                continue;
+            }
+            UserTask userTask = (UserTask) flowElement;
+
+            List<ApproverInfoVO> approvers = new ArrayList<>();
+
+            // assignee
+            if (userTask.getAssignee() != null && !userTask.getAssignee().isEmpty()) {
+                approvers.add(ApproverInfoVO.builder()
+                        .id(userTask.getAssignee())
+                        .type("assignee")
+                        .build());
+            }
+
+            // candidateUsers
+            if (userTask.getCandidateUsers() != null) {
+                for (String candidateUser : userTask.getCandidateUsers()) {
+                    approvers.add(ApproverInfoVO.builder()
+                            .id(candidateUser)
+                            .type("candidateUser")
+                            .build());
+                }
+            }
+
+            // candidateGroups
+            if (userTask.getCandidateGroups() != null && groupResolver != null) {
+                for (String groupId : userTask.getCandidateGroups()) {
+                    List<String> members = groupResolver.getGroupMembers(groupId);
+                    for (String memberId : members) {
+                        approvers.add(ApproverInfoVO.builder()
+                                .id(memberId)
+                                .type("candidateGroup")
+                                .groupId(groupId)
+                                .build());
+                    }
+                }
+            }
+
+            result.add(NodeApproverVO.builder()
+                    .nodeId(nodeId)
+                    .nodeName(userTask.getName())
+                    .approvers(approvers)
+                    .build());
+        }
+
+        return result;
     }
 
     @Override

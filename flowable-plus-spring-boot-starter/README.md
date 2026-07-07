@@ -79,8 +79,10 @@ public class MyConfig {
     @Bean
     public FlowablePlus flowablePlus(ProcessEngine processEngine, UserContext userContext,
                                      NodeFinder nodeFinder, BpmnModelCache bpmnModelCache,
+                                     GroupResolver groupResolver,
                                      List<CounterSignCallback> counterSignCallbacks) {
-        return new FlowablePlus(processEngine, userContext, nodeFinder, bpmnModelCache, counterSignCallbacks);
+        return new FlowablePlus(processEngine, userContext, nodeFinder, bpmnModelCache,
+                groupResolver, counterSignCallbacks);
     }
 }
 ```
@@ -95,7 +97,9 @@ public BpmnModelCache bpmnModelCache(ProcessEngine processEngine) {
 
 @Bean
 public NodeFinder nodeFinder(BpmnModelCache bpmnModelCache, ProcessEngine processEngine) {
-    return new DefaultNodeFinder(bpmnModelCache, processEngine.getHistoryService());
+    ExpressionManager expressionManager = ((ProcessEngineConfigurationImpl) processEngine
+            .getProcessEngineConfiguration()).getExpressionManager();
+    return new DefaultNodeFinder(bpmnModelCache, processEngine.getHistoryService(), expressionManager);
 }
 
 @Bean

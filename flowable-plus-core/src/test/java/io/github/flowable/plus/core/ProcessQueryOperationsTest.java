@@ -3,8 +3,10 @@ package io.github.flowable.plus.core;
 import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.vo.AssigneeInfo;
 import io.github.flowable.plus.core.vo.ProcessSummaryVO;
+import org.flowable.common.engine.impl.el.ExpressionManager;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.ProcessEngine;
+import org.flowable.engine.impl.cfg.ProcessEngineConfigurationImpl;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
@@ -58,11 +60,16 @@ public class ProcessQueryOperationsTest {
         when(mockEngine.getHistoryService()).thenReturn(mockHistoryService);
         when(mockEngine.getIdentityService()).thenReturn(mock(org.flowable.engine.IdentityService.class));
 
+        ProcessEngineConfigurationImpl config = mock(ProcessEngineConfigurationImpl.class);
+        when(config.getExpressionManager()).thenReturn(mock(ExpressionManager.class));
+        when(mockEngine.getProcessEngineConfiguration()).thenReturn(config);
+
         UserContext userContext = () -> "testUser";
         BpmnModelCache bpmnModelCache = new DefaultBpmnModelCache(mockRepoService);
-        NodeFinder nodeFinder = new DefaultNodeFinder(bpmnModelCache, mockHistoryService);
+        NodeFinder nodeFinder = new DefaultNodeFinder(bpmnModelCache, mockHistoryService,
+                config.getExpressionManager());
 
-        flowablePlus = new FlowablePlus(mockEngine, userContext, nodeFinder, bpmnModelCache, null);
+        flowablePlus = new FlowablePlus(mockEngine, userContext, nodeFinder, bpmnModelCache, null, null);
     }
 
     // ======================== 参数校验 ========================
