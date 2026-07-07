@@ -2,8 +2,13 @@ package io.github.flowable.plus.core;
 
 import io.github.flowable.plus.core.spi.CounterSignCallback;
 import io.github.flowable.plus.core.spi.UserContext;
+import io.github.flowable.plus.core.vo.ApproverInfoVO;
 import io.github.flowable.plus.core.vo.AssigneeInfo;
+import io.github.flowable.plus.core.vo.DoneTaskVO;
+import io.github.flowable.plus.core.vo.NextTaskNodeVO;
+import io.github.flowable.plus.core.vo.NodeApproverVO;
 import io.github.flowable.plus.core.vo.ProcessSummaryVO;
+import io.github.flowable.plus.core.vo.TodoTaskVO;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.flowable.engine.HistoryService;
@@ -13,6 +18,8 @@ import org.flowable.engine.TaskService;
 import org.flowable.engine.history.HistoricProcessInstance;
 import org.flowable.engine.runtime.ProcessInstance;
 import org.flowable.task.api.Task;
+import org.flowable.task.api.TaskQuery;
+import org.flowable.task.api.history.HistoricTaskInstanceQuery;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -23,6 +30,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * Flowable-Plus 统一入口 Façade，封装 Flowable 引擎操作，提供增强的中国式审批 API。
@@ -36,7 +44,9 @@ import java.util.Set;
 @Slf4j
 public class FlowablePlus implements
         TaskOperations, CounterSignOperations,
-        RejectionOperations, ProcessLifecycle, ProcessQueryOperations {
+        RejectionOperations, ProcessLifecycle,
+        ProcessQueryOperations, TaskListOperations,
+        NodePreviewOperations {
 
     @Getter
     private final ProcessEngine processEngine;
@@ -310,6 +320,51 @@ public class FlowablePlus implements
                 .endReason(hpi.getDeleteReason())
                 .activeAssignees(Collections.emptyList())
                 .build();
+    }
+
+    // ======================== TaskListOperations (S2/S3 — 待实现) ========================
+
+    @Override
+    public PageResult<TodoTaskVO> queryTodoTasks(String userId, TaskQueryDTO query) {
+        throw new UnsupportedOperationException("queryTodoTasks 尚未实现，将在 S2 中完成");
+    }
+
+    @Override
+    public PageResult<TodoTaskVO> queryTodoTasks(String userId, TaskQueryDTO query, Consumer<TaskQuery> enhancer) {
+        throw new UnsupportedOperationException("queryTodoTasks 尚未实现，将在 S2 中完成");
+    }
+
+    @Override
+    public PageResult<DoneTaskVO> queryDoneTasks(String userId, TaskQueryDTO query) {
+        throw new UnsupportedOperationException("queryDoneTasks 尚未实现，将在 S3 中完成");
+    }
+
+    @Override
+    public PageResult<DoneTaskVO> queryDoneTasks(String userId, TaskQueryDTO query,
+                                                  Consumer<HistoricTaskInstanceQuery> enhancer) {
+        throw new UnsupportedOperationException("queryDoneTasks 尚未实现，将在 S3 中完成");
+    }
+
+    // ======================== NodePreviewOperations (S5/S6/S7 — 待实现) ========================
+
+    @Override
+    public List<NodeApproverVO> getNextNodeApproversByProcessKey(String processKey) {
+        throw new UnsupportedOperationException("getNextNodeApproversByProcessKey 尚未实现，将在 S5 中完成");
+    }
+
+    @Override
+    public List<ApproverInfoVO> getNextTaskApprovers(String taskId) {
+        throw new UnsupportedOperationException("getNextTaskApprovers 尚未实现，将在 S6 中完成");
+    }
+
+    @Override
+    public List<ApproverInfoVO> getNextTaskApprovers(String taskId, String targetNodeId) {
+        throw new UnsupportedOperationException("getNextTaskApprovers 尚未实现，将在 S6 中完成");
+    }
+
+    @Override
+    public List<NextTaskNodeVO> getNextTaskNodes(String processInstanceId, String taskId) {
+        throw new UnsupportedOperationException("getNextTaskNodes 尚未实现，将在 S7 中完成");
     }
 
     // ======================== 测试辅助 ========================
