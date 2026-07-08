@@ -4,6 +4,7 @@ import io.github.flowable.plus.core.spi.ApproverResolver;
 import io.github.flowable.plus.core.spi.GroupResolver;
 import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.vo.ApproverInfoVO;
+import io.github.flowable.plus.core.vo.NextTaskNodeVO;
 import io.github.flowable.plus.core.vo.NodeApproverVO;
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.bpmn.model.Process;
@@ -15,6 +16,8 @@ import org.flowable.engine.*;
 import org.flowable.engine.impl.cfg.ProcessEngineConfigurationImpl;
 import org.flowable.engine.repository.ProcessDefinition;
 import org.flowable.engine.repository.ProcessDefinitionQuery;
+import org.flowable.task.api.Task;
+import org.flowable.task.api.TaskQuery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -26,6 +29,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -37,6 +41,8 @@ public class NodePreviewOperationsTest {
 
     private ProcessEngine mockEngine;
     private RepositoryService mockRepoService;
+    private RuntimeService mockRuntimeService;
+    private TaskService mockTaskService;
     private NodeFinder mockNodeFinder;
     private BpmnModelCache bpmnModelCache;
     private GroupResolver mockGroupResolver;
@@ -47,12 +53,14 @@ public class NodePreviewOperationsTest {
     public void setUp() {
         mockEngine = mock(ProcessEngine.class);
         mockRepoService = mock(RepositoryService.class);
+        mockRuntimeService = mock(RuntimeService.class);
+        mockTaskService = mock(TaskService.class);
         mockNodeFinder = mock(NodeFinder.class);
         mockGroupResolver = mock(GroupResolver.class);
 
         when(mockEngine.getRepositoryService()).thenReturn(mockRepoService);
-        when(mockEngine.getRuntimeService()).thenReturn(mock(RuntimeService.class));
-        when(mockEngine.getTaskService()).thenReturn(mock(TaskService.class));
+        when(mockEngine.getRuntimeService()).thenReturn(mockRuntimeService);
+        when(mockEngine.getTaskService()).thenReturn(mockTaskService);
         when(mockEngine.getHistoryService()).thenReturn(mock(HistoryService.class));
         when(mockEngine.getIdentityService()).thenReturn(mock(IdentityService.class));
 
@@ -283,7 +291,160 @@ public class NodePreviewOperationsTest {
         assertThat(result).hasSize(1);
     }
 
+    // ======================== S6: getNextTaskApprovers ========================
+
+    @Test
+    public void testGetNextTaskApproversFlatList() {
+        String taskId = "task-001";
+        String processInstanceId = "pi-001";
+        String definitionId = "leave:1:abc";
+
+        // 准备 Task 查询
+        Task task = mockTask(taskId, definitionId, processInstanceId, "nodeA");
+
+        // 准备运行时变量
+        when(mockRuntimeService.getVariables(processInstanceId)).thenReturn(new HashMap<>());
+
+        // 准备 BPMN 模型：两个下游 UserTask
+        UserTask downstreamA = buildUserTask("nodeB", "部门经理", "manager1", null, null);
+        UserTask downstreamB = buildUserTask("nodeC", "总经理", "ceo1", null, null);
+        BpmnModel model = buildBpmnModel(downstreamA, downstreamB);
+        when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
+
+        // NodeFinder 返回下游节点
+        when(mockNodeFinder.findNextUserTasks(definitionId, "nodeA", processInstanceId, new HashMap<>()))
+                .thenReturn(Arrays.asList("nodeB", "nodeC"));
+
+        List<ApproverInfoVO> result = flowablePlus.getNextTaskApprovers(taskId);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).getId()).isEqualTo("manager1");
+        assertThat(result.get(0).getNodeId()).isEqualTo("nodeB");
+        assertThat(result.get(0).getNodeName()).isEqualTo("部门经理");
+        assertThat(result.get(1).getId()).isEqualTo("ceo1");
+        assertThat(result.get(1).getNodeId()).isEqualTo("nodeC");
+        assertThat(result.get(1).getNodeName()).isEqualTo("总经理");
+    }
+
+    @Test
+    public void testGetNextTaskApproversFilterByTargetNodeId() {
+        String taskId = "task-001";
+        String processInstanceId = "pi-001";
+        String definitionId = "leave:1:abc";
+
+        Task task = mockTask(taskId, definitionId, processInstanceId, "nodeA");
+        when(mockRuntimeService.getVariables(processInstanceId)).thenReturn(new HashMap<>());
+
+        UserTask downstreamA = buildUserTask("nodeB", "部门经理", "manager1", null, null);
+        UserTask downstreamB = buildUserTask("nodeC", "总经理", "ceo1", null, null);
+        BpmnModel model = buildBpmnModel(downstreamA, downstreamB);
+        when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
+        when(mockNodeFinder.findNextUserTasks(definitionId, "nodeA", processInstanceId, new HashMap<>()))
+                .thenReturn(Arrays.asList("nodeB", "nodeC"));
+
+        // 只查询 nodeC 的审批人
+        List<ApproverInfoVO> result = flowablePlus.getNextTaskApprovers(taskId, "nodeC");
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getId()).isEqualTo("ceo1");
+        assertThat(result.get(0).getNodeId()).isEqualTo("nodeC");
+    }
+
+    @Test
+    public void testGetNextTaskApproversTargetNodeNotFoundReturnsEmpty() {
+        String taskId = "task-001";
+        String processInstanceId = "pi-001";
+        String definitionId = "leave:1:abc";
+
+        Task task = mockTask(taskId, definitionId, processInstanceId, "nodeA");
+        when(mockRuntimeService.getVariables(processInstanceId)).thenReturn(new HashMap<>());
+
+        UserTask downstreamA = buildUserTask("nodeB", "部门经理", "manager1", null, null);
+        BpmnModel model = buildBpmnModel(downstreamA);
+        when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
+        when(mockNodeFinder.findNextUserTasks(definitionId, "nodeA", processInstanceId, new HashMap<>()))
+                .thenReturn(Collections.singletonList("nodeB"));
+
+        List<ApproverInfoVO> result = flowablePlus.getNextTaskApprovers(taskId, "nonexistent");
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    public void testGetNextTaskApproversRejectNullTaskId() {
+        assertThatThrownBy(() -> flowablePlus.getNextTaskApprovers(null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("taskId");
+    }
+
+    @Test
+    public void testGetNextTaskApproversRejectEmptyTaskId() {
+        assertThatThrownBy(() -> flowablePlus.getNextTaskApprovers(""))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("taskId");
+    }
+
+    // ======================== S7: getNextTaskNodes ========================
+
+    @Test
+    public void testGetNextTaskNodes() {
+        String taskId = "task-001";
+        String processInstanceId = "pi-001";
+        String definitionId = "leave:1:abc";
+
+        Task task = mockTask(taskId, definitionId, processInstanceId, "nodeA");
+        when(mockRuntimeService.getVariables(processInstanceId)).thenReturn(new HashMap<>());
+
+        UserTask downstreamA = buildUserTask("nodeB", "部门经理", "manager1", null, null);
+        UserTask downstreamB = buildUserTask("nodeC", "总经理", "ceo1", null, null);
+        BpmnModel model = buildBpmnModel(downstreamA, downstreamB);
+        when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
+        when(mockNodeFinder.findNextUserTasks(definitionId, "nodeA", processInstanceId, new HashMap<>()))
+                .thenReturn(Arrays.asList("nodeB", "nodeC"));
+
+        List<NextTaskNodeVO> result = flowablePlus.getNextTaskNodes(processInstanceId, taskId);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).getTaskCode()).isEqualTo("nodeB");
+        assertThat(result.get(0).getTaskName()).isEqualTo("部门经理");
+        assertThat(result.get(0).getFormData()).isNull();
+        assertThat(result.get(1).getTaskCode()).isEqualTo("nodeC");
+        assertThat(result.get(1).getTaskName()).isEqualTo("总经理");
+        assertThat(result.get(1).getFormData()).isNull();
+    }
+
+    @Test
+    public void testGetNextTaskNodesRejectNullProcessInstanceId() {
+        assertThatThrownBy(() -> flowablePlus.getNextTaskNodes(null, "task-001"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("processInstanceId");
+    }
+
+    @Test
+    public void testGetNextTaskNodesRejectNullTaskId() {
+        assertThatThrownBy(() -> flowablePlus.getNextTaskNodes("pi-001", null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("taskId");
+    }
+
     // ======================== 辅助方法 ========================
+
+    /**
+     * 构建一个 Mock Task 并设置 TaskQuery chain。
+     */
+    private Task mockTask(String taskId, String definitionId, String processInstanceId, String taskDefinitionKey) {
+        TaskQuery taskQuery = mock(TaskQuery.class);
+        when(taskQuery.taskId(taskId)).thenReturn(taskQuery);
+        when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
+
+        Task task = mock(Task.class);
+        when(task.getId()).thenReturn(taskId);
+        when(task.getProcessDefinitionId()).thenReturn(definitionId);
+        when(task.getProcessInstanceId()).thenReturn(processInstanceId);
+        when(task.getTaskDefinitionKey()).thenReturn(taskDefinitionKey);
+        when(taskQuery.singleResult()).thenReturn(task);
+        return task;
+    }
 
     private void stubProcessDefinition(String processKey, String definitionId) {
         ProcessDefinitionQuery pdQuery = mock(ProcessDefinitionQuery.class);

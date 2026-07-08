@@ -3,12 +3,14 @@ package io.github.flowable.plus.core;
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;
 import org.flowable.bpmn.model.BpmnModel;
+import org.flowable.bpmn.model.CallActivity;
 import org.flowable.bpmn.model.ExclusiveGateway;
 import org.flowable.bpmn.model.FlowElement;
 import org.flowable.bpmn.model.FlowNode;
 import org.flowable.bpmn.model.ParallelGateway;
 import org.flowable.bpmn.model.SequenceFlow;
 import org.flowable.bpmn.model.StartEvent;
+import org.flowable.bpmn.model.SubProcess;
 import org.flowable.bpmn.model.UserTask;
 import org.flowable.common.engine.api.delegate.Expression;
 import org.flowable.engine.history.HistoricActivityInstance;
@@ -209,6 +211,52 @@ public class DefaultNodeFinder implements NodeFinder {
         return result;
     }
 
+    @Override
+    public List<String> findNextUserTasks(String processDefinitionId, String currentActivityId,
+                                           String processInstanceId, Map<String, Object> variables) {
+        if (processDefinitionId == null || processDefinitionId.isEmpty()) {
+            throw new IllegalArgumentException("processDefinitionId 不可为 null 或空");
+        }
+        if (currentActivityId == null || currentActivityId.isEmpty()) {
+            throw new IllegalArgumentException("currentActivityId 不可为 null 或空");
+        }
+
+        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(processDefinitionId);
+        if (bpmnModel == null) {
+            throw new NotFoundException("流程定义 " + processDefinitionId + " 不存在");
+        }
+
+        FlowElement currentElement = bpmnModel.getFlowElement(currentActivityId);
+        if (currentElement == null) {
+            throw new NotFoundException("节点 " + currentActivityId + " 不存在");
+        }
+
+        Set<String> visited = new HashSet<>();
+        List<String> result = new ArrayList<>();
+
+        // 从当前节点的 outgoing flows 开始遍历，跳过当前节点自身
+        if (currentElement instanceof FlowNode) {
+            FlowNode currentFlowNode = (FlowNode) currentElement;
+            List<SequenceFlow> outgoingFlows = currentFlowNode.getOutgoingFlows();
+            if (outgoingFlows != null) {
+                for (SequenceFlow flow : outgoingFlows) {
+                    // 评估网关条件
+                    if (flow.getConditionExpression() != null && !flow.getConditionExpression().isEmpty()) {
+                        if (!evaluateCondition(flow.getConditionExpression(), variables)) {
+                            continue;
+                        }
+                    }
+                    FlowElement target = bpmnModel.getFlowElement(flow.getTargetRef());
+                    if (target != null) {
+                        traceForwardAll(bpmnModel, target, variables, visited, result);
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+
     /**
      * 在 BPMN 模型中查找 StartEvent。
      */
@@ -223,7 +271,8 @@ public class DefaultNodeFinder implements NodeFinder {
 
     /**
      * 从指定元素开始正向遍历，收集所有可达的 UserTask 节点。
-     * 支持通过 variables 评估网关条件进行分支选择。
+     * 支持通过 variables 评估网关条件进行分支选择，
+     * 递归进入 SubProcess 和 CallActivity 引用的流程定义。
      */
     private void traceForwardAll(BpmnModel bpmnModel, FlowElement element,
                                  Map<String, Object> variables, Set<String> visited, List<String> result) {
@@ -235,6 +284,33 @@ public class DefaultNodeFinder implements NodeFinder {
         if (element instanceof UserTask) {
             result.add(element.getId());
             // 注意：UserTask 可能后接网关，继续遍历 outgoing
+        }
+
+        // 递归进入 SubProcess 内部
+        if (element instanceof SubProcess) {
+            SubProcess subProcess = (SubProcess) element;
+            if (subProcess.getFlowElements() != null) {
+                for (FlowElement subElement : subProcess.getFlowElements()) {
+                    if (subElement instanceof StartEvent) {
+                        traceForwardAll(bpmnModel, subElement, variables, visited, result);
+                    }
+                }
+            }
+        }
+
+        // 递归进入 CallActivity 引用的流程定义
+        if (element instanceof CallActivity) {
+            CallActivity callActivity = (CallActivity) element;
+            String calledElement = callActivity.getCalledElement();
+            if (calledElement != null && !calledElement.isEmpty()) {
+                BpmnModel calledModel = bpmnModelCache.getBpmnModelByProcessKey(calledElement);
+                if (calledModel != null) {
+                    StartEvent calledStartEvent = findStartEvent(calledModel);
+                    if (calledStartEvent != null) {
+                        traceForwardAll(calledModel, calledStartEvent, variables, visited, result);
+                    }
+                }
+            }
         }
 
         if (element instanceof FlowNode) {
@@ -275,8 +351,8 @@ public class DefaultNodeFinder implements NodeFinder {
             Object value = expression.getValue(container);
             return value instanceof Boolean && (Boolean) value;
         } catch (Exception e) {
-            // 条件评估失败时不过滤分支，保持最大兼容性
-            return true;
+            // 条件评估失败时跳过该分支，不展示不确定的审批人
+            return false;
         }
     }
 

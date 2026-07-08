@@ -5,8 +5,11 @@ import io.github.flowable.plus.core.exception.NotFoundException;
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.bpmn.model.ExclusiveGateway;
 import org.flowable.bpmn.model.ParallelGateway;
+import org.flowable.bpmn.model.SequenceFlow;
 import org.flowable.bpmn.model.StartEvent;
+import org.flowable.bpmn.model.SubProcess;
 import org.flowable.bpmn.model.UserTask;
+import org.flowable.common.engine.api.delegate.Expression;
 import org.flowable.common.engine.impl.el.ExpressionManager;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.history.HistoricActivityInstance;
@@ -17,7 +20,9 @@ import org.mockito.Mockito;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -227,6 +232,184 @@ public class NodeFinderTest {
         assertThatThrownBy(() -> nodeFinder.findInitiatorNode("nonexistent"))
                 .isInstanceOf(NotFoundException.class)
                 .hasMessageContaining("流程定义 nonexistent 不存在");
+    }
+
+    // ======================== 正向查找下游节点 (findNextUserTasks) ========================
+
+    /**
+     * 简单顺序：task1 → task2，从 task1 正向查找应返回 [task2]
+     */
+    @Test
+    public void testFindNextUserTasksSimpleSequential() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        UserTask task2 = builder.addUserTask("task2");
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, task2);
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-next-1")).thenReturn(model);
+
+        List<String> result = nodeFinder.findNextUserTasks("proc-next-1", "task1", "pi-001",
+                Collections.emptyMap());
+
+        assertThat(result).containsExactly("task2");
+    }
+
+    /**
+     * 排他网关：条件分别为 ${amount>5000} 和 ${amount<=5000}，运行时应走匹配的分支
+     */
+    @Test
+    public void testFindNextUserTasksExclusiveGatewayMatchingCondition() {
+        TestModelBuilder builder = new TestModelBuilder();
+        UserTask task1 = builder.addUserTask("task1");
+        ExclusiveGateway gw = builder.addExclusiveGateway("gw");
+        UserTask taskA = builder.addUserTask("taskA");
+        UserTask taskB = builder.addUserTask("taskB");
+
+        builder.addSequenceFlow("f1", task1, gw);
+        builder.addSequenceFlowWithCondition("f2a", gw, taskA, "${amount > 5000}");
+        builder.addSequenceFlowWithCondition("f2b", gw, taskB, "${amount <= 5000}");
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-next-gw")).thenReturn(model);
+
+        // Mock ExpressionManager：amount > 5000 返回 false，amount <= 5000 返回 true
+        ExpressionManager mockExprMgr = Mockito.mock(ExpressionManager.class);
+        Expression exprFalse = Mockito.mock(Expression.class);
+        Expression exprTrue = Mockito.mock(Expression.class);
+        when(exprFalse.getValue(Mockito.any())).thenReturn(false);
+        when(exprTrue.getValue(Mockito.any())).thenReturn(true);
+        when(mockExprMgr.createExpression("amount > 5000")).thenReturn(exprFalse);
+        when(mockExprMgr.createExpression("amount <= 5000")).thenReturn(exprTrue);
+
+        nodeFinder = new DefaultNodeFinder(bpmnModelCache, historicRepository, mockExprMgr);
+
+        Map<String, Object> vars = new HashMap<>();
+        vars.put("amount", 3000);
+
+        List<String> result = nodeFinder.findNextUserTasks("proc-next-gw", "task1", "pi-001", vars);
+
+        assertThat(result).containsExactly("taskB");
+    }
+
+    /**
+     * 并行网关：当前在 task1，task1 → pgw → taskA
+     *                                  → taskB
+     * 应返回两个分支的所有 UserTask
+     */
+    @Test
+    public void testFindNextUserTasksParallelGateway() {
+        TestModelBuilder builder = new TestModelBuilder();
+        UserTask task1 = builder.addUserTask("task1");
+        ParallelGateway pgw = builder.addParallelGateway("pgw");
+        UserTask taskA = builder.addUserTask("taskA");
+        UserTask taskB = builder.addUserTask("taskB");
+
+        builder.addSequenceFlow("f1", task1, pgw);
+        builder.addSequenceFlow("f2a", pgw, taskA);
+        builder.addSequenceFlow("f2b", pgw, taskB);
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-next-par")).thenReturn(model);
+
+        List<String> result = nodeFinder.findNextUserTasks("proc-next-par", "task1", "pi-001",
+                Collections.emptyMap());
+
+        assertThat(result).containsExactlyInAnyOrder("taskA", "taskB");
+    }
+
+    /**
+     * 无下游节点：task1 是最后一个 UserTask，后面无任何节点
+     */
+    @Test
+    public void testFindNextUserTasksNoDownstreamNodes() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        builder.addSequenceFlow("f1", start, task1);
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-next-end")).thenReturn(model);
+
+        List<String> result = nodeFinder.findNextUserTasks("proc-next-end", "task1", "pi-001",
+                Collections.emptyMap());
+
+        assertThat(result).isEmpty();
+    }
+
+    /**
+     * 子流程递归：task1 → subProcess(内部: startSub → taskSub) → taskAfter
+     * 从 task1 应返回 subProcess 内的 taskSub 和后续的 taskAfter
+     */
+    @Test
+    public void testFindNextUserTasksSubProcess() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+
+        SubProcess subProcess = builder.addSubProcess("sub1");
+        StartEvent subStart = new StartEvent();
+        subStart.setId("subStart");
+        subProcess.addFlowElement(subStart);
+        UserTask taskSub = new UserTask();
+        taskSub.setId("taskSub");
+        subProcess.addFlowElement(taskSub);
+        // subProcess 内部连线
+        SequenceFlow subFlow = new SequenceFlow();
+        subFlow.setId("subFlow");
+        subFlow.setSourceRef("subStart");
+        subFlow.setTargetRef("taskSub");
+        subStart.setOutgoingFlows(new ArrayList<>());
+        subStart.getOutgoingFlows().add(subFlow);
+        taskSub.setIncomingFlows(new ArrayList<>());
+        taskSub.getIncomingFlows().add(subFlow);
+
+        UserTask taskAfter = builder.addUserTask("taskAfter");
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, subProcess);
+        builder.addSequenceFlow("f3", subProcess, taskAfter);
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-next-sub")).thenReturn(model);
+
+        List<String> result = nodeFinder.findNextUserTasks("proc-next-sub", "task1", "pi-001",
+                Collections.emptyMap());
+
+        assertThat(result).containsExactlyInAnyOrder("taskSub", "taskAfter");
+    }
+
+    /**
+     * 不存在的节点 ID 抛出 NotFoundException
+     */
+    @Test
+    public void testFindNextUserTasksUnknownNode() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent s = builder.addStartEvent("start");
+        UserTask t = builder.addUserTask("task1");
+        builder.addSequenceFlow("f1", s, t);
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-unknown-node")).thenReturn(model);
+
+        assertThatThrownBy(() -> nodeFinder.findNextUserTasks("proc-unknown-node", "nonexistent", "pi-001",
+                Collections.emptyMap()))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining("不存在");
+    }
+
+    /**
+     * 不存在的流程定义 ID 抛出 NotFoundException
+     */
+    @Test
+    public void testFindNextUserTasksUnknownProcessDefinition() {
+        when(repositoryService.getBpmnModel("unknown-proc")).thenReturn(null);
+
+        assertThatThrownBy(() -> nodeFinder.findNextUserTasks("unknown-proc", "task1", "pi-001",
+                Collections.emptyMap()))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining("不存在");
     }
 
     // ======================== 辅助方法 ========================

@@ -3,6 +3,7 @@ package io.github.flowable.plus.core;
 import io.github.flowable.plus.core.spi.ApproverResolver;
 import io.github.flowable.plus.core.spi.GroupResolver;
 import io.github.flowable.plus.core.spi.UserContext;
+import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.vo.ApproverInfoVO;
 import io.github.flowable.plus.core.vo.DoneTaskVO;
 import io.github.flowable.plus.core.vo.NextTaskNodeVO;
@@ -11,6 +12,7 @@ import io.github.flowable.plus.core.vo.TodoTaskVO;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.flowable.bpmn.model.BpmnModel;
+import org.flowable.bpmn.model.ExtensionElement;
 import org.flowable.bpmn.model.FlowElement;
 import org.flowable.bpmn.model.UserTask;
 import org.flowable.engine.HistoryService;
@@ -252,17 +254,173 @@ public class FlowablePlus implements
 
     @Override
     public List<ApproverInfoVO> getNextTaskApprovers(String taskId) {
-        throw new UnsupportedOperationException("getNextTaskApprovers 尚未实现，将在 S6 中完成");
+        return getNextTaskApprovers(taskId, null);
     }
 
     @Override
     public List<ApproverInfoVO> getNextTaskApprovers(String taskId, String targetNodeId) {
-        throw new UnsupportedOperationException("getNextTaskApprovers 尚未实现，将在 S6 中完成");
+        if (taskId == null || taskId.isEmpty()) {
+            throw new IllegalArgumentException("taskId 不可为 null 或空");
+        }
+
+        Task task = processEngine.getTaskService().createTaskQuery()
+                .taskId(taskId).singleResult();
+        if (task == null) {
+            throw new NotFoundException("任务 " + taskId + " 不存在");
+        }
+
+        List<ResolvedNode> nodes = resolveDownstreamNodes(
+                task.getProcessDefinitionId(), task.getTaskDefinitionKey(), task.getProcessInstanceId());
+
+        List<ApproverInfoVO> result = new ArrayList<>();
+        for (ResolvedNode node : nodes) {
+            if (targetNodeId != null && !targetNodeId.equals(node.nodeId)) {
+                continue;
+            }
+            if (!(node.flowElement instanceof UserTask)) {
+                continue;
+            }
+            List<ApproverInfoVO> approvers = approverResolver.resolveApprovers((UserTask) node.flowElement);
+            for (ApproverInfoVO vo : approvers) {
+                vo.setNodeId(node.nodeId);
+                vo.setNodeName(node.nodeName);
+            }
+            result.addAll(approvers);
+        }
+        return result;
     }
 
     @Override
     public List<NextTaskNodeVO> getNextTaskNodes(String processInstanceId, String taskId) {
-        throw new UnsupportedOperationException("getNextTaskNodes 尚未实现，将在 S7 中完成");
+        if (processInstanceId == null || processInstanceId.isEmpty()) {
+            throw new IllegalArgumentException("processInstanceId 不可为 null 或空");
+        }
+        if (taskId == null || taskId.isEmpty()) {
+            throw new IllegalArgumentException("taskId 不可为 null 或空");
+        }
+
+        Task task = processEngine.getTaskService().createTaskQuery()
+                .taskId(taskId).singleResult();
+        if (task == null) {
+            throw new NotFoundException("任务 " + taskId + " 不存在");
+        }
+
+        List<ResolvedNode> nodes = resolveDownstreamNodes(
+                task.getProcessDefinitionId(), task.getTaskDefinitionKey(), processInstanceId);
+
+        List<NextTaskNodeVO> result = new ArrayList<>();
+        for (ResolvedNode node : nodes) {
+            String formData = extractFormData(node.flowElement);
+            result.add(NextTaskNodeVO.builder()
+                    .taskCode(node.nodeId)
+                    .taskName(node.nodeName)
+                    .formData(formData)
+                    .build());
+        }
+        return result;
+    }
+
+    // ======================== S6/S7 内部共享方法 ========================
+
+    /**
+     * 共享遍历逻辑：从当前任务节点出发，解析下游节点列表。
+     * 通过 RuntimeService 获取运行时变量用于条件评估。
+     */
+    private List<ResolvedNode> resolveDownstreamNodes(String processDefinitionId,
+                                                       String currentActivityId, String processInstanceId) {
+        Map<String, Object> variables = processEngine.getRuntimeService()
+                .getVariables(processInstanceId);
+
+        List<String> nodeIds = nodeFinder.findNextUserTasks(
+                processDefinitionId, currentActivityId, processInstanceId, variables);
+
+        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(processDefinitionId);
+
+        List<ResolvedNode> nodes = new ArrayList<>();
+        for (String nodeId : nodeIds) {
+            FlowElement element = bpmnModel.getFlowElement(nodeId);
+            if (element != null) {
+                nodes.add(new ResolvedNode(nodeId, element.getName(), element));
+            }
+        }
+        return nodes;
+    }
+
+    /**
+     * 从 BPMN 扩展属性中提取自定义 formData。
+     * 仅提取 http://flowable.org/bpmn 命名空间下的 customProperty，序列化为 JSON 字符串。
+     * 无自定义属性时返回 null。
+     */
+    private String extractFormData(FlowElement element) {
+        Map<String, List<ExtensionElement>> extElements = element.getExtensionElements();
+        if (extElements == null || extElements.isEmpty()) {
+            return null;
+        }
+
+        List<ExtensionElement> customElements = extElements.get("http://flowable.org/bpmn");
+        if (customElements == null || customElements.isEmpty()) {
+            return null;
+        }
+
+        Map<String, String> properties = new LinkedHashMap<>();
+        for (ExtensionElement ext : customElements) {
+            if ("customProperty".equals(ext.getName())) {
+                Map<String, List<org.flowable.bpmn.model.ExtensionAttribute>> attrs = ext.getAttributes();
+                if (attrs != null) {
+                    String name = getAttributeValue(attrs, "name");
+                    String value = getAttributeValue(attrs, "value");
+                    if (name != null) {
+                        properties.put(name, value);
+                    }
+                }
+            }
+        }
+
+        if (properties.isEmpty()) {
+            return null;
+        }
+
+        StringBuilder sb = new StringBuilder("{");
+        boolean first = true;
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (!first) {
+                sb.append(",");
+            }
+            first = false;
+            String val = entry.getValue();
+            String escaped = val != null ? val.replace("\\", "\\\\").replace("\"", "\\\"") : "";
+            sb.append("\"").append(entry.getKey()).append("\":\"")
+                    .append(escaped).append("\"");
+        }
+        sb.append("}");
+        return sb.toString();
+    }
+
+    /**
+     * 从 ExtensionAttribute Map 中提取指定属性的字符串值。
+     */
+    private String getAttributeValue(Map<String, List<org.flowable.bpmn.model.ExtensionAttribute>> attrs,
+                                     String attributeName) {
+        List<org.flowable.bpmn.model.ExtensionAttribute> attrList = attrs.get(attributeName);
+        if (attrList != null && !attrList.isEmpty()) {
+            return attrList.get(0).getValue();
+        }
+        return null;
+    }
+
+    /**
+     * 遍历中间结果 VO：存储节点 ID、名称和原始 BPMN 元素引用。
+     */
+    static class ResolvedNode {
+        final String nodeId;
+        final String nodeName;
+        final FlowElement flowElement;
+
+        ResolvedNode(String nodeId, String nodeName, FlowElement flowElement) {
+            this.nodeId = nodeId;
+            this.nodeName = nodeName;
+            this.flowElement = flowElement;
+        }
     }
 
     // ======================== 内部辅助方法 (S2/S3) ========================

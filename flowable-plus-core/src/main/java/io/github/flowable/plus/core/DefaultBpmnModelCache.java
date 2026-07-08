@@ -2,6 +2,7 @@ package io.github.flowable.plus.core;
 
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.engine.RepositoryService;
+import org.flowable.engine.repository.ProcessDefinition;
 
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -31,6 +32,20 @@ public class DefaultBpmnModelCache implements BpmnModelCache {
     @Override
     public BpmnModel getBpmnModel(String processDefinitionId) {
         return cache.computeIfAbsent(processDefinitionId,
+                repositoryService::getBpmnModel);
+    }
+
+    @Override
+    public BpmnModel getBpmnModelByProcessKey(String processKey) {
+        ProcessDefinition definition = repositoryService.createProcessDefinitionQuery()
+                .processDefinitionKey(processKey)
+                .latestVersion()
+                .active()
+                .singleResult();
+        if (definition == null) {
+            return null;
+        }
+        return cache.computeIfAbsent(definition.getId(),
                 repositoryService::getBpmnModel);
     }
 }

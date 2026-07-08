@@ -8,6 +8,7 @@ import org.flowable.bpmn.model.ParallelGateway;
 import org.flowable.bpmn.model.Process;
 import org.flowable.bpmn.model.SequenceFlow;
 import org.flowable.bpmn.model.StartEvent;
+import org.flowable.bpmn.model.SubProcess;
 import org.flowable.bpmn.model.UserTask;
 
 import java.util.ArrayList;
@@ -92,6 +93,19 @@ class TestModelBuilder {
 
         process.addFlowElement(flow);
         return flow;
+    }
+
+    SequenceFlow addSequenceFlowWithCondition(String id, FlowElement source, FlowElement target, String condition) {
+        SequenceFlow flow = addSequenceFlow(id, source, target);
+        flow.setConditionExpression(condition);
+        return flow;
+    }
+
+    SubProcess addSubProcess(String id) {
+        SubProcess subProcess = new SubProcess();
+        subProcess.setId(id);
+        process.addFlowElement(subProcess);
+        return subProcess;
     }
 
     BpmnModel build() {

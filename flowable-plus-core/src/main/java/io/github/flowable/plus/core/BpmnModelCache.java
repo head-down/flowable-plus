@@ -24,6 +24,17 @@ public interface BpmnModelCache {
     BpmnModel getBpmnModel(String processDefinitionId);
 
     /**
+     * 根据流程定义 Key 获取最新活跃版本的 BPMN 模型。
+     * 用于 CallActivity 引用外部流程定义时加载模型。
+     *
+     * @param processKey 流程定义 Key，不可为 null
+     * @return BPMN 模型，若流程定义不存在则返回 null
+     */
+    default BpmnModel getBpmnModelByProcessKey(String processKey) {
+        return null;
+    }
+
+    /**
      * 判断任务是否为多实例子任务（会签/或签）。
      *
      * @param task 任务对象，不可为 null

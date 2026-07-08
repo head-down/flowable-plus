@@ -28,6 +28,12 @@ public class ApproverInfoVO {
     /** 来源类型：assignee（指定人）、candidateUser（候选用户）、candidateGroup（候选组内成员） */
     private String type;
 
+    /** 节点 definitionKey */
+    private String nodeId;
+
+    /** 节点名称 */
+    private String nodeName;
+
     /** 候选组 ID（type=candidateGroup 时有值） */
     private String groupId;
 
