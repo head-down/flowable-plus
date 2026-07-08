@@ -2,7 +2,6 @@ package io.github.flowable.plus.core;
 
 import io.github.flowable.plus.core.vo.AssigneeInfo;
 import io.github.flowable.plus.core.vo.ProcessSummaryVO;
-import org.flowable.engine.RuntimeService;
 import org.flowable.engine.runtime.ProcessInstance;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,8 +19,9 @@ import java.util.Set;
 /**
  * 流程查询工作流模块，封装批量流程实例摘要查询逻辑。
  *
- * <p>通过 {@link TaskRepository} 和 {@link HistoricRepository} 接缝访问
- * 运行中和已结束的流程实例数据，避免直接操作 Flowable 引擎内部服务。</p>
+ * <p>所有数据访问通过仓储接缝（{@link RuntimeProcessRepository}、
+ * {@link TaskRepository}、{@link HistoricRepository}），
+ * 不直接依赖 Flowable 引擎内部服务。</p>
  *
  * @author flowable-plus
  */
@@ -30,14 +30,15 @@ public class ProcessQueryWorkflow implements ProcessQueryOperations {
     private static final Logger log = LoggerFactory.getLogger(ProcessQueryWorkflow.class);
     private static final int BATCH_SIZE = 500;
 
-    private final RuntimeService runtimeService;
+    private final RuntimeProcessRepository runtimeProcessRepository;
     private final TaskRepository taskRepository;
     private final HistoricRepository historicRepository;
 
-    public ProcessQueryWorkflow(RuntimeService runtimeService, TaskRepository taskRepository,
+    public ProcessQueryWorkflow(RuntimeProcessRepository runtimeProcessRepository,
+                                TaskRepository taskRepository,
                                 HistoricRepository historicRepository) {
-        if (runtimeService == null) {
-            throw new IllegalArgumentException("RuntimeService 不可为 null");
+        if (runtimeProcessRepository == null) {
+            throw new IllegalArgumentException("RuntimeProcessRepository 不可为 null");
         }
         if (taskRepository == null) {
             throw new IllegalArgumentException("TaskRepository 不可为 null");
@@ -45,7 +46,7 @@ public class ProcessQueryWorkflow implements ProcessQueryOperations {
         if (historicRepository == null) {
             throw new IllegalArgumentException("HistoricRepository 不可为 null");
         }
-        this.runtimeService = runtimeService;
+        this.runtimeProcessRepository = runtimeProcessRepository;
         this.taskRepository = taskRepository;
         this.historicRepository = historicRepository;
     }
@@ -63,10 +64,9 @@ public class ProcessQueryWorkflow implements ProcessQueryOperations {
             List<String> batch = processInstanceIds.subList(i, Math.min(i + BATCH_SIZE, processInstanceIds.size()));
             Set<String> batchSet = new LinkedHashSet<>(batch);
 
-            // 1. 查询运行时实例
-            List<ProcessInstance> runtimeInstances = runtimeService.createProcessInstanceQuery()
-                    .processInstanceIds(batchSet)
-                    .list();
+            // 1. 通过 RuntimeProcessRepository 查询运行时实例
+            List<ProcessInstance> runtimeInstances = runtimeProcessRepository
+                    .findProcessInstancesByIds(batchSet);
             Set<String> runtimeIds = new HashSet<>();
             Map<String, ProcessInstance> runtimeMap = new HashMap<>();
             for (ProcessInstance pi : runtimeInstances) {

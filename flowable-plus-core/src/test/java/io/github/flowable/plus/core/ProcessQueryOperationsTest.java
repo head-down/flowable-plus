@@ -2,9 +2,7 @@ package io.github.flowable.plus.core;
 
 import io.github.flowable.plus.core.vo.AssigneeInfo;
 import io.github.flowable.plus.core.vo.ProcessSummaryVO;
-import org.flowable.engine.RuntimeService;
 import org.flowable.engine.runtime.ProcessInstance;
-import org.flowable.engine.runtime.ProcessInstanceQuery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -28,19 +26,19 @@ import static org.mockito.Mockito.when;
  */
 public class ProcessQueryOperationsTest {
 
-    private RuntimeService mockRuntimeService;
+    private RuntimeProcessRepository mockRuntimeProcessRepo;
     private TaskRepository mockTaskRepository;
     private HistoricRepository mockHistoricRepository;
     private ProcessQueryWorkflow processQueryWorkflow;
 
     @BeforeEach
     public void setUp() {
-        mockRuntimeService = mock(RuntimeService.class);
+        mockRuntimeProcessRepo = mock(RuntimeProcessRepository.class);
         mockTaskRepository = mock(TaskRepository.class);
         mockHistoricRepository = mock(HistoricRepository.class);
 
         processQueryWorkflow = new ProcessQueryWorkflow(
-                mockRuntimeService, mockTaskRepository, mockHistoricRepository);
+                mockRuntimeProcessRepo, mockTaskRepository, mockHistoricRepository);
     }
 
     // ======================== 参数校验 ========================
@@ -312,10 +310,8 @@ public class ProcessQueryOperationsTest {
     private void stubRunningQueries(
             java.util.List<ProcessInstance> runtimeInstances,
             java.util.List<PlusTask> activeTasks) {
-        ProcessInstanceQuery piQuery = mock(ProcessInstanceQuery.class);
-        when(mockRuntimeService.createProcessInstanceQuery()).thenReturn(piQuery);
-        when(piQuery.processInstanceIds(anySet())).thenReturn(piQuery);
-        when(piQuery.list()).thenReturn(runtimeInstances);
+        when(mockRuntimeProcessRepo.findProcessInstancesByIds(anySet()))
+                .thenReturn(runtimeInstances);
 
         when(mockTaskRepository.findActiveTasksByProcessInstanceIds(anyCollection()))
                 .thenReturn(activeTasks);
@@ -324,10 +320,8 @@ public class ProcessQueryOperationsTest {
     private void stubEndedQueries(
             java.util.List<ProcessInstance> runtimeInstances,
             java.util.List<PlusHistoricProcessInstance> histInstances) {
-        ProcessInstanceQuery piQuery = mock(ProcessInstanceQuery.class);
-        when(mockRuntimeService.createProcessInstanceQuery()).thenReturn(piQuery);
-        when(piQuery.processInstanceIds(anySet())).thenReturn(piQuery);
-        when(piQuery.list()).thenReturn(runtimeInstances);
+        when(mockRuntimeProcessRepo.findProcessInstancesByIds(anySet()))
+                .thenReturn(runtimeInstances);
 
         when(mockHistoricRepository.findProcessInstancesByIds(anySet()))
                 .thenReturn(histInstances);

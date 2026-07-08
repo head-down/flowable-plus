@@ -489,27 +489,21 @@ public class FlowablePlus implements
             return Collections.emptyList();
         }
 
-        Map<String, ProcessDefinition> pdCache = new HashMap<>();
-        Map<String, HistoricProcessInstance> hpiCache = new HashMap<>();
+        ProcessEnrichHelper enricher = new ProcessEnrichHelper(repositoryService, historyService);
 
         List<TodoTaskVO> vos = new ArrayList<>(tasks.size());
         for (Task task : tasks) {
-            String defId = task.getProcessDefinitionId();
-            ProcessDefinition pd = pdCache.computeIfAbsent(defId, id ->
-                    repositoryService.createProcessDefinitionQuery().processDefinitionId(id).singleResult());
-
-            String instanceId = task.getProcessInstanceId();
-            HistoricProcessInstance hpi = hpiCache.computeIfAbsent(instanceId, id ->
-                    historyService.createHistoricProcessInstanceQuery().processInstanceId(id).singleResult());
+            ProcessEnrichHelper.EnrichedInfo info = enricher.enrich(
+                    task.getProcessDefinitionId(), task.getProcessInstanceId());
 
             vos.add(TodoTaskVO.builder()
                     .taskId(task.getId())
                     .taskName(task.getName())
-                    .processInstanceId(instanceId)
-                    .processDefinitionKey(pd != null ? pd.getKey() : null)
-                    .processDefinitionName(pd != null ? pd.getName() : null)
-                    .businessKey(hpi != null ? hpi.getBusinessKey() : null)
-                    .startUserId(hpi != null ? hpi.getStartUserId() : null)
+                    .processInstanceId(task.getProcessInstanceId())
+                    .processDefinitionKey(info.processDefinitionKey)
+                    .processDefinitionName(info.processDefinitionName)
+                    .businessKey(info.businessKey)
+                    .startUserId(info.startUserId)
                     .createTime(task.getCreateTime())
                     .assignee(task.getAssignee())
                     .build());
@@ -543,31 +537,21 @@ public class FlowablePlus implements
             return Collections.emptyList();
         }
 
-        Map<String, ProcessDefinition> pdCache = new HashMap<>();
-        Map<String, HistoricProcessInstance> hpiCache = new HashMap<>();
+        ProcessEnrichHelper enricher = new ProcessEnrichHelper(repositoryService, historyService);
 
         List<DoneTaskVO> vos = new ArrayList<>(historicTasks.size());
         for (HistoricTaskInstance hti : historicTasks) {
-            String defId = hti.getProcessDefinitionId();
-            ProcessDefinition pd = defId != null
-                    ? pdCache.computeIfAbsent(defId, id ->
-                            repositoryService.createProcessDefinitionQuery().processDefinitionId(id).singleResult())
-                    : null;
-
-            String instanceId = hti.getProcessInstanceId();
-            HistoricProcessInstance hpi = instanceId != null
-                    ? hpiCache.computeIfAbsent(instanceId, id ->
-                            historyService.createHistoricProcessInstanceQuery().processInstanceId(id).singleResult())
-                    : null;
+            ProcessEnrichHelper.EnrichedInfo info = enricher.enrich(
+                    hti.getProcessDefinitionId(), hti.getProcessInstanceId());
 
             vos.add(DoneTaskVO.builder()
                     .taskId(hti.getId())
                     .taskName(hti.getName())
-                    .processInstanceId(instanceId)
-                    .processDefinitionKey(pd != null ? pd.getKey() : null)
-                    .processDefinitionName(pd != null ? pd.getName() : null)
-                    .businessKey(hpi != null ? hpi.getBusinessKey() : null)
-                    .startUserId(hpi != null ? hpi.getStartUserId() : null)
+                    .processInstanceId(hti.getProcessInstanceId())
+                    .processDefinitionKey(info.processDefinitionKey)
+                    .processDefinitionName(info.processDefinitionName)
+                    .businessKey(info.businessKey)
+                    .startUserId(info.startUserId)
                     .createTime(hti.getCreateTime())
                     .endTime(hti.getEndTime())
                     .assignee(hti.getAssignee())

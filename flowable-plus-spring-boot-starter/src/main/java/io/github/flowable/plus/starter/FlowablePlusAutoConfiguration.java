@@ -6,10 +6,12 @@ import io.github.flowable.plus.core.DefaultBpmnModelCache;
 import io.github.flowable.plus.core.DefaultNodeFinder;
 import io.github.flowable.plus.core.FlowableHistoricRepository;
 import io.github.flowable.plus.core.FlowablePlus;
+import io.github.flowable.plus.core.FlowableRuntimeProcessRepository;
 import io.github.flowable.plus.core.FlowableTaskRepository;
 import io.github.flowable.plus.core.HistoricRepository;
 import io.github.flowable.plus.core.NodeFinder;
 import io.github.flowable.plus.core.ProcessQueryWorkflow;
+import io.github.flowable.plus.core.RuntimeProcessRepository;
 import io.github.flowable.plus.core.TaskRepository;
 import io.github.flowable.plus.core.TaskWorkflow;
 import io.github.flowable.plus.core.UserTaskApproverResolver;
@@ -227,22 +229,37 @@ public class FlowablePlusAutoConfiguration {
     }
 
     /**
+     * 注册 RuntimeProcessRepository Bean。
+     *
+     * <p>封装 RuntimeService 的进程实例查询，为 {@link ProcessQueryWorkflow}
+     * 提供一致的仓储接缝。</p>
+     *
+     * @param processEngine Flowable 流程引擎
+     * @return FlowableRuntimeProcessRepository 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public RuntimeProcessRepository runtimeProcessRepository(ProcessEngine processEngine) {
+        return new FlowableRuntimeProcessRepository(processEngine.getRuntimeService());
+    }
+
+    /**
      * 注册 ProcessQueryWorkflow Bean。
      *
-     * <p>封装批量流程实例摘要查询逻辑，通过 {@link TaskRepository}
-     * 和 {@link HistoricRepository} 接缝访问流程数据。</p>
+     * <p>封装批量流程实例摘要查询逻辑，通过 {@link RuntimeProcessRepository}、
+     * {@link TaskRepository} 和 {@link HistoricRepository} 接缝访问流程数据。</p>
      *
-     * @param taskRepository     任务仓储
-     * @param historicRepository 历史数据仓储
-     * @param processEngine      Flowable 流程引擎
+     * @param runtimeProcessRepository 运行时实例仓储
+     * @param taskRepository           任务仓储
+     * @param historicRepository       历史数据仓储
      * @return ProcessQueryWorkflow 实例
      */
     @Bean
     @ConditionalOnMissingBean
-    public ProcessQueryWorkflow processQueryWorkflow(TaskRepository taskRepository,
-                                                      HistoricRepository historicRepository,
-                                                      ProcessEngine processEngine) {
-        return new ProcessQueryWorkflow(processEngine.getRuntimeService(), taskRepository, historicRepository);
+    public ProcessQueryWorkflow processQueryWorkflow(RuntimeProcessRepository runtimeProcessRepository,
+                                                      TaskRepository taskRepository,
+                                                      HistoricRepository historicRepository) {
+        return new ProcessQueryWorkflow(runtimeProcessRepository, taskRepository, historicRepository);
     }
 
     /**
