@@ -71,3 +71,11 @@ _Avoid_: 下一审批人、后续审批人
 **下一节点**:
 当前任务可流转至的下游节点列表，用于审批页面展示分支选项。
 _Avoid_: 下一任务节点、后续节点
+
+**关键字搜索**:
+待办/已办列表查询的 keyword 参数，对 businessKey 做模糊匹配（LIKE %keyword%）。不支持 processDefinitionName 模糊搜索——Flowable 原生 API 不提供此能力，且框架不提供业务关联表。业务标题等自定义字段的搜索，请通过 TaskQueryEnhancer 回调 + processVariableValueLike 自行实现。
+_Avoid_: 全字段模糊搜索、标题搜索
+
+**业务关联表**:
+参考项目会维护 INSTANCE_BUSINESS 表存储业务标题、创建人等信息，在待办/已办查询中直接 JOIN + SQL LIKE 实现模糊搜索。flowable-plus 不提供此类业务表——保持框架中立，不与具体业务数据模型耦合。需要业务字段搜索的用户，可在发起流程时将业务标题等字段作为流程变量存入，查询时通过 TaskQueryEnhancer 回调中的 processVariableValueLike 实现。
+_Avoid_: 业务表、INSTANCE_BUSINESS
