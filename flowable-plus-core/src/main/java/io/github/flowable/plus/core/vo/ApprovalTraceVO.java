@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.Date;
+import java.util.List;
 
 /**
  * 审批轨迹节点 VO，表示流程实例中单个审批节点的历史记录。
@@ -45,6 +46,9 @@ public class ApprovalTraceVO {
     /** 是否同意（由 deleteReason 推断） */
     private Boolean approved;
 
-    /** 是否驳回（由 deleteReason 推断�� */
+    /** 是否驳回（由 deleteReason 推断） */
     private Boolean isRejected;
+
+    /** 会签子详情（会签节点非 null，普通节点为 null） */
+    private List<ApprovalTraceVO> countersignDetails;
 }

@@ -252,14 +252,16 @@ public class FlowablePlusAutoConfiguration {
      * @param runtimeProcessRepository 运行时实例仓储
      * @param taskRepository           任务仓储
      * @param historicRepository       历史数据仓储
+     * @param bpmnModelCache           BPMN 模型缓存
      * @return ProcessQueryWorkflow 实例
      */
     @Bean
     @ConditionalOnMissingBean
     public ProcessQueryWorkflow processQueryWorkflow(RuntimeProcessRepository runtimeProcessRepository,
                                                       TaskRepository taskRepository,
-                                                      HistoricRepository historicRepository) {
-        return new ProcessQueryWorkflow(runtimeProcessRepository, taskRepository, historicRepository);
+                                                      HistoricRepository historicRepository,
+                                                      BpmnModelCache bpmnModelCache) {
+        return new ProcessQueryWorkflow(runtimeProcessRepository, taskRepository, historicRepository, bpmnModelCache);
     }
 
     /**

@@ -1,5 +1,6 @@
 package io.github.flowable.plus.core;
 
+import io.github.flowable.plus.core.vo.ApprovalTraceVO;
 import io.github.flowable.plus.core.vo.ProcessSummaryVO;
 
 import java.util.List;
@@ -26,4 +27,18 @@ public interface ProcessQueryOperations {
      * @throws IllegalArgumentException 如果 instanceIds 为 null 或空
      */
     Map<String, ProcessSummaryVO> batchQueryProcessSummaries(List<String> processInstanceIds);
+
+    /**
+     * 获取流程实例的审批轨迹，按时间升序展示完整的审批链路。
+     *
+     * <p>包含已完成的历史任务和当前活跃的运行时任务。
+     * 会签节点聚合展示，每个会签审批人作为子详情嵌套。
+     * 每个节点包含审批人、时间、意见和耗时。
+     * 审批状态由 deleteReason 推断。</p>
+     *
+     * @param processInstanceId 流程实例 ID，不可为 null
+     * @return 按 startTime 升序排列的审批轨迹节点列表，若无任务节点返回空列表
+     * @throws NotFoundException 如果流程实例不存在
+     */
+    List<ApprovalTraceVO> getApprovalTrace(String processInstanceId);
 }

@@ -71,4 +71,12 @@ public interface HistoricRepository {
      * @return 历史流程实例列表，无结果返回空列表
      */
     List<PlusHistoricProcessInstance> findProcessInstancesByIds(Set<String> processInstanceIds);
+
+    /**
+     * 按流程实例 ID 查询所有已结束的历史任务，按开始时间升序排列。
+     *
+     * @param processInstanceId 流程实例 ID，不可为 null
+     * @return 历史任务列表，无结果返回空列表
+     */
+    List<PlusHistoricTask> findHistoricTasksByProcessInstanceId(String processInstanceId);
 }

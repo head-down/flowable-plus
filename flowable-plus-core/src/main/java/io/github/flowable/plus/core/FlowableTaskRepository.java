@@ -1,6 +1,7 @@
 package io.github.flowable.plus.core;
 
 import org.flowable.engine.TaskService;
+import org.flowable.engine.task.Comment;
 import org.flowable.task.api.Task;
 
 import java.util.ArrayList;
@@ -92,5 +93,11 @@ public class FlowableTaskRepository implements TaskRepository {
                 .active()
                 .list();
         return tasks.stream().map(PlusTask::from).collect(java.util.stream.Collectors.toList());
+    }
+
+    @Override
+    public List<Comment> getProcessInstanceComments(String processInstanceId) {
+        List<Comment> comments = taskService.getProcessInstanceComments(processInstanceId);
+        return comments != null ? comments : Collections.emptyList();
     }
 }

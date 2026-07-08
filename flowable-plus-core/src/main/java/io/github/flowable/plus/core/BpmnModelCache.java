@@ -54,4 +54,27 @@ public interface BpmnModelCache {
         }
         return false;
     }
+
+    /**
+     * 判断指定流程定义的节点是否为多实例（会签/或签）。
+     *
+     * @param processDefinitionId 流程定义 ID
+     * @param taskDefinitionKey   任务定义 KEY
+     * @return true 如果对应 BPMN 节点配置了 multiInstanceLoopCharacteristics
+     */
+    default boolean isMultiInstanceNode(String processDefinitionId, String taskDefinitionKey) {
+        BpmnModel bpmnModel = getBpmnModel(processDefinitionId);
+        if (bpmnModel == null) {
+            return false;
+        }
+        FlowElement flowElement = bpmnModel.getFlowElement(taskDefinitionKey);
+        if (flowElement == null) {
+            return false;
+        }
+        if (flowElement instanceof Activity) {
+            Activity activity = (Activity) flowElement;
+            return activity.getLoopCharacteristics() != null;
+        }
+        return false;
+    }
 }

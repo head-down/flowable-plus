@@ -4,6 +4,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
+import org.flowable.engine.task.Comment;
+
 /**
  * 任务仓储接口，封装 Flowable TaskService 的查询与写操作。
  *
@@ -97,4 +99,14 @@ public interface TaskRepository {
      * @return 活跃任务列表，无结果返回空列表
      */
     List<PlusTask> findActiveTasksByProcessInstanceIds(Collection<String> processInstanceIds);
+
+    // ======================== 审批意见查询 ========================
+
+    /**
+     * 查询流程实例下的所有审批意见（Comment），按时间升序排列。
+     *
+     * @param processInstanceId 流程实例 ID
+     * @return 审批意见列表，无结果返回空列表
+     */
+    List<Comment> getProcessInstanceComments(String processInstanceId);
 }
