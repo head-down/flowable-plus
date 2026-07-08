@@ -3,10 +3,8 @@ package io.github.flowable.plus.core;
 import io.github.flowable.plus.core.vo.AssigneeInfo;
 import io.github.flowable.plus.core.vo.ProcessSummaryVO;
 import org.flowable.engine.RuntimeService;
-import org.flowable.engine.history.HistoricProcessInstance;
 import org.flowable.engine.runtime.ProcessInstance;
 import org.flowable.engine.runtime.ProcessInstanceQuery;
-import org.flowable.task.api.Task;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -48,37 +46,46 @@ public class ProcessQueryOperationsTest {
     // ======================== 参数校验 ========================
 
     @Test
-    public void testRejectNullList() {
+    public void testRejectNullIds() {
         assertThatThrownBy(() -> processQueryWorkflow.batchQueryProcessSummaries(null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("processInstanceIds");
     }
 
     @Test
-    public void testRejectEmptyList() {
+    public void testRejectEmptyIds() {
         assertThatThrownBy(() -> processQueryWorkflow.batchQueryProcessSummaries(Collections.emptyList()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("processInstanceIds");
     }
 
-    // ======================== 单个运行中实例 ========================
+    @Test
+    public void testEmptyResult() {
+        stubRunningQueries(Collections.emptyList(), Collections.emptyList());
+
+        Map<String, ProcessSummaryVO> result = processQueryWorkflow.batchQueryProcessSummaries(
+                Collections.singletonList("pi-nonexistent"));
+
+        assertThat(result).isEmpty();
+    }
+
+    // ======================== 运行中实例 ========================
 
     @Test
-    public void testSingleRunningInstance() {
-        String instanceId = "pi-001";
+    public void testRunningInstance() {
+        String instanceId = "pi-running";
         ProcessInstance pi = createMockProcessInstance(instanceId, "biz-001", "leave", "请假审批",
                 "userA", new Date());
         when(pi.isSuspended()).thenReturn(false);
 
-        Task task = createMockTask("task-001", instanceId, "task1", "部门审批", "reviewer1");
+        PlusTask task = createPlusTask("task-001", instanceId, "task1", "部门审批", "reviewer1");
         stubRunningQueries(Collections.singletonList(pi), Collections.singletonList(task));
 
         Map<String, ProcessSummaryVO> result = processQueryWorkflow.batchQueryProcessSummaries(
                 Collections.singletonList(instanceId));
 
-        assertThat(result).hasSize(1);
         ProcessSummaryVO vo = result.get(instanceId);
-        assertThat(vo.getInstanceId()).isEqualTo("pi-001");
+        assertThat(vo.getInstanceId()).isEqualTo(instanceId);
         assertThat(vo.getBusinessKey()).isEqualTo("biz-001");
         assertThat(vo.getProcessDefinitionKey()).isEqualTo("leave");
         assertThat(vo.getProcessDefinitionName()).isEqualTo("请假审批");
@@ -104,7 +111,7 @@ public class ProcessQueryOperationsTest {
                 "userA", new Date());
         when(pi.isSuspended()).thenReturn(true);
 
-        Task task = createMockTask("task-002", instanceId, "task1", "部门审批", "reviewer1");
+        PlusTask task = createPlusTask("task-002", instanceId, "task1", "部门审批", "reviewer1");
         stubRunningQueries(Collections.singletonList(pi), Collections.singletonList(task));
 
         Map<String, ProcessSummaryVO> result = processQueryWorkflow.batchQueryProcessSummaries(
@@ -124,9 +131,9 @@ public class ProcessQueryOperationsTest {
                 "userA", new Date());
         when(pi.isSuspended()).thenReturn(false);
 
-        Task task1 = createMockTask("task-a", instanceId, "task1", "会签审批", "reviewer1");
-        Task task2 = createMockTask("task-b", instanceId, "task1", "会签审批", "reviewer2");
-        Task task3 = createMockTask("task-c", instanceId, "task1", "会签审批", "reviewer3");
+        PlusTask task1 = createPlusTask("task-a", instanceId, "task1", "会签审批", "reviewer1");
+        PlusTask task2 = createPlusTask("task-b", instanceId, "task1", "会签审批", "reviewer2");
+        PlusTask task3 = createPlusTask("task-c", instanceId, "task1", "会签审批", "reviewer3");
         stubRunningQueries(Collections.singletonList(pi),
                 Arrays.asList(task1, task2, task3));
 
@@ -153,15 +160,8 @@ public class ProcessQueryOperationsTest {
         Date startTime = new Date(100000);
         Date endTime = new Date(200000);
 
-        HistoricProcessInstance hpi = mock(HistoricProcessInstance.class);
-        when(hpi.getId()).thenReturn(instanceId);
-        when(hpi.getBusinessKey()).thenReturn("biz-ended");
-        when(hpi.getProcessDefinitionKey()).thenReturn("leave");
-        when(hpi.getProcessDefinitionName()).thenReturn("请假审批");
-        when(hpi.getStartUserId()).thenReturn("userA");
-        when(hpi.getStartTime()).thenReturn(startTime);
-        when(hpi.getEndTime()).thenReturn(endTime);
-        when(hpi.getDeleteReason()).thenReturn(null);
+        PlusHistoricProcessInstance hpi = createPlusHistoricPi(instanceId, "biz-ended", "leave",
+                "请假审批", "userA", startTime, endTime, null);
 
         stubEndedQueries(Collections.emptyList(), Collections.singletonList(hpi));
 
@@ -184,15 +184,9 @@ public class ProcessQueryOperationsTest {
     @Test
     public void testRevokedInstance() {
         String instanceId = "pi-revoked";
-        HistoricProcessInstance hpi = mock(HistoricProcessInstance.class);
-        when(hpi.getId()).thenReturn(instanceId);
-        when(hpi.getBusinessKey()).thenReturn("biz-revoked");
-        when(hpi.getProcessDefinitionKey()).thenReturn("leave");
-        when(hpi.getProcessDefinitionName()).thenReturn("请假审批");
-        when(hpi.getStartUserId()).thenReturn("userA");
-        when(hpi.getStartTime()).thenReturn(new Date());
-        when(hpi.getEndTime()).thenReturn(new Date());
-        when(hpi.getDeleteReason()).thenReturn("发起人撤销流程");
+        Date now = new Date();
+        PlusHistoricProcessInstance hpi = createPlusHistoricPi(instanceId, "biz-revoked", "leave",
+                "请假审批", "userA", now, now, "发起人撤销流程");
 
         stubEndedQueries(Collections.emptyList(), Collections.singletonList(hpi));
 
@@ -216,19 +210,13 @@ public class ProcessQueryOperationsTest {
         ProcessInstance pi = createMockProcessInstance(runningId, "biz-r", "leave", "请假审批",
                 "userA", new Date());
         when(pi.isSuspended()).thenReturn(false);
-        Task task = createMockTask("task-r", runningId, "task1", "部门审批", "reviewer1");
+        PlusTask task = createPlusTask("task-r", runningId, "task1", "部门审批", "reviewer1");
         stubRunningQueries(Collections.singletonList(pi), Collections.singletonList(task));
 
         // 已结束实例
-        HistoricProcessInstance hpi = mock(HistoricProcessInstance.class);
-        when(hpi.getId()).thenReturn(endedId);
-        when(hpi.getBusinessKey()).thenReturn("biz-e");
-        when(hpi.getProcessDefinitionKey()).thenReturn("leave");
-        when(hpi.getProcessDefinitionName()).thenReturn("请假审批");
-        when(hpi.getStartUserId()).thenReturn("userB");
-        when(hpi.getStartTime()).thenReturn(new Date());
-        when(hpi.getEndTime()).thenReturn(new Date());
-        when(hpi.getDeleteReason()).thenReturn(null);
+        Date now = new Date();
+        PlusHistoricProcessInstance hpi = createPlusHistoricPi(endedId, "biz-e", "leave",
+                "请假审批", "userB", now, now, null);
         stubEndedQueries(Collections.singletonList(pi), Collections.singletonList(hpi));
 
         Map<String, ProcessSummaryVO> result = processQueryWorkflow.batchQueryProcessSummaries(
@@ -259,9 +247,9 @@ public class ProcessQueryOperationsTest {
         when(pi2.isSuspended()).thenReturn(false);
         when(pi3.isSuspended()).thenReturn(false);
 
-        Task t1 = createMockTask("t1", instanceId1, "n1", "节点1", "r1");
-        Task t2 = createMockTask("t2", instanceId2, "n2", "节点2", "r2");
-        Task t3 = createMockTask("t3", instanceId3, "n3", "节点3", "r3");
+        PlusTask t1 = createPlusTask("t1", instanceId1, "n1", "节点1", "r1");
+        PlusTask t2 = createPlusTask("t2", instanceId2, "n2", "节点2", "r2");
+        PlusTask t3 = createPlusTask("t3", instanceId3, "n3", "节点3", "r3");
         stubRunningQueries(Arrays.asList(pi1, pi2, pi3), Arrays.asList(t1, t2, t3));
 
         Map<String, ProcessSummaryVO> result = processQueryWorkflow.batchQueryProcessSummaries(
@@ -308,46 +296,42 @@ public class ProcessQueryOperationsTest {
         return pi;
     }
 
-    private Task createMockTask(String taskId, String processInstanceId,
+    private PlusTask createPlusTask(String taskId, String processInstanceId,
             String taskDefKey, String taskName, String assignee) {
-        Task task = mock(Task.class);
-        when(task.getId()).thenReturn(taskId);
-        when(task.getProcessInstanceId()).thenReturn(processInstanceId);
-        when(task.getTaskDefinitionKey()).thenReturn(taskDefKey);
-        when(task.getName()).thenReturn(taskName);
-        when(task.getAssignee()).thenReturn(assignee);
-        when(task.getProcessDefinitionId()).thenReturn("leave:1:abc123");
-        return task;
+        return new PlusTask(taskId, "leave:1:abc123", taskDefKey, processInstanceId,
+                assignee, taskName, null, new Date());
+    }
+
+    private PlusHistoricProcessInstance createPlusHistoricPi(String instanceId, String businessKey,
+            String procDefKey, String procDefName, String startUserId,
+            Date startTime, Date endTime, String deleteReason) {
+        return new PlusHistoricProcessInstance(instanceId, businessKey, "leave:1:abc123",
+                procDefKey, procDefName, startUserId, startTime, endTime, deleteReason);
     }
 
     private void stubRunningQueries(
             java.util.List<ProcessInstance> runtimeInstances,
-            java.util.List<Task> activeTasks) {
-        // ProcessInstanceQuery (RuntimeService — 无独立仓储)
+            java.util.List<PlusTask> activeTasks) {
         ProcessInstanceQuery piQuery = mock(ProcessInstanceQuery.class);
         when(mockRuntimeService.createProcessInstanceQuery()).thenReturn(piQuery);
         when(piQuery.processInstanceIds(anySet())).thenReturn(piQuery);
         when(piQuery.list()).thenReturn(runtimeInstances);
 
-        // TaskRepository 接缝
         when(mockTaskRepository.findActiveTasksByProcessInstanceIds(anyCollection()))
                 .thenReturn(activeTasks);
     }
 
     private void stubEndedQueries(
             java.util.List<ProcessInstance> runtimeInstances,
-            java.util.List<HistoricProcessInstance> histInstances) {
-        // Runtime query
+            java.util.List<PlusHistoricProcessInstance> histInstances) {
         ProcessInstanceQuery piQuery = mock(ProcessInstanceQuery.class);
         when(mockRuntimeService.createProcessInstanceQuery()).thenReturn(piQuery);
         when(piQuery.processInstanceIds(anySet())).thenReturn(piQuery);
         when(piQuery.list()).thenReturn(runtimeInstances);
 
-        // HistoricRepository 接缝
         when(mockHistoricRepository.findProcessInstancesByIds(anySet()))
                 .thenReturn(histInstances);
 
-        // TaskRepository 接缝 — 运行时无活跃任务
         when(mockTaskRepository.findActiveTasksByProcessInstanceIds(anyCollection()))
                 .thenReturn(Collections.emptyList());
     }

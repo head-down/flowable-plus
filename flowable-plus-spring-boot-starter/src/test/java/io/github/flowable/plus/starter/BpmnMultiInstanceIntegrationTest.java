@@ -6,6 +6,9 @@ import io.github.flowable.plus.core.DefaultBpmnModelCache;
 import io.github.flowable.plus.core.DefaultNodeFinder;
 import io.github.flowable.plus.core.HistoricRepository;
 import io.github.flowable.plus.core.NodeFinder;
+import io.github.flowable.plus.core.PlusHistoricProcessInstance;
+import io.github.flowable.plus.core.PlusHistoricTask;
+import io.github.flowable.plus.core.PlusTask;
 import io.github.flowable.plus.core.TaskRepository;
 import io.github.flowable.plus.core.TaskWorkflow;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
@@ -19,13 +22,13 @@ import org.flowable.bpmn.model.UserTask;
 import org.flowable.common.engine.impl.el.ExpressionManager;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
-import org.flowable.task.api.Task;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -106,7 +109,7 @@ class BpmnMultiInstanceIntegrationTest {
         when(mockRepoService.getBpmnModel("proc-cs")).thenReturn(model);
 
         // 第 1 人同意
-        Task task1 = createMockTask("task-001", "pi-001", "proc-cs", "csTask", USER_ID);
+        PlusTask task1 = createPlusTask("task-001", "pi-001", "proc-cs", "csTask", USER_ID);
         stubCounterSignMocks(task1, createActiveAssignees(USER_ID, "userB", "userC"), 3L, 0L);
 
         counterSignWorkflow.counterSign("task-001", true, new HashMap<>(), "同意");
@@ -117,7 +120,7 @@ class BpmnMultiInstanceIntegrationTest {
         verify(mockTaskRepo).claim("task-001", USER_ID);
 
         // 第 2 人同意（不触发 onStart）
-        Task task2 = createMockTask("task-002", "pi-001", "proc-cs", "csTask", USER_ID);
+        PlusTask task2 = createPlusTask("task-002", "pi-001", "proc-cs", "csTask", USER_ID);
         stubCounterSignMocks(task2, createActiveAssignees(USER_ID, "userC"), 2L, 1L);
 
         counterSignWorkflow.counterSign("task-002", true, null, "同意");
@@ -126,7 +129,7 @@ class BpmnMultiInstanceIntegrationTest {
         assertThat(onVoteCount.get()).isEqualTo(2);
 
         // 第 3 人同意（触发 onFinish）
-        Task task3 = createMockTask("task-003", "pi-001", "proc-cs", "csTask", USER_ID);
+        PlusTask task3 = createPlusTask("task-003", "pi-001", "proc-cs", "csTask", USER_ID);
         stubCounterSignMocks(task3, createActiveAssignees(USER_ID), 0L, 2L);
 
         counterSignWorkflow.counterSign("task-003", true, null, "同意");
@@ -143,7 +146,7 @@ class BpmnMultiInstanceIntegrationTest {
         BpmnModel model = buildMultiInstanceModel("${nrOfCompletedInstances >= 1}");
         when(mockRepoService.getBpmnModel("proc-os")).thenReturn(model);
 
-        Task task = createMockTask("task-001", "pi-001", "proc-os", "csTask", USER_ID);
+        PlusTask task = createPlusTask("task-001", "pi-001", "proc-os", "csTask", USER_ID);
         stubCounterSignMocks(task, createActiveAssignees(USER_ID, "userB", "userC"), 0L, 0L);
 
         counterSignWorkflow.counterSign("task-001", true, null, "通过");
@@ -158,7 +161,7 @@ class BpmnMultiInstanceIntegrationTest {
         BpmnModel model = buildMultiInstanceModel("${nrOfCompletedInstances >= 1}");
         when(mockRepoService.getBpmnModel("proc-os")).thenReturn(model);
 
-        Task task = createMockTask("task-001", "pi-001", "proc-os", "csTask", USER_ID);
+        PlusTask task = createPlusTask("task-001", "pi-001", "proc-os", "csTask", USER_ID);
         stubCounterSignMocks(task, createActiveAssignees(USER_ID, "userB", "userC"), 3L, 0L);
 
         counterSignWorkflow.counterSign("task-001", false, null, "驳回");
@@ -175,7 +178,7 @@ class BpmnMultiInstanceIntegrationTest {
         BpmnModel model = buildMultiInstanceModel(null);
         when(mockRepoService.getBpmnModel("proc-cs")).thenReturn(model);
 
-        Task task = createMockTask("task-001", "pi-001", "proc-cs", "csTask", USER_ID);
+        PlusTask task = createPlusTask("task-001", "pi-001", "proc-cs", "csTask", USER_ID);
         stubCounterSignMocks(task, createActiveAssignees(USER_ID, "userB", "userC"), 3L, 0L);
 
         counterSignWorkflow.counterSign("task-001", false, null, "不同意");
@@ -190,12 +193,12 @@ class BpmnMultiInstanceIntegrationTest {
         when(mockRepoService.getBpmnModel("proc-cs")).thenReturn(model);
         onStartCount.set(0);
 
-        Task task1 = createMockTask("task-001", "pi-001", "proc-cs", "csTask", USER_ID);
+        PlusTask task1 = createPlusTask("task-001", "pi-001", "proc-cs", "csTask", USER_ID);
         stubCounterSignMocks(task1, createActiveAssignees(USER_ID, "userB"), 3L, 0L);
         counterSignWorkflow.counterSign("task-001", true, null, "同意");
         assertThat(onStartCount.get()).isEqualTo(1);
 
-        Task task2 = createMockTask("task-002", "pi-001", "proc-cs", "csTask", USER_ID);
+        PlusTask task2 = createPlusTask("task-002", "pi-001", "proc-cs", "csTask", USER_ID);
         stubCounterSignMocks(task2, createActiveAssignees(USER_ID), 1L, 1L);
         counterSignWorkflow.counterSign("task-002", true, null, "同意");
         assertThat(onStartCount.get()).isEqualTo(1);
@@ -208,7 +211,7 @@ class BpmnMultiInstanceIntegrationTest {
         BpmnModel model = buildAddRemoveModel();
         when(mockRepoService.getBpmnModel("proc-sign")).thenReturn(model);
 
-        Task task = createMockTask("task-001", "pi-001", "proc-sign", "csTask", USER_ID);
+        PlusTask task = createPlusTask("task-001", "pi-001", "proc-sign", "csTask", USER_ID);
         stubSignManageMocks(task, Collections.singletonList(task));
 
         counterSignWorkflow.addCounterSigner("task-001", Collections.singletonList("newUser"));
@@ -224,7 +227,7 @@ class BpmnMultiInstanceIntegrationTest {
         BpmnModel model = buildAddRemoveModel();
         when(mockRepoService.getBpmnModel("proc-sign")).thenReturn(model);
 
-        Task task = createMockTask("task-001", "pi-001", "proc-sign", "csTask", USER_ID);
+        PlusTask task = createPlusTask("task-001", "pi-001", "proc-sign", "csTask", USER_ID);
         stubSignManageMocks(task, Collections.singletonList(task));
 
         counterSignWorkflow.addCounterSigner("task-001", Collections.singletonList(USER_ID));
@@ -238,8 +241,8 @@ class BpmnMultiInstanceIntegrationTest {
         BpmnModel model = buildAddRemoveModel();
         when(mockRepoService.getBpmnModel("proc-sign")).thenReturn(model);
 
-        Task task = createMockTask("task-001", "pi-001", "proc-sign", "csTask", USER_ID);
-        Task targetTask = createMockTask("task-target", "pi-001", "proc-sign", "csTask", "user2");
+        PlusTask task = createPlusTask("task-001", "pi-001", "proc-sign", "csTask", USER_ID);
+        PlusTask targetTask = createPlusTask("task-target", "pi-001", "proc-sign", "csTask", "user2");
         stubSignManageMocks(task, Arrays.asList(task, targetTask));
         when(mockTaskRepo.findActiveTask("pi-001", "csTask", "user2")).thenReturn(targetTask);
 
@@ -256,7 +259,7 @@ class BpmnMultiInstanceIntegrationTest {
         BpmnModel model = buildSingleTaskModel();
         when(mockRepoService.getBpmnModel("proc-single")).thenReturn(model);
 
-        Task task = createMockTask("task-001", "pi-001", "proc-single", "task1", USER_ID);
+        PlusTask task = createPlusTask("task-001", "pi-001", "proc-single", "task1", USER_ID);
         when(mockTaskRepo.findById("task-001")).thenReturn(task);
 
         assertThatThrownBy(() -> counterSignWorkflow.counterSign("task-001", true, null, "同意"))
@@ -269,7 +272,7 @@ class BpmnMultiInstanceIntegrationTest {
         BpmnModel model = buildMultiInstanceModel(null);
         when(mockRepoService.getBpmnModel("proc-cs")).thenReturn(model);
 
-        Task task = createMockTask("task-001", "pi-001", "proc-cs", "csTask", USER_ID);
+        PlusTask task = createPlusTask("task-001", "pi-001", "proc-cs", "csTask", USER_ID);
         when(mockTaskRepo.findById("task-001")).thenReturn(task);
 
         assertThatThrownBy(() -> taskWorkflow.completeTask("task-001", null, "同意"))
@@ -296,7 +299,7 @@ class BpmnMultiInstanceIntegrationTest {
                 mockHistoricRepo, mockRuntimeService, bpmnModelCache, mockNodeFinder,
                 Collections.singletonList(failingCb));
 
-        Task task = createMockTask("task-001", "pi-001", "proc-cs", "csTask", USER_ID);
+        PlusTask task = createPlusTask("task-001", "pi-001", "proc-cs", "csTask", USER_ID);
         stubCounterSignMocks(task, createActiveAssignees(USER_ID), 0L, 0L);
 
         fp.counterSign("task-001", true, null, "同意");
@@ -366,33 +369,22 @@ class BpmnMultiInstanceIntegrationTest {
 
     // ======================== Test Helpers ========================
 
-    private Task createMockTask(String taskId, String processInstanceId,
+    private PlusTask createPlusTask(String taskId, String processInstanceId,
             String processDefinitionId, String activityId, String assignee) {
-        Task task = mock(Task.class);
-        when(task.getId()).thenReturn(taskId);
-        when(task.getProcessInstanceId()).thenReturn(processInstanceId);
-        when(task.getProcessDefinitionId()).thenReturn(processDefinitionId);
-        when(task.getTaskDefinitionKey()).thenReturn(activityId);
-        when(task.getAssignee()).thenReturn(assignee);
-        when(task.getExecutionId()).thenReturn("exec-" + taskId);
-        return task;
+        return new PlusTask(taskId, processDefinitionId, activityId, processInstanceId,
+                assignee, null, "exec-" + taskId, new Date());
     }
 
-    private List<Task> createActiveAssignees(String... assignees) {
-        List<Task> tasks = new ArrayList<>();
+    private List<PlusTask> createActiveAssignees(String... assignees) {
+        List<PlusTask> tasks = new ArrayList<>();
         for (String assignee : assignees) {
-            Task task = mock(Task.class);
-            when(task.getId()).thenReturn("task-" + assignee);
-            when(task.getAssignee()).thenReturn(assignee);
-            when(task.getProcessInstanceId()).thenReturn("pi-001");
-            when(task.getTaskDefinitionKey()).thenReturn("csTask");
-            when(task.getExecutionId()).thenReturn("exec-" + assignee);
-            tasks.add(task);
+            tasks.add(new PlusTask("task-" + assignee, "proc-cs", "csTask", "pi-001",
+                    assignee, null, "exec-" + assignee, new Date()));
         }
         return tasks;
     }
 
-    private void stubCounterSignMocks(Task task, List<Task> activeList, long activeCount, long finishedCount) {
+    private void stubCounterSignMocks(PlusTask task, List<PlusTask> activeList, long activeCount, long finishedCount) {
         when(mockTaskRepo.findById(task.getId())).thenReturn(task);
         when(mockTaskRepo.listActiveTasks(task.getProcessInstanceId(), task.getTaskDefinitionKey()))
                 .thenReturn(activeList);
@@ -402,22 +394,22 @@ class BpmnMultiInstanceIntegrationTest {
                 .thenReturn(finishedCount);
     }
 
-    private void stubSignManageMocks(Task task, List<Task> allActiveList) {
+    private void stubSignManageMocks(PlusTask task, List<PlusTask> allActiveList) {
         when(mockTaskRepo.findById(task.getId())).thenReturn(task);
         when(mockTaskRepo.listActiveTasks(anyString(), anyString())).thenReturn(allActiveList);
         when(mockTaskRepo.countActiveTasks(anyString(), anyString()))
                 .thenReturn((long) allActiveList.size());
         when(mockHistoricRepo.countFinishedTasks(anyString(), anyString(), anyString())).thenReturn(0L);
 
-        org.flowable.task.api.history.HistoricTaskInstance prevTask =
-                mock(org.flowable.task.api.history.HistoricTaskInstance.class);
-        when(prevTask.getAssignee()).thenReturn(USER_ID);
+        PlusHistoricTask prevTask = new PlusHistoricTask("ht-prev", task.getProcessDefinitionId(),
+                task.getTaskDefinitionKey(), task.getProcessInstanceId(), USER_ID,
+                null, new Date(), new Date(), null);
         when(mockHistoricRepo.findLatestFinishedTask(anyString(), anyString())).thenReturn(prevTask);
 
         // 减签权限校验回退到流程发起人（fallback）
-        org.flowable.engine.history.HistoricProcessInstance historicPi =
-                mock(org.flowable.engine.history.HistoricProcessInstance.class);
-        when(historicPi.getStartUserId()).thenReturn(USER_ID);
+        PlusHistoricProcessInstance historicPi = new PlusHistoricProcessInstance(
+                task.getProcessInstanceId(), null, task.getProcessDefinitionId(),
+                null, null, USER_ID, new Date(), null, null);
         when(mockHistoricRepo.findProcessInstance(anyString())).thenReturn(historicPi);
     }
 }

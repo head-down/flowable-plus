@@ -18,8 +18,11 @@ import io.github.flowable.plus.core.spi.CounterSignCallback;
 import io.github.flowable.plus.core.spi.GroupResolver;
 import io.github.flowable.plus.core.spi.UserContext;
 import org.flowable.common.engine.impl.el.ExpressionManager;
+import org.flowable.engine.HistoryService;
 import org.flowable.engine.IdentityService;
 import org.flowable.engine.ProcessEngine;
+import org.flowable.engine.RepositoryService;
+import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
 import org.flowable.engine.impl.cfg.ProcessEngineConfigurationImpl;
 import org.slf4j.Logger;
@@ -200,7 +203,11 @@ public class FlowablePlusAutoConfiguration {
      * <p>当 {@code flowable.plus.enabled=true}（默认）时生效，
      * 且允许用户通过自定义同类型 Bean 覆盖。</p>
      *
-     * @param processEngine     Flowable 流程引擎（由 flowable-spring-boot-starter 提供）
+     * @param taskService        Flowable 任务服务
+     * @param historyService     Flowable 历史服务
+     * @param runtimeService     Flowable 运行时服务
+     * @param repositoryService  Flowable 仓储服务
+     * @param identityService    Flowable 身份认证服务
      * @param userContext        用户上下文（可被应用覆盖）
      * @param nodeFinder         BPMN 节点遍历策略（可被应用覆盖）
      * @param bpmnModelCache     BPMN 模型缓存（可被应用覆盖）
@@ -210,10 +217,13 @@ public class FlowablePlusAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnProperty(name = "flowable.plus.enabled", havingValue = "true", matchIfMissing = true)
-    public FlowablePlus flowablePlus(ProcessEngine processEngine, UserContext userContext,
-                                     NodeFinder nodeFinder, BpmnModelCache bpmnModelCache,
-                                     ApproverResolver approverResolver) {
-        return new FlowablePlus(processEngine, userContext, nodeFinder, bpmnModelCache, approverResolver);
+    public FlowablePlus flowablePlus(TaskService taskService, HistoryService historyService,
+                                     RuntimeService runtimeService, RepositoryService repositoryService,
+                                     IdentityService identityService,
+                                     UserContext userContext, NodeFinder nodeFinder,
+                                     BpmnModelCache bpmnModelCache, ApproverResolver approverResolver) {
+        return new FlowablePlus(taskService, historyService, runtimeService, repositoryService,
+                identityService, userContext, nodeFinder, bpmnModelCache, approverResolver);
     }
 
     /**

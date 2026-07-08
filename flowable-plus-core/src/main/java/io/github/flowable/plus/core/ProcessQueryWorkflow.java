@@ -3,9 +3,7 @@ package io.github.flowable.plus.core;
 import io.github.flowable.plus.core.vo.AssigneeInfo;
 import io.github.flowable.plus.core.vo.ProcessSummaryVO;
 import org.flowable.engine.RuntimeService;
-import org.flowable.engine.history.HistoricProcessInstance;
 import org.flowable.engine.runtime.ProcessInstance;
-import org.flowable.task.api.Task;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -77,10 +75,10 @@ public class ProcessQueryWorkflow implements ProcessQueryOperations {
             }
 
             // 2. 通过 TaskRepository 查询运行时活跃任务
-            Map<String, List<Task>> tasksByInstance = new HashMap<>();
+            Map<String, List<PlusTask>> tasksByInstance = new HashMap<>();
             if (!runtimeIds.isEmpty()) {
-                List<Task> activeTasks = taskRepository.findActiveTasksByProcessInstanceIds(runtimeIds);
-                for (Task task : activeTasks) {
+                List<PlusTask> activeTasks = taskRepository.findActiveTasksByProcessInstanceIds(runtimeIds);
+                for (PlusTask task : activeTasks) {
                     tasksByInstance.computeIfAbsent(task.getProcessInstanceId(), k -> new ArrayList<>()).add(task);
                 }
             }
@@ -88,11 +86,11 @@ public class ProcessQueryWorkflow implements ProcessQueryOperations {
             // 3. 通过 HistoricRepository 查询历史实例（已结束的）
             List<String> deadIds = new ArrayList<>(batchSet);
             deadIds.removeAll(runtimeIds);
-            Map<String, HistoricProcessInstance> histMap = new HashMap<>();
+            Map<String, PlusHistoricProcessInstance> histMap = new HashMap<>();
             if (!deadIds.isEmpty()) {
-                List<HistoricProcessInstance> histInstances = historicRepository
+                List<PlusHistoricProcessInstance> histInstances = historicRepository
                         .findProcessInstancesByIds(new HashSet<>(deadIds));
-                for (HistoricProcessInstance hpi : histInstances) {
+                for (PlusHistoricProcessInstance hpi : histInstances) {
                     histMap.put(hpi.getId(), hpi);
                 }
             }
@@ -120,7 +118,7 @@ public class ProcessQueryWorkflow implements ProcessQueryOperations {
         return result;
     }
 
-    private ProcessSummaryVO buildRunningSummary(ProcessInstance pi, List<Task> tasks) {
+    private ProcessSummaryVO buildRunningSummary(ProcessInstance pi, List<PlusTask> tasks) {
         ProcessSummaryVO.ProcessSummaryVOBuilder builder = ProcessSummaryVO.builder()
                 .instanceId(pi.getProcessInstanceId())
                 .businessKey(pi.getBusinessKey())
@@ -139,13 +137,13 @@ public class ProcessQueryWorkflow implements ProcessQueryOperations {
                     .currentNodeId(null)
                     .activeAssignees(Collections.emptyList());
         } else {
-            Task firstTask = tasks.get(0);
+            PlusTask firstTask = tasks.get(0);
             builder.currentTaskId(firstTask.getId())
                     .currentTaskName(firstTask.getName())
                     .currentNodeId(firstTask.getTaskDefinitionKey());
 
             List<AssigneeInfo> assignees = new ArrayList<>();
-            for (Task t : tasks) {
+            for (PlusTask t : tasks) {
                 assignees.add(new AssigneeInfo(t.getAssignee(), t.getId(), null));
             }
             builder.activeAssignees(assignees);
@@ -154,7 +152,7 @@ public class ProcessQueryWorkflow implements ProcessQueryOperations {
         return builder.build();
     }
 
-    private ProcessSummaryVO buildEndedSummary(HistoricProcessInstance hpi) {
+    private ProcessSummaryVO buildEndedSummary(PlusHistoricProcessInstance hpi) {
         return ProcessSummaryVO.builder()
                 .instanceId(hpi.getId())
                 .businessKey(hpi.getBusinessKey())

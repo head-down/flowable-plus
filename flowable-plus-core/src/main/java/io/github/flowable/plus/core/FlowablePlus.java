@@ -17,8 +17,9 @@ import org.flowable.bpmn.model.FlowElement;
 import org.flowable.bpmn.model.UserTask;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.IdentityService;
-import org.flowable.engine.ProcessEngine;
 import org.flowable.engine.RepositoryService;
+import org.flowable.engine.RuntimeService;
+import org.flowable.engine.TaskService;
 import org.flowable.engine.history.HistoricProcessInstance;
 import org.flowable.engine.repository.ProcessDefinition;
 import org.flowable.idm.api.Group;
@@ -50,7 +51,14 @@ public class FlowablePlus implements
         NodePreviewOperations {
 
     @Getter
-    private final ProcessEngine processEngine;
+    private final TaskService taskService;
+    @Getter
+    private final HistoryService historyService;
+    @Getter
+    private final RuntimeService runtimeService;
+    @Getter
+    private final RepositoryService repositoryService;
+    private final IdentityService identityService;
     @Getter
     private final UserContext userContext;
     private final NodeFinder nodeFinder;
@@ -60,16 +68,35 @@ public class FlowablePlus implements
     /**
      * 构造器注入所有依赖。
      *
-     * @param processEngine    Flowable 流程引擎实例，不可为 null
+     * @param taskService        Flowable 任务服务，不可为 null
+     * @param historyService     Flowable 历史服务，不可为 null
+     * @param runtimeService     Flowable 运行时服务，不可为 null
+     * @param repositoryService  Flowable 仓储服务，不可为 null
+     * @param identityService    Flowable 身份认证服务，不可为 null
      * @param userContext       用户上下文，用于获取当前操作用户，不可为 null
      * @param nodeFinder        BPMN 节点遍历策略，不可为 null
      * @param bpmnModelCache    BPMN 模型缓存，不可为 null
      * @param approverResolver  审批人解析策略，不可为 null
      */
-    public FlowablePlus(ProcessEngine processEngine, UserContext userContext, NodeFinder nodeFinder,
+    public FlowablePlus(TaskService taskService, HistoryService historyService,
+                        RuntimeService runtimeService, RepositoryService repositoryService,
+                        IdentityService identityService,
+                        UserContext userContext, NodeFinder nodeFinder,
                         BpmnModelCache bpmnModelCache, ApproverResolver approverResolver) {
-        if (processEngine == null) {
-            throw new IllegalArgumentException("ProcessEngine 不可为 null");
+        if (taskService == null) {
+            throw new IllegalArgumentException("TaskService 不可为 null");
+        }
+        if (historyService == null) {
+            throw new IllegalArgumentException("HistoryService 不可为 null");
+        }
+        if (runtimeService == null) {
+            throw new IllegalArgumentException("RuntimeService 不可为 null");
+        }
+        if (repositoryService == null) {
+            throw new IllegalArgumentException("RepositoryService 不可为 null");
+        }
+        if (identityService == null) {
+            throw new IllegalArgumentException("IdentityService 不可为 null");
         }
         if (userContext == null) {
             throw new IllegalArgumentException("UserContext 不可为 null");
@@ -83,7 +110,11 @@ public class FlowablePlus implements
         if (approverResolver == null) {
             throw new IllegalArgumentException("ApproverResolver 不可为 null");
         }
-        this.processEngine = processEngine;
+        this.taskService = taskService;
+        this.historyService = historyService;
+        this.runtimeService = runtimeService;
+        this.repositoryService = repositoryService;
+        this.identityService = identityService;
         this.userContext = userContext;
         this.nodeFinder = nodeFinder;
         this.bpmnModelCache = bpmnModelCache;
@@ -108,7 +139,7 @@ public class FlowablePlus implements
 
         List<String> groupIds = getGroupIds(userId);
 
-        TaskQuery taskQuery = processEngine.getTaskService().createTaskQuery();
+        TaskQuery taskQuery = taskService.createTaskQuery();
         if (groupIds.isEmpty()) {
             taskQuery.or()
                     .taskAssignee(userId)
@@ -154,8 +185,6 @@ public class FlowablePlus implements
         if (query == null) {
             query = new TaskQueryDTO();
         }
-
-        HistoryService historyService = processEngine.getHistoryService();
 
         HistoricTaskInstanceQuery historicQuery = historyService.createHistoricTaskInstanceQuery()
                 .taskAssignee(userId)
@@ -217,7 +246,6 @@ public class FlowablePlus implements
             throw new IllegalArgumentException("processKey 不可为 null 或空");
         }
 
-        RepositoryService repositoryService = processEngine.getRepositoryService();
         ProcessDefinition definition = repositoryService.createProcessDefinitionQuery()
                 .processDefinitionKey(processKey)
                 .latestVersion()
@@ -263,7 +291,7 @@ public class FlowablePlus implements
             throw new IllegalArgumentException("taskId 不可为 null 或空");
         }
 
-        Task task = processEngine.getTaskService().createTaskQuery()
+        Task task = taskService.createTaskQuery()
                 .taskId(taskId).singleResult();
         if (task == null) {
             throw new NotFoundException("任务 " + taskId + " 不存在");
@@ -299,7 +327,7 @@ public class FlowablePlus implements
             throw new IllegalArgumentException("taskId 不可为 null 或空");
         }
 
-        Task task = processEngine.getTaskService().createTaskQuery()
+        Task task = taskService.createTaskQuery()
                 .taskId(taskId).singleResult();
         if (task == null) {
             throw new NotFoundException("任务 " + taskId + " 不存在");
@@ -328,8 +356,7 @@ public class FlowablePlus implements
      */
     private List<ResolvedNode> resolveDownstreamNodes(String processDefinitionId,
                                                        String currentActivityId, String processInstanceId) {
-        Map<String, Object> variables = processEngine.getRuntimeService()
-                .getVariables(processInstanceId);
+        Map<String, Object> variables = runtimeService.getVariables(processInstanceId);
 
         List<String> nodeIds = nodeFinder.findNextUserTasks(
                 processDefinitionId, currentActivityId, processInstanceId, variables);
@@ -429,7 +456,6 @@ public class FlowablePlus implements
      * 获取用户所属候选组 ID 列表。
      */
     private List<String> getGroupIds(String userId) {
-        IdentityService identityService = processEngine.getIdentityService();
         return identityService.createGroupQuery().groupMember(userId).list()
                 .stream().map(Group::getId).collect(Collectors.toList());
     }
@@ -463,8 +489,6 @@ public class FlowablePlus implements
             return Collections.emptyList();
         }
 
-        RepositoryService repositoryService = processEngine.getRepositoryService();
-        HistoryService historyService = processEngine.getHistoryService();
         Map<String, ProcessDefinition> pdCache = new HashMap<>();
         Map<String, HistoricProcessInstance> hpiCache = new HashMap<>();
 
@@ -519,8 +543,6 @@ public class FlowablePlus implements
             return Collections.emptyList();
         }
 
-        RepositoryService repositoryService = processEngine.getRepositoryService();
-        HistoryService historyService = processEngine.getHistoryService();
         Map<String, ProcessDefinition> pdCache = new HashMap<>();
         Map<String, HistoricProcessInstance> hpiCache = new HashMap<>();
 

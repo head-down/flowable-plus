@@ -3,8 +3,12 @@ package io.github.flowable.plus.core;
 import io.github.flowable.plus.core.spi.ApproverResolver;
 import io.github.flowable.plus.core.spi.UserContext;
 import org.flowable.common.engine.impl.el.ExpressionManager;
+import org.flowable.engine.HistoryService;
+import org.flowable.engine.IdentityService;
 import org.flowable.engine.ProcessEngine;
 import org.flowable.engine.RepositoryService;
+import org.flowable.engine.RuntimeService;
+import org.flowable.engine.TaskService;
 import org.flowable.engine.impl.cfg.ProcessEngineConfigurationImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,7 +27,11 @@ import static org.mockito.Mockito.when;
  */
 public class FlowablePlusTest {
 
-    private ProcessEngine mockEngine;
+    private TaskService mockTaskService;
+    private HistoryService mockHistoryService;
+    private RuntimeService mockRuntimeService;
+    private RepositoryService mockRepositoryService;
+    private IdentityService mockIdentityService;
     private BpmnModelCache bpmnModelCache;
     private UserContext userContext;
     private NodeFinder mockNodeFinder;
@@ -31,59 +39,75 @@ public class FlowablePlusTest {
 
     @BeforeEach
     public void setUp() {
-        mockEngine = mock(ProcessEngine.class);
-        RepositoryService mockRepoService = mock(RepositoryService.class);
-        when(mockEngine.getRepositoryService()).thenReturn(mockRepoService);
+        ProcessEngine mockEngine = mock(ProcessEngine.class);
+        mockRepositoryService = mock(RepositoryService.class);
+        when(mockEngine.getRepositoryService()).thenReturn(mockRepositoryService);
 
         ProcessEngineConfigurationImpl config = mock(ProcessEngineConfigurationImpl.class);
         when(config.getExpressionManager()).thenReturn(mock(ExpressionManager.class));
         when(mockEngine.getProcessEngineConfiguration()).thenReturn(config);
 
+        mockTaskService = mock(TaskService.class);
+        mockHistoryService = mock(HistoryService.class);
+        mockRuntimeService = mock(RuntimeService.class);
+        mockIdentityService = mock(IdentityService.class);
         userContext = () -> "testUser";
         mockNodeFinder = mock(NodeFinder.class);
         mockApproverResolver = mock(ApproverResolver.class);
-        bpmnModelCache = new DefaultBpmnModelCache(mockRepoService);
+        bpmnModelCache = new DefaultBpmnModelCache(mockRepositoryService);
     }
 
     // ======================== 构造注入 ========================
 
     @Test
-    public void testConstructorInjectsProcessEngine() {
-        FlowablePlus fp = new FlowablePlus(mockEngine, userContext, mockNodeFinder, bpmnModelCache, mockApproverResolver);
-        assertThat(fp.getProcessEngine()).isSameAs(mockEngine);
+    public void testConstructorInjectsTaskService() {
+        FlowablePlus fp = new FlowablePlus(mockTaskService, mockHistoryService, mockRuntimeService,
+                mockRepositoryService, mockIdentityService, userContext, mockNodeFinder,
+                bpmnModelCache, mockApproverResolver);
+        assertThat(fp.getTaskService()).isSameAs(mockTaskService);
     }
 
     @Test
-    public void testConstructorRejectsNullProcessEngine() {
-        assertThatThrownBy(() -> new FlowablePlus(null, userContext, mockNodeFinder, bpmnModelCache, mockApproverResolver))
+    public void testConstructorRejectsNullTaskService() {
+        assertThatThrownBy(() -> new FlowablePlus(null, mockHistoryService, mockRuntimeService,
+                mockRepositoryService, mockIdentityService, userContext, mockNodeFinder,
+                bpmnModelCache, mockApproverResolver))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("ProcessEngine 不可为 null");
+                .hasMessageContaining("TaskService 不可为 null");
     }
 
     @Test
     public void testConstructorRejectsNullUserContext() {
-        assertThatThrownBy(() -> new FlowablePlus(mockEngine, null, mockNodeFinder, bpmnModelCache, mockApproverResolver))
+        assertThatThrownBy(() -> new FlowablePlus(mockTaskService, mockHistoryService, mockRuntimeService,
+                mockRepositoryService, mockIdentityService, null, mockNodeFinder,
+                bpmnModelCache, mockApproverResolver))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("UserContext 不可为 null");
     }
 
     @Test
     public void testConstructorRejectsNullNodeFinder() {
-        assertThatThrownBy(() -> new FlowablePlus(mockEngine, userContext, null, bpmnModelCache, mockApproverResolver))
+        assertThatThrownBy(() -> new FlowablePlus(mockTaskService, mockHistoryService, mockRuntimeService,
+                mockRepositoryService, mockIdentityService, userContext, null,
+                bpmnModelCache, mockApproverResolver))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("NodeFinder 不可为 null");
     }
 
     @Test
     public void testConstructorRejectsNullBpmnModelCache() {
-        assertThatThrownBy(() -> new FlowablePlus(mockEngine, userContext, mockNodeFinder, null, mockApproverResolver))
+        assertThatThrownBy(() -> new FlowablePlus(mockTaskService, mockHistoryService, mockRuntimeService,
+                mockRepositoryService, mockIdentityService, userContext, mockNodeFinder,
+                null, mockApproverResolver))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("BpmnModelCache 不可为 null");
     }
 
     @Test
     public void testConstructorRejectsNullApproverResolver() {
-        assertThatThrownBy(() -> new FlowablePlus(mockEngine, userContext, mockNodeFinder, bpmnModelCache, null))
+        assertThatThrownBy(() -> new FlowablePlus(mockTaskService, mockHistoryService, mockRuntimeService,
+                mockRepositoryService, mockIdentityService, userContext, mockNodeFinder,
+                bpmnModelCache, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("ApproverResolver 不可为 null");
     }
@@ -92,7 +116,9 @@ public class FlowablePlusTest {
 
     @Test
     public void testGetUserContext() {
-        FlowablePlus fp = new FlowablePlus(mockEngine, userContext, mockNodeFinder, bpmnModelCache, mockApproverResolver);
+        FlowablePlus fp = new FlowablePlus(mockTaskService, mockHistoryService, mockRuntimeService,
+                mockRepositoryService, mockIdentityService, userContext, mockNodeFinder,
+                bpmnModelCache, mockApproverResolver);
         assertThat(fp.getUserContext()).isSameAs(userContext);
     }
 }

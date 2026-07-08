@@ -60,10 +60,16 @@ class FlowablePlusAutoConfigurationTest {
 
     @BeforeEach
     void setUp() {
+        ProcessEngine engine = mockProcessEngine();
         contextRunner = new ApplicationContextRunner()
                 .withUserConfiguration(FlowablePlusAutoConfiguration.class,
                         FlowablePlusHealthContributorAutoConfiguration.class)
-                .withBean(ProcessEngine.class, FlowablePlusAutoConfigurationTest::mockProcessEngine);
+                .withBean(ProcessEngine.class, () -> engine)
+                .withBean(TaskService.class, engine::getTaskService)
+                .withBean(HistoryService.class, engine::getHistoryService)
+                .withBean(RuntimeService.class, engine::getRuntimeService)
+                .withBean(RepositoryService.class, engine::getRepositoryService)
+                .withBean(IdentityService.class, engine::getIdentityService);
     }
 
     @Test

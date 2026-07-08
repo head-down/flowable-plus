@@ -1,8 +1,6 @@
 package io.github.flowable.plus.core;
 
 import org.flowable.engine.history.HistoricActivityInstance;
-import org.flowable.engine.history.HistoricProcessInstance;
-import org.flowable.task.api.history.HistoricTaskInstance;
 
 import java.util.List;
 import java.util.Set;
@@ -10,8 +8,10 @@ import java.util.Set;
 /**
  * 历史数据仓储接口，封装 Flowable HistoryService 的查询操作。
  *
- * <p>将链式查询 API 简化为明确的单方法调用，为业务模块提供
- * 对 Flowable 历史查询 API 的接缝隔离。</p>
+ * <p>所有查询方法返回领域对象（{@link PlusHistoricTask}、{@link PlusHistoricProcessInstance}），
+ * Flowable 原生类型仅存在于适配器实现内部。{@link HistoricActivityInstance}
+ * 保留 Flowable 类型，因其仅在 {@link DefaultNodeFinder} 内部使用，
+ * 属于深层引擎交互的一部分。</p>
  *
  * @author flowable-plus
  */
@@ -23,7 +23,7 @@ public interface HistoricRepository {
      * @param taskId 任务 ID
      * @return 历史任务，不存在时返回 null
      */
-    HistoricTaskInstance findTaskById(String taskId);
+    PlusHistoricTask findTaskById(String taskId);
 
     /**
      * 统计指定审批人在指定节点上已完成的历史任务数。
@@ -42,7 +42,7 @@ public interface HistoricRepository {
      * @param taskDefinitionKey 任务定义 KEY
      * @return 最近完成的历史任务，不存在时返回 null
      */
-    HistoricTaskInstance findLatestFinishedTask(String processInstanceId, String taskDefinitionKey);
+    PlusHistoricTask findLatestFinishedTask(String processInstanceId, String taskDefinitionKey);
 
     /**
      * 按流程实例 ID 查找历史流程实例。
@@ -50,13 +50,14 @@ public interface HistoricRepository {
      * @param processInstanceId 流程实例 ID
      * @return 历史流程实例，不存在时返回 null
      */
-    HistoricProcessInstance findProcessInstance(String processInstanceId);
+    PlusHistoricProcessInstance findProcessInstance(String processInstanceId);
 
     /**
      * 查询流程实例中所有已完成的历史活动实例，按结束时间倒序排列。
      *
      * <p>用于排他网关解析：根据历史活动实例数据判定实际执行路径。
-     * 不指定 processInstanceId 时返回空列表。</p>
+     * 保留 {@link HistoricActivityInstance} 类型——该对象仅在
+     * {@link DefaultNodeFinder} 内部使用，属于引擎级图形遍历逻辑的一部分。</p>
      *
      * @param processInstanceId 流程实例 ID，可为 null（返回空列表）
      * @return 已完成的历史活动实例列表
@@ -69,5 +70,5 @@ public interface HistoricRepository {
      * @param processInstanceIds 流程实例 ID 集合，不可为 null 或空
      * @return 历史流程实例列表，无结果返回空列表
      */
-    List<HistoricProcessInstance> findProcessInstancesByIds(Set<String> processInstanceIds);
+    List<PlusHistoricProcessInstance> findProcessInstancesByIds(Set<String> processInstanceIds);
 }

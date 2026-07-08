@@ -23,9 +23,10 @@ public class FlowableHistoricRepository implements HistoricRepository {
     }
 
     @Override
-    public HistoricTaskInstance findTaskById(String taskId) {
-        return historyService.createHistoricTaskInstanceQuery()
+    public PlusHistoricTask findTaskById(String taskId) {
+        HistoricTaskInstance hti = historyService.createHistoricTaskInstanceQuery()
                 .taskId(taskId).singleResult();
+        return hti != null ? PlusHistoricTask.from(hti) : null;
     }
 
     @Override
@@ -39,20 +40,22 @@ public class FlowableHistoricRepository implements HistoricRepository {
     }
 
     @Override
-    public HistoricTaskInstance findLatestFinishedTask(String processInstanceId, String taskDefinitionKey) {
-        return historyService.createHistoricTaskInstanceQuery()
+    public PlusHistoricTask findLatestFinishedTask(String processInstanceId, String taskDefinitionKey) {
+        HistoricTaskInstance hti = historyService.createHistoricTaskInstanceQuery()
                 .processInstanceId(processInstanceId)
                 .taskDefinitionKey(taskDefinitionKey)
                 .finished()
                 .orderByHistoricTaskInstanceEndTime().desc()
                 .listPage(0, 1)
                 .stream().findFirst().orElse(null);
+        return hti != null ? PlusHistoricTask.from(hti) : null;
     }
 
     @Override
-    public HistoricProcessInstance findProcessInstance(String processInstanceId) {
-        return historyService.createHistoricProcessInstanceQuery()
+    public PlusHistoricProcessInstance findProcessInstance(String processInstanceId) {
+        HistoricProcessInstance hpi = historyService.createHistoricProcessInstanceQuery()
                 .processInstanceId(processInstanceId).singleResult();
+        return hpi != null ? PlusHistoricProcessInstance.from(hpi) : null;
     }
 
     @Override
@@ -68,12 +71,13 @@ public class FlowableHistoricRepository implements HistoricRepository {
     }
 
     @Override
-    public List<HistoricProcessInstance> findProcessInstancesByIds(Set<String> processInstanceIds) {
+    public List<PlusHistoricProcessInstance> findProcessInstancesByIds(Set<String> processInstanceIds) {
         if (processInstanceIds == null || processInstanceIds.isEmpty()) {
             return Collections.emptyList();
         }
-        return historyService.createHistoricProcessInstanceQuery()
+        List<HistoricProcessInstance> instances = historyService.createHistoricProcessInstanceQuery()
                 .processInstanceIds(processInstanceIds)
                 .list();
+        return instances.stream().map(PlusHistoricProcessInstance::from).collect(java.util.stream.Collectors.toList());
     }
 }

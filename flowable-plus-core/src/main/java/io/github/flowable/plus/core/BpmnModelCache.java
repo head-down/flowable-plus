@@ -3,7 +3,6 @@ package io.github.flowable.plus.core;
 import org.flowable.bpmn.model.Activity;
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.bpmn.model.FlowElement;
-import org.flowable.task.api.Task;
 
 /**
  * BPMN 模型缓存，消除重复的引擎 I/O 开销。
@@ -37,10 +36,10 @@ public interface BpmnModelCache {
     /**
      * 判断任务是否为多实例子任务（会签/或签）。
      *
-     * @param task 任务对象，不可为 null
+     * @param task 任务领域对象，不可为 null
      * @return true 如果对应 BPMN 节点配置了 multiInstanceLoopCharacteristics
      */
-    default boolean isMultiInstance(Task task) {
+    default boolean isMultiInstance(PlusTask task) {
         BpmnModel bpmnModel = getBpmnModel(task.getProcessDefinitionId());
         if (bpmnModel == null) {
             return false;

@@ -11,9 +11,11 @@ import org.flowable.bpmn.model.Process;
 import org.flowable.bpmn.model.SequenceFlow;
 import org.flowable.bpmn.model.StartEvent;
 import org.flowable.bpmn.model.UserTask;
-import org.flowable.common.engine.impl.el.ExpressionManager;
-import org.flowable.engine.*;
-import org.flowable.engine.impl.cfg.ProcessEngineConfigurationImpl;
+import org.flowable.engine.HistoryService;
+import org.flowable.engine.IdentityService;
+import org.flowable.engine.RepositoryService;
+import org.flowable.engine.RuntimeService;
+import org.flowable.engine.TaskService;
 import org.flowable.engine.repository.ProcessDefinition;
 import org.flowable.engine.repository.ProcessDefinitionQuery;
 import org.flowable.task.api.Task;
@@ -39,10 +41,11 @@ import static org.mockito.Mockito.when;
  */
 public class NodePreviewOperationsTest {
 
-    private ProcessEngine mockEngine;
     private RepositoryService mockRepoService;
     private RuntimeService mockRuntimeService;
     private TaskService mockTaskService;
+    private HistoryService mockHistoryService;
+    private IdentityService mockIdentityService;
     private NodeFinder mockNodeFinder;
     private BpmnModelCache bpmnModelCache;
     private GroupResolver mockGroupResolver;
@@ -51,29 +54,21 @@ public class NodePreviewOperationsTest {
 
     @BeforeEach
     public void setUp() {
-        mockEngine = mock(ProcessEngine.class);
         mockRepoService = mock(RepositoryService.class);
         mockRuntimeService = mock(RuntimeService.class);
         mockTaskService = mock(TaskService.class);
+        mockHistoryService = mock(HistoryService.class);
+        mockIdentityService = mock(IdentityService.class);
         mockNodeFinder = mock(NodeFinder.class);
         mockGroupResolver = mock(GroupResolver.class);
-
-        when(mockEngine.getRepositoryService()).thenReturn(mockRepoService);
-        when(mockEngine.getRuntimeService()).thenReturn(mockRuntimeService);
-        when(mockEngine.getTaskService()).thenReturn(mockTaskService);
-        when(mockEngine.getHistoryService()).thenReturn(mock(HistoryService.class));
-        when(mockEngine.getIdentityService()).thenReturn(mock(IdentityService.class));
-
-        ProcessEngineConfigurationImpl config = mock(ProcessEngineConfigurationImpl.class);
-        when(config.getExpressionManager()).thenReturn(mock(ExpressionManager.class));
-        when(mockEngine.getProcessEngineConfiguration()).thenReturn(config);
 
         UserContext userContext = () -> "testUser";
         bpmnModelCache = new DefaultBpmnModelCache(mockRepoService);
         approverResolver = new UserTaskApproverResolver(mockGroupResolver);
 
-        flowablePlus = new FlowablePlus(mockEngine, userContext, mockNodeFinder, bpmnModelCache,
-                approverResolver);
+        flowablePlus = new FlowablePlus(mockTaskService, mockHistoryService, mockRuntimeService,
+                mockRepoService, mockIdentityService, userContext, mockNodeFinder,
+                bpmnModelCache, approverResolver);
     }
 
     // ======================== 参数校验 ========================
@@ -204,8 +199,9 @@ public class NodePreviewOperationsTest {
         stubProcessDefinition(processKey, definitionId);
 
         UserContext userContext = () -> "testUser";
-        FlowablePlus fpWithoutResolver = new FlowablePlus(mockEngine, userContext, mockNodeFinder,
-                bpmnModelCache, new UserTaskApproverResolver(null));
+        FlowablePlus fpWithoutResolver = new FlowablePlus(mockTaskService, mockHistoryService,
+                mockRuntimeService, mockRepoService, mockIdentityService,
+                userContext, mockNodeFinder, bpmnModelCache, new UserTaskApproverResolver(null));
 
         UserTask userTask = buildUserTask("taskA", "多级审批", null, null,
                 Collections.singletonList("dept_manager"));

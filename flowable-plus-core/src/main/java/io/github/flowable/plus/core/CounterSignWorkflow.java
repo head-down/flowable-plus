@@ -7,9 +7,6 @@ import io.github.flowable.plus.core.spi.CounterSignCallback;
 import io.github.flowable.plus.core.spi.UserContext;
 import cn.hutool.core.util.StrUtil;
 import org.flowable.engine.RuntimeService;
-import org.flowable.engine.history.HistoricProcessInstance;
-import org.flowable.task.api.history.HistoricTaskInstance;
-import org.flowable.task.api.Task;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,7 +49,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
 
     @Override
     public void counterSign(String taskId, boolean approved, Map<String, Object> variables, String comment) {
-        Task task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "会签");
+        PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "会签");
         TaskValidation.validateCurrentUserIsAssignee(task, userContext.getCurrentUserId(), taskId, "会签");
         TaskValidation.validateMultiInstance(bpmnModelCache, task, taskId, "会签");
 
@@ -89,7 +86,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
             throw new IllegalArgumentException("assignees 不可为 null 或空");
         }
 
-        Task task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "加签");
+        PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "加签");
         TaskValidation.validateMultiInstance(bpmnModelCache, task, taskId, "加签");
 
         validateCounterSignPermission(task, "加签");
@@ -141,7 +138,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
             throw new IllegalArgumentException("assignee 不可为 null 或空");
         }
 
-        Task task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "减签");
+        PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "减签");
         TaskValidation.validateMultiInstance(bpmnModelCache, task, taskId, "减签");
 
         validateCounterSignPermission(task, "减签");
@@ -162,7 +159,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
                     "减签后剩余未投票审批人不足，当前未投票人数: " + unvotedCount);
         }
 
-        Task targetTask = taskRepository.findActiveTask(
+        PlusTask targetTask = taskRepository.findActiveTask(
                 processInstanceId, task.getTaskDefinitionKey(), assignee);
 
         if (targetTask == null) {
@@ -178,20 +175,20 @@ public class CounterSignWorkflow implements CounterSignOperations {
 
     // ======================== 内部辅助 ========================
 
-    private boolean hasVoted(Task task, String userId) {
+    private boolean hasVoted(PlusTask task, String userId) {
         return historicRepository.countFinishedTasks(
                 task.getProcessInstanceId(), task.getTaskDefinitionKey(), userId) > 0;
     }
 
-    private List<String> resolveCurrentAssignees(Task task) {
+    private List<String> resolveCurrentAssignees(PlusTask task) {
         return taskRepository.listActiveTasks(task.getProcessInstanceId(), task.getTaskDefinitionKey())
                 .stream()
-                .map(Task::getAssignee)
+                .map(PlusTask::getAssignee)
                 .filter(Objects::nonNull)
                 .collect(ArrayList::new, ArrayList::add, ArrayList::addAll);
     }
 
-    private boolean isMultiInstanceFinished(Task task) {
+    private boolean isMultiInstanceFinished(PlusTask task) {
         return taskRepository.countActiveTasks(task.getProcessInstanceId(), task.getTaskDefinitionKey()) == 0;
     }
 
@@ -205,7 +202,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
         }
     }
 
-    private void validateCounterSignPermission(Task task, String operation) {
+    private void validateCounterSignPermission(PlusTask task, String operation) {
         String currentUserId = userContext.getCurrentUserId();
         String processInstanceId = task.getProcessInstanceId();
 
@@ -224,14 +221,14 @@ public class CounterSignWorkflow implements CounterSignOperations {
         String authorizedUserId;
 
         if (prevNodes.isEmpty()) {
-            HistoricProcessInstance historicPi = historicRepository.findProcessInstance(processInstanceId);
+            PlusHistoricProcessInstance historicPi = historicRepository.findProcessInstance(processInstanceId);
             if (historicPi == null) {
                 throw new NotFoundException("流程实例 " + processInstanceId + " 不存在");
             }
             authorizedUserId = historicPi.getStartUserId();
         } else {
             String prevNodeId = prevNodes.get(0);
-            HistoricTaskInstance prevTask = historicRepository.findLatestFinishedTask(processInstanceId, prevNodeId);
+            PlusHistoricTask prevTask = historicRepository.findLatestFinishedTask(processInstanceId, prevNodeId);
 
             if (prevTask == null) {
                 throw new NotFoundException("未找到上一节点 " + prevNodeId + " 的历史任务");

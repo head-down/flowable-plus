@@ -8,11 +8,8 @@ import io.github.flowable.plus.core.spi.UserContext;
 import cn.hutool.core.util.StrUtil;
 import org.flowable.engine.IdentityService;
 import org.flowable.engine.RuntimeService;
-import org.flowable.engine.history.HistoricProcessInstance;
 import org.flowable.engine.runtime.ChangeActivityStateBuilder;
 import org.flowable.engine.runtime.ProcessInstance;
-import org.flowable.task.api.Task;
-import org.flowable.task.api.history.HistoricTaskInstance;
 
 import java.util.List;
 import java.util.Map;
@@ -63,7 +60,7 @@ public class TaskWorkflow implements TaskOperations, RejectionOperations, Proces
 
     @Override
     public void completeTask(String taskId, Map<String, Object> variables, String comment) {
-        Task task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "审批");
+        PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "审批");
         TaskValidation.validateNotMultiInstance(bpmnModelCache, task, taskId);
 
         String userId = userContext.getCurrentUserId();
@@ -89,7 +86,7 @@ public class TaskWorkflow implements TaskOperations, RejectionOperations, Proces
 
     @Override
     public void rejectTask(String taskId, String reason) {
-        Task task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "驳回");
+        PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "驳回");
         TaskValidation.validateCurrentUserIsAssignee(task, userContext.getCurrentUserId(), taskId, "驳回");
         TaskValidation.validateNotMultiInstance(bpmnModelCache, task, taskId);
 
@@ -109,7 +106,7 @@ public class TaskWorkflow implements TaskOperations, RejectionOperations, Proces
 
     @Override
     public void rejectTaskToInitiator(String taskId, String reason) {
-        Task task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "驳回");
+        PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "驳回");
         TaskValidation.validateCurrentUserIsAssignee(task, userContext.getCurrentUserId(), taskId, "驳回");
         TaskValidation.validateNotMultiInstance(bpmnModelCache, task, taskId);
 
@@ -126,7 +123,7 @@ public class TaskWorkflow implements TaskOperations, RejectionOperations, Proces
     @Override
     public void withdrawTask(String taskId, String reason) {
         String currentUserId = userContext.getCurrentUserId();
-        Task task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "撤回");
+        PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "撤回");
         TaskValidation.validateNotMultiInstance(bpmnModelCache, task, taskId);
 
         if (currentUserId.equals(task.getAssignee())) {
@@ -143,7 +140,7 @@ public class TaskWorkflow implements TaskOperations, RejectionOperations, Proces
 
         String prevNodeId = prevNodes.get(0);
 
-        HistoricTaskInstance prevTask = historicRepository.findLatestFinishedTask(processInstanceId, prevNodeId);
+        PlusHistoricTask prevTask = historicRepository.findLatestFinishedTask(processInstanceId, prevNodeId);
 
         if (prevTask == null || !currentUserId.equals(prevTask.getAssignee())) {
             throw new PermissionDeniedException(
@@ -161,7 +158,7 @@ public class TaskWorkflow implements TaskOperations, RejectionOperations, Proces
 
         String currentUserId = userContext.getCurrentUserId();
 
-        HistoricProcessInstance historicPi = historicRepository.findProcessInstance(processInstanceId);
+        PlusHistoricProcessInstance historicPi = historicRepository.findProcessInstance(processInstanceId);
         if (historicPi == null) {
             throw new NotFoundException("流程实例 " + processInstanceId + " 不存在");
         }
@@ -179,7 +176,7 @@ public class TaskWorkflow implements TaskOperations, RejectionOperations, Proces
         }
 
         String initiatorNode = nodeFinder.findInitiatorNode(historicPi.getProcessDefinitionId());
-        Task activeTask = taskRepository.findActiveByProcessInstance(processInstanceId);
+        PlusTask activeTask = taskRepository.findActiveByProcessInstance(processInstanceId);
         if (activeTask == null || !initiatorNode.equals(activeTask.getTaskDefinitionKey())) {
             throw new TaskAlreadyCompletedException(
                     "流程实例 " + processInstanceId + " 已推进后续节点，无法撤销");
@@ -190,7 +187,7 @@ public class TaskWorkflow implements TaskOperations, RejectionOperations, Proces
 
     // ======================== 内部辅助 ========================
 
-    private void executeRollback(Task task, String targetActivityId, String reason, String commentType) {
+    private void executeRollback(PlusTask task, String targetActivityId, String reason, String commentType) {
         if (StrUtil.isNotBlank(reason)) {
             taskRepository.addComment(task.getId(), task.getProcessInstanceId(), commentType, reason);
         }

@@ -37,32 +37,27 @@ import static org.mockito.Mockito.when;
  */
 public class TaskListOperationsTest {
 
-    private ProcessEngine mockEngine;
     private TaskService mockTaskService;
     private HistoryService mockHistoryService;
     private RepositoryService mockRepoService;
     private IdentityService mockIdentityService;
+    private RuntimeService mockRuntimeService;
     private TaskQuery mockTaskQuery;
     private HistoricTaskInstanceQuery mockHistoricQuery;
     private FlowablePlus flowablePlus;
 
     @BeforeEach
     public void setUp() {
-        mockEngine = mock(ProcessEngine.class);
         mockTaskService = mock(TaskService.class);
         mockHistoryService = mock(HistoryService.class);
         mockRepoService = mock(RepositoryService.class);
         mockIdentityService = mock(IdentityService.class);
+        mockRuntimeService = mock(RuntimeService.class);
         mockTaskQuery = mock(TaskQuery.class);
         mockHistoricQuery = mock(HistoricTaskInstanceQuery.class);
 
-        when(mockEngine.getTaskService()).thenReturn(mockTaskService);
-        when(mockEngine.getHistoryService()).thenReturn(mockHistoryService);
-        when(mockEngine.getRepositoryService()).thenReturn(mockRepoService);
-        when(mockEngine.getIdentityService()).thenReturn(mockIdentityService);
         when(mockTaskService.createTaskQuery()).thenReturn(mockTaskQuery);
         when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(mockHistoricQuery);
-        when(mockEngine.getRuntimeService()).thenReturn(mock(RuntimeService.class));
 
         // Group query: 默认返回空组
         GroupQuery mockGroupQuery = mock(GroupQuery.class);
@@ -75,7 +70,8 @@ public class TaskListOperationsTest {
         ApproverResolver approverResolver = mock(ApproverResolver.class);
         UserContext userContext = () -> "testUser";
 
-        flowablePlus = new FlowablePlus(mockEngine, userContext, mockNodeFinder, bpmnModelCache,
+        flowablePlus = new FlowablePlus(mockTaskService, mockHistoryService, mockRuntimeService,
+                mockRepoService, mockIdentityService, userContext, mockNodeFinder, bpmnModelCache,
                 approverResolver);
     }
 

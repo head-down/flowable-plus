@@ -23,17 +23,19 @@ public class FlowableTaskRepository implements TaskRepository {
     }
 
     @Override
-    public Task findById(String taskId) {
-        return taskService.createTaskQuery().taskId(taskId).singleResult();
+    public PlusTask findById(String taskId) {
+        Task task = taskService.createTaskQuery().taskId(taskId).singleResult();
+        return task != null ? PlusTask.from(task) : null;
     }
 
     @Override
-    public List<Task> listActiveTasks(String processInstanceId, String taskDefinitionKey) {
-        return taskService.createTaskQuery()
+    public List<PlusTask> listActiveTasks(String processInstanceId, String taskDefinitionKey) {
+        List<Task> tasks = taskService.createTaskQuery()
                 .processInstanceId(processInstanceId)
                 .taskDefinitionKey(taskDefinitionKey)
                 .active()
                 .list();
+        return tasks.stream().map(PlusTask::from).collect(java.util.stream.Collectors.toList());
     }
 
     @Override
@@ -46,21 +48,23 @@ public class FlowableTaskRepository implements TaskRepository {
     }
 
     @Override
-    public Task findActiveByProcessInstance(String processInstanceId) {
-        return taskService.createTaskQuery()
+    public PlusTask findActiveByProcessInstance(String processInstanceId) {
+        Task task = taskService.createTaskQuery()
                 .processInstanceId(processInstanceId)
                 .active()
                 .singleResult();
+        return task != null ? PlusTask.from(task) : null;
     }
 
     @Override
-    public Task findActiveTask(String processInstanceId, String taskDefinitionKey, String assignee) {
-        return taskService.createTaskQuery()
+    public PlusTask findActiveTask(String processInstanceId, String taskDefinitionKey, String assignee) {
+        Task task = taskService.createTaskQuery()
                 .processInstanceId(processInstanceId)
                 .taskDefinitionKey(taskDefinitionKey)
                 .taskAssignee(assignee)
                 .active()
                 .singleResult();
+        return task != null ? PlusTask.from(task) : null;
     }
 
     @Override
@@ -79,13 +83,14 @@ public class FlowableTaskRepository implements TaskRepository {
     }
 
     @Override
-    public List<Task> findActiveTasksByProcessInstanceIds(Collection<String> processInstanceIds) {
+    public List<PlusTask> findActiveTasksByProcessInstanceIds(Collection<String> processInstanceIds) {
         if (processInstanceIds == null || processInstanceIds.isEmpty()) {
             return Collections.emptyList();
         }
-        return taskService.createTaskQuery()
+        List<Task> tasks = taskService.createTaskQuery()
                 .processInstanceIdIn(new ArrayList<>(processInstanceIds))
                 .active()
                 .list();
+        return tasks.stream().map(PlusTask::from).collect(java.util.stream.Collectors.toList());
     }
 }
