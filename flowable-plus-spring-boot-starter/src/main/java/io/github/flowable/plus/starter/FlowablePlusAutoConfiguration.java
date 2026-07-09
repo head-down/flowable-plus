@@ -7,12 +7,10 @@ import io.github.flowable.plus.core.DefaultBpmnModelCache;
 import io.github.flowable.plus.core.DefaultNodeFinder;
 import io.github.flowable.plus.core.FlowableHistoricRepository;
 import io.github.flowable.plus.core.FlowablePlus;
-import io.github.flowable.plus.core.FlowableRuntimeProcessRepository;
 import io.github.flowable.plus.core.FlowableTaskRepository;
 import io.github.flowable.plus.core.HistoricRepository;
 import io.github.flowable.plus.core.NodeFinder;
 import io.github.flowable.plus.core.ProcessQueryWorkflow;
-import io.github.flowable.plus.core.RuntimeProcessRepository;
 import io.github.flowable.plus.core.TaskQueryModule;
 import io.github.flowable.plus.core.TaskRepository;
 import io.github.flowable.plus.core.TaskWorkflow;
@@ -284,39 +282,24 @@ public class FlowablePlusAutoConfiguration {
     }
 
     /**
-     * 注册 RuntimeProcessRepository Bean。
-     *
-     * <p>封装 RuntimeService 的进程实例查询，为 {@link ProcessQueryWorkflow}
-     * 提供一致的仓储接缝。</p>
-     *
-     * @param processEngine Flowable 流程引擎
-     * @return FlowableRuntimeProcessRepository 实例
-     */
-    @Bean
-    @ConditionalOnMissingBean
-    public RuntimeProcessRepository runtimeProcessRepository(ProcessEngine processEngine) {
-        return new FlowableRuntimeProcessRepository(processEngine.getRuntimeService());
-    }
-
-    /**
      * 注册 ProcessQueryWorkflow Bean。
      *
-     * <p>封装批量流程实例摘要查询逻辑，通过 {@link RuntimeProcessRepository}、
-     * {@link TaskRepository} 和 {@link HistoricRepository} 接缝访问流程数据。</p>
+     * <p>封装批量流程实例摘要查询与审批轨迹查询，
+     * 通过 RuntimeService、TaskRepository 和 HistoricRepository 访问数据。</p>
      *
-     * @param runtimeProcessRepository 运行时实例仓储
-     * @param taskRepository           任务仓储
-     * @param historicRepository       历史数据仓储
-     * @param bpmnModelCache           BPMN 模型缓存
+     * @param runtimeService      Flowable 运行时服务
+     * @param taskRepository      任务仓储
+     * @param historicRepository  历史数据仓储
+     * @param bpmnModelCache      BPMN 模型缓存
      * @return ProcessQueryWorkflow 实例
      */
     @Bean
     @ConditionalOnMissingBean
-    public ProcessQueryWorkflow processQueryWorkflow(RuntimeProcessRepository runtimeProcessRepository,
+    public ProcessQueryWorkflow processQueryWorkflow(RuntimeService runtimeService,
                                                       TaskRepository taskRepository,
                                                       HistoricRepository historicRepository,
                                                       BpmnModelCache bpmnModelCache) {
-        return new ProcessQueryWorkflow(runtimeProcessRepository, taskRepository, historicRepository, bpmnModelCache);
+        return new ProcessQueryWorkflow(runtimeService, taskRepository, historicRepository, bpmnModelCache);
     }
 
     /**

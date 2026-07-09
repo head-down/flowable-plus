@@ -4,6 +4,7 @@ import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.vo.ApprovalTraceVO;
 import io.github.flowable.plus.core.vo.AssigneeInfo;
 import io.github.flowable.plus.core.vo.ProcessSummaryVO;
+import org.flowable.engine.RuntimeService;
 import org.flowable.engine.runtime.ProcessInstance;
 import org.flowable.engine.task.Comment;
 import org.slf4j.Logger;
@@ -26,9 +27,8 @@ import java.util.stream.Collectors;
 /**
  * 流程查询工作流模块，封装批量流程实例摘要查询与审批轨迹查询。
  *
- * <p>所有数据访问通过仓储接缝（{@link RuntimeProcessRepository}、
- * {@link TaskRepository}、{@link HistoricRepository}），
- * 不直接依赖 Flowable 引擎内部服务。</p>
+ * <p>通过 {@link TaskRepository} 和 {@link HistoricRepository} 接缝访问任务与历史数据，
+ * 运行时实例查询直接使用 {@link RuntimeService}。</p>
  *
  * @author flowable-plus
  */
@@ -37,17 +37,17 @@ public class ProcessQueryWorkflow implements ProcessQueryOperations {
     private static final Logger log = LoggerFactory.getLogger(ProcessQueryWorkflow.class);
     private static final int BATCH_SIZE = 500;
 
-    private final RuntimeProcessRepository runtimeProcessRepository;
+    private final RuntimeService runtimeService;
     private final TaskRepository taskRepository;
     private final HistoricRepository historicRepository;
     private final BpmnModelCache bpmnModelCache;
 
-    public ProcessQueryWorkflow(RuntimeProcessRepository runtimeProcessRepository,
+    public ProcessQueryWorkflow(RuntimeService runtimeService,
                                 TaskRepository taskRepository,
                                 HistoricRepository historicRepository,
                                 BpmnModelCache bpmnModelCache) {
-        if (runtimeProcessRepository == null) {
-            throw new IllegalArgumentException("RuntimeProcessRepository 不可为 null");
+        if (runtimeService == null) {
+            throw new IllegalArgumentException("RuntimeService 不可为 null");
         }
         if (taskRepository == null) {
             throw new IllegalArgumentException("TaskRepository 不可为 null");
@@ -55,7 +55,7 @@ public class ProcessQueryWorkflow implements ProcessQueryOperations {
         if (historicRepository == null) {
             throw new IllegalArgumentException("HistoricRepository 不可为 null");
         }
-        this.runtimeProcessRepository = runtimeProcessRepository;
+        this.runtimeService = runtimeService;
         this.taskRepository = taskRepository;
         this.historicRepository = historicRepository;
         this.bpmnModelCache = bpmnModelCache;
@@ -76,9 +76,11 @@ public class ProcessQueryWorkflow implements ProcessQueryOperations {
             List<String> batch = processInstanceIds.subList(i, Math.min(i + BATCH_SIZE, processInstanceIds.size()));
             Set<String> batchSet = new LinkedHashSet<>(batch);
 
-            // 1. 通过 RuntimeProcessRepository 查询运行时实例
-            List<ProcessInstance> runtimeInstances = runtimeProcessRepository
-                    .findProcessInstancesByIds(batchSet);
+            // 1. 通过 RuntimeService 查询运行时实例
+            List<ProcessInstance> runtimeInstances = runtimeService
+                    .createProcessInstanceQuery()
+                    .processInstanceIds(batchSet)
+                    .list();
             Set<String> runtimeIds = new HashSet<>();
             Map<String, ProcessInstance> runtimeMap = new HashMap<>();
             for (ProcessInstance pi : runtimeInstances) {
