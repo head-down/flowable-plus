@@ -2,7 +2,6 @@ package io.github.flowable.plus.core;
 
 import io.github.flowable.plus.core.spi.ApproverResolver;
 import io.github.flowable.plus.core.spi.GroupResolver;
-import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.vo.ApproverInfoVO;
 import io.github.flowable.plus.core.vo.NextTaskNodeVO;
 import io.github.flowable.plus.core.vo.NodeApproverVO;
@@ -62,13 +61,15 @@ public class NodePreviewOperationsTest {
         mockNodeFinder = mock(NodeFinder.class);
         mockGroupResolver = mock(GroupResolver.class);
 
-        UserContext userContext = () -> "testUser";
         bpmnModelCache = new DefaultBpmnModelCache(mockRepoService);
         approverResolver = new UserTaskApproverResolver(mockGroupResolver);
+        BpmnFormDataHelper bpmnFormDataHelper = new BpmnFormDataHelper();
 
-        flowablePlus = new FlowablePlus(mockTaskService, mockHistoryService, mockRuntimeService,
-                mockRepoService, mockIdentityService, userContext, mockNodeFinder,
-                bpmnModelCache, approverResolver);
+        // TaskQueryModule 仅用于 FlowablePlus 构造，NodePreviewOperations 测试不调用其方法
+        TaskQueryModule taskQueryModule = mock(TaskQueryModule.class);
+
+        flowablePlus = new FlowablePlus(taskQueryModule, mockRuntimeService, mockRepoService,
+                mockTaskService, mockNodeFinder, bpmnModelCache, approverResolver, bpmnFormDataHelper);
     }
 
     // ======================== 参数校验 ========================
@@ -198,10 +199,11 @@ public class NodePreviewOperationsTest {
 
         stubProcessDefinition(processKey, definitionId);
 
-        UserContext userContext = () -> "testUser";
-        FlowablePlus fpWithoutResolver = new FlowablePlus(mockTaskService, mockHistoryService,
-                mockRuntimeService, mockRepoService, mockIdentityService,
-                userContext, mockNodeFinder, bpmnModelCache, new UserTaskApproverResolver(null));
+        TaskQueryModule taskQueryModule = mock(TaskQueryModule.class);
+        BpmnFormDataHelper bpmnFormDataHelper = new BpmnFormDataHelper();
+        FlowablePlus fpWithoutResolver = new FlowablePlus(taskQueryModule, mockRuntimeService,
+                mockRepoService, mockTaskService, mockNodeFinder, bpmnModelCache,
+                new UserTaskApproverResolver(null), bpmnFormDataHelper);
 
         UserTask userTask = buildUserTask("taskA", "多级审批", null, null,
                 Collections.singletonList("dept_manager"));

@@ -1,5 +1,6 @@
 package io.github.flowable.plus.starter;
 
+import io.github.flowable.plus.core.BpmnFormDataHelper;
 import io.github.flowable.plus.core.BpmnModelCache;
 import io.github.flowable.plus.core.CounterSignWorkflow;
 import io.github.flowable.plus.core.DefaultBpmnModelCache;
@@ -12,9 +13,11 @@ import io.github.flowable.plus.core.HistoricRepository;
 import io.github.flowable.plus.core.NodeFinder;
 import io.github.flowable.plus.core.ProcessQueryWorkflow;
 import io.github.flowable.plus.core.RuntimeProcessRepository;
+import io.github.flowable.plus.core.TaskQueryModule;
 import io.github.flowable.plus.core.TaskRepository;
 import io.github.flowable.plus.core.TaskWorkflow;
 import io.github.flowable.plus.core.UserTaskApproverResolver;
+import io.github.flowable.plus.core.VOAssembler;
 import io.github.flowable.plus.core.spi.ApproverResolver;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
 import io.github.flowable.plus.core.spi.GroupResolver;
@@ -200,32 +203,84 @@ public class FlowablePlusAutoConfiguration {
     }
 
     /**
+     * 注册 BpmnFormDataHelper Bean。
+     *
+     * <p>从 BPMN FlowElement 的扩展属性中提取自定义 formData。
+     * 应用可通过声明同名 Bean 覆盖。</p>
+     *
+     * @return BpmnFormDataHelper 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public BpmnFormDataHelper bpmnFormDataHelper() {
+        return new BpmnFormDataHelper();
+    }
+
+    /**
+     * 注册 VOAssembler Bean。
+     *
+     * <p>将 Flowable 原生任务对象转换为框架 VO，内建流程信息补全缓存。
+     * 应用可通过声明同名 Bean 覆盖。</p>
+     *
+     * @param repositoryService Flowable 仓储服务
+     * @param historyService    Flowable 历史服务
+     * @return VOAssembler 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public VOAssembler voAssembler(RepositoryService repositoryService, HistoryService historyService) {
+        return new VOAssembler(repositoryService, historyService);
+    }
+
+    /**
+     * 注册 TaskQueryModule Bean。
+     *
+     * <p>封装待办/已办查询逻辑，通过 VOAssembler 完成 VO 转换。
+     * 应用可通过声明同名 Bean 覆盖。</p>
+     *
+     * @param taskService     Flowable 任务服务
+     * @param historyService  Flowable 历史服务
+     * @param identityService Flowable 身份认证服务
+     * @param voAssembler     VO 转换模块
+     * @return TaskQueryModule 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public TaskQueryModule taskQueryModule(TaskService taskService, HistoryService historyService,
+                                            IdentityService identityService, VOAssembler voAssembler) {
+        return new TaskQueryModule(taskService, historyService, identityService, voAssembler);
+    }
+
+    /**
      * 注册 FlowablePlus Bean。
      *
      * <p>当 {@code flowable.plus.enabled=true}（默认）时生效，
-     * 且允许用户通过自定义同类型 Bean 覆盖。</p>
+     * 且允许用户通过自定义同类型 Bean 覆盖。
+     * 待办/已办查询委托给 TaskQueryModule，节点预览逻辑内聚于本模块。</p>
      *
-     * @param taskService        Flowable 任务服务
-     * @param historyService     Flowable 历史服务
-     * @param runtimeService     Flowable 运行时服务
-     * @param repositoryService  Flowable 仓储服务
-     * @param identityService    Flowable 身份认证服务
-     * @param userContext        用户上下文（可被应用覆盖）
-     * @param nodeFinder         BPMN 节点遍历策略（可被应用覆盖）
-     * @param bpmnModelCache     BPMN 模型缓存（可被应用覆盖）
-     * @param approverResolver   审批人解析策略（可被应用覆盖）
+     * @param taskQueryModule     待办/已办查询模块
+     * @param runtimeService      Flowable 运行时服务
+     * @param repositoryService   Flowable 仓储服务
+     * @param taskService         Flowable 任务服务
+     * @param nodeFinder          BPMN 节点遍历策略
+     * @param bpmnModelCache      BPMN 模型缓存
+     * @param approverResolver    审批人解析策略
+     * @param bpmnFormDataHelper  BPMN 扩展属性解析工具
      * @return FlowablePlus 实例
      */
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnProperty(name = "flowable.plus.enabled", havingValue = "true", matchIfMissing = true)
-    public FlowablePlus flowablePlus(TaskService taskService, HistoryService historyService,
-                                     RuntimeService runtimeService, RepositoryService repositoryService,
-                                     IdentityService identityService,
-                                     UserContext userContext, NodeFinder nodeFinder,
-                                     BpmnModelCache bpmnModelCache, ApproverResolver approverResolver) {
-        return new FlowablePlus(taskService, historyService, runtimeService, repositoryService,
-                identityService, userContext, nodeFinder, bpmnModelCache, approverResolver);
+    public FlowablePlus flowablePlus(TaskQueryModule taskQueryModule,
+                                     RuntimeService runtimeService,
+                                     RepositoryService repositoryService,
+                                     TaskService taskService,
+                                     NodeFinder nodeFinder,
+                                     BpmnModelCache bpmnModelCache,
+                                     ApproverResolver approverResolver,
+                                     BpmnFormDataHelper bpmnFormDataHelper) {
+        return new FlowablePlus(taskQueryModule, runtimeService, repositoryService, taskService,
+                nodeFinder, bpmnModelCache, approverResolver, bpmnFormDataHelper);
     }
 
     /**

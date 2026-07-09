@@ -1,8 +1,6 @@
 package io.github.flowable.plus.core;
 
 import io.github.flowable.plus.core.spi.ApproverResolver;
-import io.github.flowable.plus.core.spi.GroupResolver;
-import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.vo.DoneTaskVO;
 import io.github.flowable.plus.core.vo.TodoTaskVO;
 import org.flowable.engine.*;
@@ -65,14 +63,18 @@ public class TaskListOperationsTest {
         when(mockGroupQuery.groupMember(anyString())).thenReturn(mockGroupQuery);
         when(mockGroupQuery.list()).thenReturn(Collections.emptyList());
 
+        // 构建依赖链: VOAssembler -> TaskQueryModule -> FlowablePlus
+        VOAssembler voAssembler = new VOAssembler(mockRepoService, mockHistoryService);
+        TaskQueryModule taskQueryModule = new TaskQueryModule(mockTaskService, mockHistoryService,
+                mockIdentityService, voAssembler);
+
         NodeFinder mockNodeFinder = mock(NodeFinder.class);
         BpmnModelCache bpmnModelCache = new DefaultBpmnModelCache(mockRepoService);
         ApproverResolver approverResolver = mock(ApproverResolver.class);
-        UserContext userContext = () -> "testUser";
+        BpmnFormDataHelper bpmnFormDataHelper = new BpmnFormDataHelper();
 
-        flowablePlus = new FlowablePlus(mockTaskService, mockHistoryService, mockRuntimeService,
-                mockRepoService, mockIdentityService, userContext, mockNodeFinder, bpmnModelCache,
-                approverResolver);
+        flowablePlus = new FlowablePlus(taskQueryModule, mockRuntimeService, mockRepoService,
+                mockTaskService, mockNodeFinder, bpmnModelCache, approverResolver, bpmnFormDataHelper);
     }
 
     // ======================== 参数校验 ========================
