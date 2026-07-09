@@ -72,9 +72,11 @@ public class TaskListOperationsTest {
         BpmnModelCache bpmnModelCache = new DefaultBpmnModelCache(mockRepoService);
         ApproverResolver approverResolver = mock(ApproverResolver.class);
         BpmnFormDataHelper bpmnFormDataHelper = new BpmnFormDataHelper();
+        ProcessQueryWorkflow processQueryWorkflow = mock(ProcessQueryWorkflow.class);
 
-        flowablePlus = new FlowablePlus(taskQueryModule, mockRuntimeService, mockRepoService,
-                mockTaskService, mockNodeFinder, bpmnModelCache, approverResolver, bpmnFormDataHelper);
+        flowablePlus = new FlowablePlus(taskQueryModule, processQueryWorkflow,
+                mockRuntimeService, mockRepoService, mockTaskService,
+                mockNodeFinder, bpmnModelCache, approverResolver, bpmnFormDataHelper);
     }
 
     // ======================== 参数校验 ========================

@@ -19,7 +19,7 @@ import java.util.Map;
  *
  * @author flowable-plus
  */
-public class TaskWorkflow implements TaskOperations, RejectionOperations, ProcessLifecycle {
+public class TaskWorkflow implements ApprovalOperations {
 
     private final UserContext userContext;
     private final TaskRepository taskRepository;

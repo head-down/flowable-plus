@@ -5,7 +5,7 @@ import org.flowable.engine.runtime.ProcessInstance;
 /**
  * 流程实例领域对象，封装 Flowable 原生 {@link ProcessInstance} 的常用属性。
  *
- * <p>作为 {@link TaskOperations#startProcess} 的返回值，
+ * <p>作为 {@link ApprovalOperations#startProcess} 的返回值，
  * 消除公开 API 中的 Flowable 类型泄漏。</p>
  *
  * @author flowable-plus

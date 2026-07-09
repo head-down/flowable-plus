@@ -67,9 +67,11 @@ public class NodePreviewOperationsTest {
 
         // TaskQueryModule 仅用于 FlowablePlus 构造，NodePreviewOperations 测试不调用其方法
         TaskQueryModule taskQueryModule = mock(TaskQueryModule.class);
+        ProcessQueryWorkflow processQueryWorkflow = mock(ProcessQueryWorkflow.class);
 
-        flowablePlus = new FlowablePlus(taskQueryModule, mockRuntimeService, mockRepoService,
-                mockTaskService, mockNodeFinder, bpmnModelCache, approverResolver, bpmnFormDataHelper);
+        flowablePlus = new FlowablePlus(taskQueryModule, processQueryWorkflow,
+                mockRuntimeService, mockRepoService, mockTaskService,
+                mockNodeFinder, bpmnModelCache, approverResolver, bpmnFormDataHelper);
     }
 
     // ======================== 参数校验 ========================
@@ -200,9 +202,10 @@ public class NodePreviewOperationsTest {
         stubProcessDefinition(processKey, definitionId);
 
         TaskQueryModule taskQueryModule = mock(TaskQueryModule.class);
+        ProcessQueryWorkflow processQueryWorkflow = mock(ProcessQueryWorkflow.class);
         BpmnFormDataHelper bpmnFormDataHelper = new BpmnFormDataHelper();
-        FlowablePlus fpWithoutResolver = new FlowablePlus(taskQueryModule, mockRuntimeService,
-                mockRepoService, mockTaskService, mockNodeFinder, bpmnModelCache,
+        FlowablePlus fpWithoutResolver = new FlowablePlus(taskQueryModule, processQueryWorkflow,
+                mockRuntimeService, mockRepoService, mockTaskService, mockNodeFinder, bpmnModelCache,
                 new UserTaskApproverResolver(null), bpmnFormDataHelper);
 
         UserTask userTask = buildUserTask("taskA", "多级审批", null, null,

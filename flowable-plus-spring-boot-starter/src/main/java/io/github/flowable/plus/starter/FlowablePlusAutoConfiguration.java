@@ -133,9 +133,7 @@ public class FlowablePlusAutoConfiguration {
      * 注册 TaskWorkflow Bean。
      *
      * <p>封装常规审批任务的推进、驳回、撤回、撤销逻辑。
-     * 实现 {@link io.github.flowable.plus.core.TaskOperations}、
-     * {@link io.github.flowable.plus.core.RejectionOperations}、
-     * {@link io.github.flowable.plus.core.ProcessLifecycle} 接口。</p>
+     * 实现 {@link io.github.flowable.plus.core.ApprovalOperations} 接口。</p>
      *
      * @param userContext        用户上下文
      * @param taskRepository     任务仓储
@@ -252,24 +250,26 @@ public class FlowablePlusAutoConfiguration {
     /**
      * 注册 FlowablePlus Bean。
      *
-     * <p>当 {@code flowable.plus.enabled=true}（默认）时生效，
-     * 且允许用户通过自定义同类型 Bean 覆盖。
-     * 待办/已办查询委托给 TaskQueryModule，节点预览逻辑内聚于本模块。</p>
+     * <p>当 {@code flowable.plus.enabled=true}（默认）时生效。
+     * 待办/已办查询委托给 TaskQueryModule，节点预览逻辑内聚于本模块，
+     * 流程追踪委托给 ProcessQueryWorkflow。</p>
      *
-     * @param taskQueryModule     待办/已办查询模块
-     * @param runtimeService      Flowable 运行时服务
-     * @param repositoryService   Flowable 仓储服务
-     * @param taskService         Flowable 任务服务
-     * @param nodeFinder          BPMN 节点遍历策略
-     * @param bpmnModelCache      BPMN 模型缓存
-     * @param approverResolver    审批人解析策略
-     * @param bpmnFormDataHelper  BPMN 扩展属性解析工具
+     * @param taskQueryModule      待办/已办查询模块
+     * @param processQueryWorkflow 流程追踪模块
+     * @param runtimeService       Flowable 运行时服务
+     * @param repositoryService    Flowable 仓储服务
+     * @param taskService          Flowable 任务服务
+     * @param nodeFinder           BPMN 节点遍历策略
+     * @param bpmnModelCache       BPMN 模型缓存
+     * @param approverResolver     审批人解析策略
+     * @param bpmnFormDataHelper   BPMN 扩展属性解析工具
      * @return FlowablePlus 实例
      */
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnProperty(name = "flowable.plus.enabled", havingValue = "true", matchIfMissing = true)
     public FlowablePlus flowablePlus(TaskQueryModule taskQueryModule,
+                                     ProcessQueryWorkflow processQueryWorkflow,
                                      RuntimeService runtimeService,
                                      RepositoryService repositoryService,
                                      TaskService taskService,
@@ -277,8 +277,8 @@ public class FlowablePlusAutoConfiguration {
                                      BpmnModelCache bpmnModelCache,
                                      ApproverResolver approverResolver,
                                      BpmnFormDataHelper bpmnFormDataHelper) {
-        return new FlowablePlus(taskQueryModule, runtimeService, repositoryService, taskService,
-                nodeFinder, bpmnModelCache, approverResolver, bpmnFormDataHelper);
+        return new FlowablePlus(taskQueryModule, processQueryWorkflow, runtimeService, repositoryService,
+                taskService, nodeFinder, bpmnModelCache, approverResolver, bpmnFormDataHelper);
     }
 
     /**

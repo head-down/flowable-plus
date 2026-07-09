@@ -32,7 +32,7 @@ import java.util.stream.Collectors;
  *
  * @author flowable-plus
  */
-public class ProcessQueryWorkflow implements ProcessQueryOperations {
+public class ProcessQueryWorkflow {
 
     private static final Logger log = LoggerFactory.getLogger(ProcessQueryWorkflow.class);
     private static final int BATCH_SIZE = 500;
@@ -63,7 +63,6 @@ public class ProcessQueryWorkflow implements ProcessQueryOperations {
 
     // ======================== 批量流程摘要查询 ========================
 
-    @Override
     public Map<String, ProcessSummaryVO> batchQueryProcessSummaries(List<String> processInstanceIds) {
         if (processInstanceIds == null || processInstanceIds.isEmpty()) {
             throw new IllegalArgumentException("processInstanceIds 不可为 null 或空");
@@ -134,7 +133,6 @@ public class ProcessQueryWorkflow implements ProcessQueryOperations {
 
     // ======================== 审批轨迹查询 ========================
 
-    @Override
     public List<ApprovalTraceVO> getApprovalTrace(String processInstanceId) {
         if (processInstanceId == null || processInstanceId.isEmpty()) {
             throw new IllegalArgumentException("processInstanceId 不可为 null 或空");

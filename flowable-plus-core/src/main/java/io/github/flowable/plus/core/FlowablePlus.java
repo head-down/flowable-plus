@@ -2,10 +2,12 @@ package io.github.flowable.plus.core;
 
 import io.github.flowable.plus.core.spi.ApproverResolver;
 import io.github.flowable.plus.core.exception.NotFoundException;
+import io.github.flowable.plus.core.vo.ApprovalTraceVO;
 import io.github.flowable.plus.core.vo.ApproverInfoVO;
 import io.github.flowable.plus.core.vo.DoneTaskVO;
 import io.github.flowable.plus.core.vo.NextTaskNodeVO;
 import io.github.flowable.plus.core.vo.NodeApproverVO;
+import io.github.flowable.plus.core.vo.ProcessSummaryVO;
 import io.github.flowable.plus.core.vo.TodoTaskVO;
 import lombok.extern.slf4j.Slf4j;
 import org.flowable.bpmn.model.BpmnModel;
@@ -28,6 +30,7 @@ import java.util.function.Consumer;
  * Flowable-Plus 统一入口 Façade，负责编排与组合各模块能力。
  *
  * <p>待办/已办查询委托给 {@link TaskQueryModule}，
+ * 流程追踪委托给 {@link ProcessQueryWorkflow}，
  * BPMN 扩展解析委托给 {@link BpmnFormDataHelper}，
  * VO 转换委托给 {@link VOAssembler}（通过 TaskQueryModule 间接使用）。
  * 节点预览逻辑内聚于本模块。
@@ -37,9 +40,10 @@ import java.util.function.Consumer;
  * @author flowable-plus
  */
 @Slf4j
-public class FlowablePlus implements TaskListOperations, NodePreviewOperations {
+public class FlowablePlus implements QueryOperations {
 
     private final TaskQueryModule taskQueryModule;
+    private final ProcessQueryWorkflow processQueryWorkflow;
     private final RuntimeService runtimeService;
     private final RepositoryService repositoryService;
     private final TaskService taskService;
@@ -51,16 +55,18 @@ public class FlowablePlus implements TaskListOperations, NodePreviewOperations {
     /**
      * 构造器注入所有依赖。
      *
-     * @param taskQueryModule     待办/已办查询模块，不可为 null
-     * @param runtimeService      Flowable 运行时服务，不可为 null
-     * @param repositoryService   Flowable 仓储服务，不可为 null
-     * @param taskService         Flowable 任务服务，不可为 null
-     * @param nodeFinder          BPMN 节点遍历策略，不可为 null
-     * @param bpmnModelCache      BPMN 模型缓存，不可为 null
-     * @param approverResolver    审批人解析策略，不可为 null
-     * @param bpmnFormDataHelper  BPMN 扩展属性解析工具，不可为 null
+     * @param taskQueryModule      待办/已办查询模块，不可为 null
+     * @param processQueryWorkflow 流程追踪模块，不可为 null
+     * @param runtimeService       Flowable 运行时服务，不可为 null
+     * @param repositoryService    Flowable 仓储服务，不可为 null
+     * @param taskService          Flowable 任务服务，不可为 null
+     * @param nodeFinder           BPMN 节点遍历策略，不可为 null
+     * @param bpmnModelCache       BPMN 模型缓存，不可为 null
+     * @param approverResolver     审批人解析策略，不可为 null
+     * @param bpmnFormDataHelper   BPMN 扩展属性解析工具，不可为 null
      */
     public FlowablePlus(TaskQueryModule taskQueryModule,
+                        ProcessQueryWorkflow processQueryWorkflow,
                         RuntimeService runtimeService,
                         RepositoryService repositoryService,
                         TaskService taskService,
@@ -70,6 +76,9 @@ public class FlowablePlus implements TaskListOperations, NodePreviewOperations {
                         BpmnFormDataHelper bpmnFormDataHelper) {
         if (taskQueryModule == null) {
             throw new IllegalArgumentException("TaskQueryModule 不可为 null");
+        }
+        if (processQueryWorkflow == null) {
+            throw new IllegalArgumentException("ProcessQueryWorkflow 不可为 null");
         }
         if (runtimeService == null) {
             throw new IllegalArgumentException("RuntimeService 不可为 null");
@@ -93,6 +102,7 @@ public class FlowablePlus implements TaskListOperations, NodePreviewOperations {
             throw new IllegalArgumentException("BpmnFormDataHelper 不可为 null");
         }
         this.taskQueryModule = taskQueryModule;
+        this.processQueryWorkflow = processQueryWorkflow;
         this.runtimeService = runtimeService;
         this.repositoryService = repositoryService;
         this.taskService = taskService;
@@ -102,7 +112,7 @@ public class FlowablePlus implements TaskListOperations, NodePreviewOperations {
         this.bpmnFormDataHelper = bpmnFormDataHelper;
     }
 
-    // ======================== TaskListOperations (委托给 TaskQueryModule) ========================
+    // ======================== QueryOperations: 待办/已办 (委托给 TaskQueryModule) ========================
 
     @Override
     public PageResult<TodoTaskVO> queryTodoTasks(String userId, TaskQueryDTO query) {
@@ -125,7 +135,7 @@ public class FlowablePlus implements TaskListOperations, NodePreviewOperations {
         return taskQueryModule.queryDoneTasks(userId, query, enhancer);
     }
 
-    // ======================== NodePreviewOperations ========================
+    // ======================== QueryOperations: 节点预览 ========================
 
     @Override
     public List<NodeApproverVO> getNextNodeApproversByProcessKey(String processKey) {
@@ -238,6 +248,18 @@ public class FlowablePlus implements TaskListOperations, NodePreviewOperations {
                     .build());
         }
         return result;
+    }
+
+    // ======================== QueryOperations: 流程追踪 (委托给 ProcessQueryWorkflow) ========================
+
+    @Override
+    public Map<String, ProcessSummaryVO> batchQueryProcessSummaries(List<String> processInstanceIds) {
+        return processQueryWorkflow.batchQueryProcessSummaries(processInstanceIds);
+    }
+
+    @Override
+    public List<ApprovalTraceVO> getApprovalTrace(String processInstanceId) {
+        return processQueryWorkflow.getApprovalTrace(processInstanceId);
     }
 
     // ======================== 内部辅助 ========================
