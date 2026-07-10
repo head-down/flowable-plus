@@ -30,19 +30,19 @@ public class CounterSignWorkflow implements CounterSignOperations {
     private final TaskRepository taskRepository;
     private final HistoricRepository historicRepository;
     private final RuntimeService runtimeService;
-    private final BpmnModelCache bpmnModelCache;
+    private final MultiInstanceDetector multiInstanceDetector;
     private final NodeFinder nodeFinder;
     private final List<CounterSignCallback> counterSignCallbacks;
 
     public CounterSignWorkflow(UserContext userContext, TaskRepository taskRepository,
                         HistoricRepository historicRepository, RuntimeService runtimeService,
-                        BpmnModelCache bpmnModelCache, NodeFinder nodeFinder,
+                        MultiInstanceDetector multiInstanceDetector, NodeFinder nodeFinder,
                         List<CounterSignCallback> counterSignCallbacks) {
         this.userContext = userContext;
         this.taskRepository = taskRepository;
         this.historicRepository = historicRepository;
         this.runtimeService = runtimeService;
-        this.bpmnModelCache = bpmnModelCache;
+        this.multiInstanceDetector = multiInstanceDetector;
         this.nodeFinder = nodeFinder;
         this.counterSignCallbacks = counterSignCallbacks;
     }
@@ -51,7 +51,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
     public void counterSign(String taskId, boolean approved, Map<String, Object> variables, String comment) {
         PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "会签");
         TaskValidation.validateCurrentUserIsAssignee(task, userContext.getCurrentUserId(), taskId, "会签");
-        TaskValidation.validateMultiInstance(bpmnModelCache, task, taskId, "会签");
+        TaskValidation.validateMultiInstance(multiInstanceDetector, task, taskId, "会签");
 
         String userId = userContext.getCurrentUserId();
         String processInstanceId = task.getProcessInstanceId();
@@ -87,7 +87,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
         }
 
         PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "加签");
-        TaskValidation.validateMultiInstance(bpmnModelCache, task, taskId, "加签");
+        TaskValidation.validateMultiInstance(multiInstanceDetector, task, taskId, "加签");
 
         validateCounterSignPermission(task, "加签");
 
@@ -139,7 +139,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
         }
 
         PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "减签");
-        TaskValidation.validateMultiInstance(bpmnModelCache, task, taskId, "减签");
+        TaskValidation.validateMultiInstance(multiInstanceDetector, task, taskId, "减签");
 
         validateCounterSignPermission(task, "减签");
 

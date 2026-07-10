@@ -27,19 +27,19 @@ public class TaskWorkflow implements ApprovalOperations {
     private final RuntimeService runtimeService;
     private final IdentityService identityService;
     private final NodeFinder nodeFinder;
-    private final BpmnModelCache bpmnModelCache;
+    private final MultiInstanceDetector multiInstanceDetector;
 
     public TaskWorkflow(UserContext userContext, TaskRepository taskRepository,
                  HistoricRepository historicRepository, RuntimeService runtimeService,
                  IdentityService identityService, NodeFinder nodeFinder,
-                 BpmnModelCache bpmnModelCache) {
+                 MultiInstanceDetector multiInstanceDetector) {
         this.userContext = userContext;
         this.taskRepository = taskRepository;
         this.historicRepository = historicRepository;
         this.runtimeService = runtimeService;
         this.identityService = identityService;
         this.nodeFinder = nodeFinder;
-        this.bpmnModelCache = bpmnModelCache;
+        this.multiInstanceDetector = multiInstanceDetector;
     }
 
     @Override
@@ -61,7 +61,7 @@ public class TaskWorkflow implements ApprovalOperations {
     @Override
     public void completeTask(String taskId, Map<String, Object> variables, String comment) {
         PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "审批");
-        TaskValidation.validateNotMultiInstance(bpmnModelCache, task, taskId);
+        TaskValidation.validateNotMultiInstance(multiInstanceDetector, task, taskId);
 
         String userId = userContext.getCurrentUserId();
 
@@ -88,7 +88,7 @@ public class TaskWorkflow implements ApprovalOperations {
     public void rejectTask(String taskId, String reason) {
         PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "驳回");
         TaskValidation.validateCurrentUserIsAssignee(task, userContext.getCurrentUserId(), taskId, "驳回");
-        TaskValidation.validateNotMultiInstance(bpmnModelCache, task, taskId);
+        TaskValidation.validateNotMultiInstance(multiInstanceDetector, task, taskId);
 
         String processDefinitionId = task.getProcessDefinitionId();
         String currentActivityId = task.getTaskDefinitionKey();
@@ -108,7 +108,7 @@ public class TaskWorkflow implements ApprovalOperations {
     public void rejectTaskToInitiator(String taskId, String reason) {
         PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "驳回");
         TaskValidation.validateCurrentUserIsAssignee(task, userContext.getCurrentUserId(), taskId, "驳回");
-        TaskValidation.validateNotMultiInstance(bpmnModelCache, task, taskId);
+        TaskValidation.validateNotMultiInstance(multiInstanceDetector, task, taskId);
 
         String processDefinitionId = task.getProcessDefinitionId();
         String initiatorNode = nodeFinder.findInitiatorNode(processDefinitionId);
@@ -124,7 +124,7 @@ public class TaskWorkflow implements ApprovalOperations {
     public void withdrawTask(String taskId, String reason) {
         String currentUserId = userContext.getCurrentUserId();
         PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "撤回");
-        TaskValidation.validateNotMultiInstance(bpmnModelCache, task, taskId);
+        TaskValidation.validateNotMultiInstance(multiInstanceDetector, task, taskId);
 
         if (currentUserId.equals(task.getAssignee())) {
             throw new PermissionDeniedException("无法撤回自己当前处理的任务 " + taskId);

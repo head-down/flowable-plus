@@ -40,12 +40,12 @@ public class ProcessQueryWorkflow {
     private final RuntimeService runtimeService;
     private final TaskRepository taskRepository;
     private final HistoricRepository historicRepository;
-    private final BpmnModelCache bpmnModelCache;
+    private final MultiInstanceDetector multiInstanceDetector;
 
     public ProcessQueryWorkflow(RuntimeService runtimeService,
                                 TaskRepository taskRepository,
                                 HistoricRepository historicRepository,
-                                BpmnModelCache bpmnModelCache) {
+                                MultiInstanceDetector multiInstanceDetector) {
         if (runtimeService == null) {
             throw new IllegalArgumentException("RuntimeService 不可为 null");
         }
@@ -58,7 +58,7 @@ public class ProcessQueryWorkflow {
         this.runtimeService = runtimeService;
         this.taskRepository = taskRepository;
         this.historicRepository = historicRepository;
-        this.bpmnModelCache = bpmnModelCache;
+        this.multiInstanceDetector = multiInstanceDetector;
     }
 
     // ======================== 批量流程摘要查询 ========================
@@ -181,8 +181,8 @@ public class ProcessQueryWorkflow {
             // 获取 processDefinitionId（历史任务或活跃任务中取第一个有效的）
             String processDefinitionId = resolveProcessDefinitionId(nodeHistTasks, nodeActiveTasks);
             boolean isMultiInstance = processDefinitionId != null
-                    && bpmnModelCache != null
-                    && bpmnModelCache.isMultiInstanceNode(processDefinitionId, nodeId);
+                    && multiInstanceDetector != null
+                    && multiInstanceDetector.isMultiInstanceNode(processDefinitionId, nodeId);
 
             if (isMultiInstance) {
                 // 会签：聚合展示

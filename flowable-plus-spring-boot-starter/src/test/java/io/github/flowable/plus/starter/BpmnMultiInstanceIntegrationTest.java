@@ -5,6 +5,7 @@ import io.github.flowable.plus.core.CounterSignWorkflow;
 import io.github.flowable.plus.core.DefaultBpmnModelCache;
 import io.github.flowable.plus.core.DefaultNodeFinder;
 import io.github.flowable.plus.core.HistoricRepository;
+import io.github.flowable.plus.core.MultiInstanceDetector;
 import io.github.flowable.plus.core.NodeFinder;
 import io.github.flowable.plus.core.PlusHistoricProcessInstance;
 import io.github.flowable.plus.core.PlusHistoricTask;
@@ -54,6 +55,7 @@ class BpmnMultiInstanceIntegrationTest {
     private TaskRepository mockTaskRepo;
     private HistoricRepository mockHistoricRepo;
     private BpmnModelCache bpmnModelCache;
+    private MultiInstanceDetector multiInstanceDetector;
     private CounterSignWorkflow counterSignWorkflow;
     private TaskWorkflow taskWorkflow;
     private NodeFinder mockNodeFinder;
@@ -70,6 +72,7 @@ class BpmnMultiInstanceIntegrationTest {
         mockHistoricRepo = mock(HistoricRepository.class);
 
         bpmnModelCache = new DefaultBpmnModelCache(mockRepoService);
+        multiInstanceDetector = new MultiInstanceDetector(bpmnModelCache);
         UserContext userContext = () -> USER_ID;
         mockNodeFinder = mock(NodeFinder.class);
 
@@ -93,12 +96,12 @@ class BpmnMultiInstanceIntegrationTest {
         };
 
         counterSignWorkflow = new CounterSignWorkflow(userContext, mockTaskRepo,
-                mockHistoricRepo, mockRuntimeService, bpmnModelCache, mockNodeFinder,
+                mockHistoricRepo, mockRuntimeService, multiInstanceDetector, mockNodeFinder,
                 Collections.singletonList(trackingCallback));
 
         taskWorkflow = new TaskWorkflow(userContext, mockTaskRepo, mockHistoricRepo,
                 mockRuntimeService, mock(org.flowable.engine.IdentityService.class),
-                mockNodeFinder, bpmnModelCache);
+                mockNodeFinder, multiInstanceDetector);
     }
 
     // ======================== 会签：全票通过后推进 ========================
@@ -296,7 +299,7 @@ class BpmnMultiInstanceIntegrationTest {
         };
 
         CounterSignWorkflow fp = new CounterSignWorkflow(userCtx, mockTaskRepo,
-                mockHistoricRepo, mockRuntimeService, bpmnModelCache, mockNodeFinder,
+                mockHistoricRepo, mockRuntimeService, multiInstanceDetector, mockNodeFinder,
                 Collections.singletonList(failingCb));
 
         PlusTask task = createPlusTask("task-001", "pi-001", "proc-cs", "csTask", USER_ID);

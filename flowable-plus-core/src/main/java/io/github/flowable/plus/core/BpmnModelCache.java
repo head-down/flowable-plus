@@ -1,14 +1,12 @@
 package io.github.flowable.plus.core;
 
-import org.flowable.bpmn.model.Activity;
 import org.flowable.bpmn.model.BpmnModel;
-import org.flowable.bpmn.model.FlowElement;
 
 /**
  * BPMN 模型缓存，消除重复的引擎 I/O 开销。
  *
  * <p>BPMN 模型在部署后不可变，缓存无需失效策略。
- * 实现需保证线程安全。</p>
+ * 实现需保证线程安全。 多实例检测逻辑已提取到 {@link MultiInstanceDetector}。</p>
  *
  * @author flowable-plus
  */
@@ -31,50 +29,5 @@ public interface BpmnModelCache {
      */
     default BpmnModel getBpmnModelByProcessKey(String processKey) {
         return null;
-    }
-
-    /**
-     * 判断任务是否为多实例子任务（会签/或签）。
-     *
-     * @param task 任务领域对象，不可为 null
-     * @return true 如果对应 BPMN 节点配置了 multiInstanceLoopCharacteristics
-     */
-    default boolean isMultiInstance(PlusTask task) {
-        BpmnModel bpmnModel = getBpmnModel(task.getProcessDefinitionId());
-        if (bpmnModel == null) {
-            return false;
-        }
-        FlowElement flowElement = bpmnModel.getFlowElement(task.getTaskDefinitionKey());
-        if (flowElement == null) {
-            return false;
-        }
-        if (flowElement instanceof Activity) {
-            Activity activity = (Activity) flowElement;
-            return activity.getLoopCharacteristics() != null;
-        }
-        return false;
-    }
-
-    /**
-     * 判断指定流程定义的节点是否为多实例（会签/或签）。
-     *
-     * @param processDefinitionId 流程定义 ID
-     * @param taskDefinitionKey   任务定义 KEY
-     * @return true 如果对应 BPMN 节点配置了 multiInstanceLoopCharacteristics
-     */
-    default boolean isMultiInstanceNode(String processDefinitionId, String taskDefinitionKey) {
-        BpmnModel bpmnModel = getBpmnModel(processDefinitionId);
-        if (bpmnModel == null) {
-            return false;
-        }
-        FlowElement flowElement = bpmnModel.getFlowElement(taskDefinitionKey);
-        if (flowElement == null) {
-            return false;
-        }
-        if (flowElement instanceof Activity) {
-            Activity activity = (Activity) flowElement;
-            return activity.getLoopCharacteristics() != null;
-        }
-        return false;
     }
 }

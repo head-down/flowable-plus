@@ -40,6 +40,7 @@ public class CounterSignWorkflowTest {
     private HistoricRepository mockHistoricRepo;
     private RuntimeService mockRuntimeService;
     private BpmnModelCache mockBpmnModelCache;
+    private MultiInstanceDetector mockMultiInstanceDetector;
     private NodeFinder mockNodeFinder;
 
     private AtomicInteger onStartCount;
@@ -54,6 +55,7 @@ public class CounterSignWorkflowTest {
         mockHistoricRepo = mock(HistoricRepository.class);
         mockRuntimeService = mock(RuntimeService.class);
         mockBpmnModelCache = mock(BpmnModelCache.class);
+        mockMultiInstanceDetector = mock(MultiInstanceDetector.class);
         mockNodeFinder = mock(NodeFinder.class);
 
         onStartCount = new AtomicInteger(0);
@@ -76,7 +78,7 @@ public class CounterSignWorkflowTest {
         };
 
         counterSignWorkflow = new CounterSignWorkflow(userContext, mockTaskRepo,
-                mockHistoricRepo, mockRuntimeService, mockBpmnModelCache, mockNodeFinder,
+                mockHistoricRepo, mockRuntimeService, mockMultiInstanceDetector, mockNodeFinder,
                 Collections.singletonList(trackingCallback));
     }
 
@@ -87,7 +89,7 @@ public class CounterSignWorkflowTest {
         String definitionId = "leave:1:abc";
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         stubTaskExistsWithAssignee(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(true);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(true);
 
         // 未投票过，活跃人数 2 人
         PlusTask assignee1 = createTask("sub-1", definitionId, "csTask", "pi-001", USER_ID);
@@ -115,7 +117,7 @@ public class CounterSignWorkflowTest {
         String definitionId = "leave:1:abc";
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         stubTaskExistsWithAssignee(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(true);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(true);
 
         // 之前已投过票（hasVoted == true），不触发 onStart
         when(mockHistoricRepo.countFinishedTasks("pi-001", "csTask", USER_ID)).thenReturn(1L);
@@ -141,7 +143,7 @@ public class CounterSignWorkflowTest {
         String definitionId = "leave:1:abc";
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         stubTaskExistsWithAssignee(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(true);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(true);
 
         PlusTask assignee1 = createTask("sub-1", definitionId, "csTask", "pi-001", USER_ID);
         PlusTask assignee2 = createTask("sub-2", definitionId, "csTask", "pi-001", "user2");
@@ -162,7 +164,7 @@ public class CounterSignWorkflowTest {
         String definitionId = "leave:1:abc";
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         stubTaskExistsWithAssignee(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(true);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(true);
 
         PlusTask assignee = createTask("sub-1", definitionId, "csTask", "pi-001", USER_ID);
         when(mockTaskRepo.listActiveTasks("pi-001", "csTask")).thenReturn(Collections.singletonList(assignee));
@@ -181,7 +183,7 @@ public class CounterSignWorkflowTest {
         String definitionId = "leave:1:abc";
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         stubTaskExistsWithAssignee(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(true);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(true);
 
         PlusTask assignee = createTask("sub-1", definitionId, "csTask", "pi-001", USER_ID);
         when(mockTaskRepo.listActiveTasks("pi-001", "csTask")).thenReturn(Collections.singletonList(assignee));
@@ -202,7 +204,7 @@ public class CounterSignWorkflowTest {
     void testCounterSignRejectsNonMultiInstance() {
         PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", USER_ID);
         stubTaskExists(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(false);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(false);
 
         assertThatThrownBy(() -> counterSignWorkflow.counterSign("task-001", true, null, null))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -238,7 +240,7 @@ public class CounterSignWorkflowTest {
         String definitionId = "leave:1:abc";
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         stubTaskExists(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(true);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(true);
         stubCounterSignPermission(task);
 
         // 当前审批人列表
@@ -258,7 +260,7 @@ public class CounterSignWorkflowTest {
         String definitionId = "leave:1:abc";
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         stubTaskExists(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(true);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(true);
         stubCounterSignPermission(task);
 
         PlusTask assignee = createTask("sub-1", definitionId, "csTask", "pi-001", USER_ID);
@@ -279,7 +281,7 @@ public class CounterSignWorkflowTest {
         String definitionId = "leave:1:abc";
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         stubTaskExists(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(true);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(true);
         stubCounterSignPermission(task);
 
         // 当前审批人包含 USER_ID
@@ -311,7 +313,7 @@ public class CounterSignWorkflowTest {
         String definitionId = "leave:1:abc";
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         stubTaskExists(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(true);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(true);
         stubCounterSignPermission(task);
 
         // user2 未投票
@@ -337,7 +339,7 @@ public class CounterSignWorkflowTest {
         String definitionId = "leave:1:abc";
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         stubTaskExists(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(true);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(true);
         stubCounterSignPermission(task);
 
         // user2 已投票
@@ -353,7 +355,7 @@ public class CounterSignWorkflowTest {
         String definitionId = "leave:1:abc";
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         stubTaskExists(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(true);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(true);
         stubCounterSignPermission(task);
 
         // 所有用户都未投票，但总共只有 1 人（user2），减签后为 0
@@ -374,7 +376,7 @@ public class CounterSignWorkflowTest {
         String definitionId = "leave:1:abc";
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         stubTaskExists(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(true);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(true);
 
         // 上一节点审批人是 otherUser，不是当前用户
         when(mockNodeFinder.findPreviousNodes(definitionId, "csTask", "pi-001"))
@@ -396,7 +398,7 @@ public class CounterSignWorkflowTest {
         String definitionId = "leave:1:abc";
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         stubTaskExistsWithAssignee(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(true);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(true);
 
         PlusTask assignee = createTask("sub-1", definitionId, "csTask", "pi-001", USER_ID);
         when(mockTaskRepo.listActiveTasks("pi-001", "csTask")).thenReturn(Collections.singletonList(assignee));
@@ -411,7 +413,7 @@ public class CounterSignWorkflowTest {
             }
         };
         CounterSignWorkflow fp = new CounterSignWorkflow(userContext, mockTaskRepo,
-                mockHistoricRepo, mockRuntimeService, mockBpmnModelCache, mockNodeFinder,
+                mockHistoricRepo, mockRuntimeService, mockMultiInstanceDetector, mockNodeFinder,
                 Collections.singletonList(failingCb));
 
         // 不应抛异常，应继续完成
@@ -426,7 +428,7 @@ public class CounterSignWorkflowTest {
     void testCounterSignRejectsSingleInstanceTask() {
         PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", USER_ID);
         stubTaskExists(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(false);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(false);
 
         assertThatThrownBy(() -> counterSignWorkflow.counterSign("task-001", true, null, null))
                 .isInstanceOf(IllegalArgumentException.class)

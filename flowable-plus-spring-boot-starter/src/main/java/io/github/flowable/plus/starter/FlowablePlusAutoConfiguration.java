@@ -9,6 +9,7 @@ import io.github.flowable.plus.core.FlowableHistoricRepository;
 import io.github.flowable.plus.core.FlowablePlus;
 import io.github.flowable.plus.core.FlowableTaskRepository;
 import io.github.flowable.plus.core.HistoricRepository;
+import io.github.flowable.plus.core.MultiInstanceDetector;
 import io.github.flowable.plus.core.NodeFinder;
 import io.github.flowable.plus.core.ProcessQueryWorkflow;
 import io.github.flowable.plus.core.TaskQueryModule;
@@ -135,22 +136,22 @@ public class FlowablePlusAutoConfiguration {
      * <p>封装常规审批任务的推进、驳回、撤回、撤销逻辑。
      * 实现 {@link io.github.flowable.plus.core.ApprovalOperations} 接口。</p>
      *
-     * @param userContext        用户上下文
-     * @param taskRepository     任务仓储
-     * @param historicRepository 历史数据仓储
-     * @param nodeFinder         BPMN 节点遍历策略
-     * @param bpmnModelCache     BPMN 模型缓存
-     * @param processEngine      Flowable 流程引擎
+     * @param userContext             用户上下文
+     * @param taskRepository          任务仓储
+     * @param historicRepository      历史数据仓储
+     * @param nodeFinder              BPMN 节点遍历策略
+     * @param multiInstanceDetector   多实例检测模块
+     * @param processEngine           Flowable 流程引擎
      * @return TaskWorkflow 实例
      */
     @Bean
     @ConditionalOnMissingBean
     public TaskWorkflow taskWorkflow(UserContext userContext, TaskRepository taskRepository,
                                      HistoricRepository historicRepository, NodeFinder nodeFinder,
-                                     BpmnModelCache bpmnModelCache, ProcessEngine processEngine) {
+                                     MultiInstanceDetector multiInstanceDetector, ProcessEngine processEngine) {
         return new TaskWorkflow(userContext, taskRepository, historicRepository,
                 processEngine.getRuntimeService(), processEngine.getIdentityService(),
-                nodeFinder, bpmnModelCache);
+                nodeFinder, multiInstanceDetector);
     }
 
     /**
@@ -163,24 +164,25 @@ public class FlowablePlusAutoConfiguration {
      * @param userContext           用户上下文
      * @param taskRepository        任务仓储
      * @param historicRepository    历史数据仓储
-     * @param nodeFinder            BPMN 节点遍历策略
-     * @param bpmnModelCache        BPMN 模型缓存
-     * @param processEngine         Flowable 流程引擎
-     * @param counterSignCallbacks  会签回调列表（可选）
-     * @param counterSignProps     会签配置属性
+     * @param nodeFinder              BPMN 节点遍历策略
+     * @param multiInstanceDetector   多实例检测模块
+     * @param processEngine           Flowable 流程引擎
+     * @param counterSignCallbacks    会签回调列表（可选）
+     * @param counterSignProps        会签配置属性
      * @return CounterSignWorkflow 实例
      */
     @Bean
     @ConditionalOnMissingBean
     public CounterSignWorkflow counterSignWorkflow(UserContext userContext, TaskRepository taskRepository,
                                                    HistoricRepository historicRepository, NodeFinder nodeFinder,
-                                                   BpmnModelCache bpmnModelCache, ProcessEngine processEngine,
+                                                   MultiInstanceDetector multiInstanceDetector,
+                                                   ProcessEngine processEngine,
                                                    @Autowired(required = false) List<CounterSignCallback> counterSignCallbacks,
                                                    FlowablePlusCounterSignProperties counterSignProps) {
         List<CounterSignCallback> callbacks = counterSignProps.isEnabled() && counterSignCallbacks != null
                 ? counterSignCallbacks : Collections.emptyList();
         return new CounterSignWorkflow(userContext, taskRepository, historicRepository,
-                processEngine.getRuntimeService(), bpmnModelCache, nodeFinder, callbacks);
+                processEngine.getRuntimeService(), multiInstanceDetector, nodeFinder, callbacks);
     }
 
     /**
@@ -282,15 +284,29 @@ public class FlowablePlusAutoConfiguration {
     }
 
     /**
+     * 注册 MultiInstanceDetector Bean。
+     *
+     * <p>从 BPMN 模型缓存中提取的多实例检测逻辑独立模块。
+     * 应用可通过声明同名 Bean 覆盖。</p>
+     *
+     * @param bpmnModelCache BPMN 模型缓存
+     * @return MultiInstanceDetector 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public MultiInstanceDetector multiInstanceDetector(BpmnModelCache bpmnModelCache) {
+        return new MultiInstanceDetector(bpmnModelCache);
+    }
+
+    /**
      * 注册 ProcessQueryWorkflow Bean。
      *
-     * <p>封装批量流程实例摘要查询与审批轨迹查询，
-     * 通过 RuntimeService、TaskRepository 和 HistoricRepository 访问数据。</p>
+     * <p>封装批量流程实例摘要查询与审批轨迹查询。</p>
      *
-     * @param runtimeService      Flowable 运行时服务
-     * @param taskRepository      任务仓储
-     * @param historicRepository  历史数据仓储
-     * @param bpmnModelCache      BPMN 模型缓存
+     * @param runtimeService         Flowable 运行时服务
+     * @param taskRepository         任务仓储
+     * @param historicRepository     历史数据仓储
+     * @param multiInstanceDetector  多实例检测模块
      * @return ProcessQueryWorkflow 实例
      */
     @Bean
@@ -298,8 +314,8 @@ public class FlowablePlusAutoConfiguration {
     public ProcessQueryWorkflow processQueryWorkflow(RuntimeService runtimeService,
                                                       TaskRepository taskRepository,
                                                       HistoricRepository historicRepository,
-                                                      BpmnModelCache bpmnModelCache) {
-        return new ProcessQueryWorkflow(runtimeService, taskRepository, historicRepository, bpmnModelCache);
+                                                      MultiInstanceDetector multiInstanceDetector) {
+        return new ProcessQueryWorkflow(runtimeService, taskRepository, historicRepository, multiInstanceDetector);
     }
 
     /**

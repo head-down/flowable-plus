@@ -52,8 +52,9 @@ final class TaskValidation {
      *
      * @throws IllegalArgumentException 非多实例子任务时抛出
      */
-    static void validateMultiInstance(BpmnModelCache bpmnModelCache, PlusTask task, String taskId, String operation) {
-        if (!bpmnModelCache.isMultiInstance(task)) {
+    static void validateMultiInstance(MultiInstanceDetector multiInstanceDetector, PlusTask task,
+                                       String taskId, String operation) {
+        if (!multiInstanceDetector.isMultiInstance(task)) {
             throw new IllegalArgumentException(
                     "任务 " + taskId + " 不是多实例子任务，无法" + operation);
         }
@@ -64,8 +65,8 @@ final class TaskValidation {
      *
      * @throws IllegalArgumentException 多实例子任务时抛出
      */
-    static void validateNotMultiInstance(BpmnModelCache bpmnModelCache, PlusTask task, String taskId) {
-        if (bpmnModelCache.isMultiInstance(task)) {
+    static void validateNotMultiInstance(MultiInstanceDetector multiInstanceDetector, PlusTask task, String taskId) {
+        if (multiInstanceDetector.isMultiInstance(task)) {
             throw new IllegalArgumentException(
                     "任务 " + taskId + " 是多实例子任务，请使用会签操作(counterSign)");
         }

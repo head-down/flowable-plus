@@ -99,6 +99,8 @@ starter 模块通过 `META-INF/spring.factories` 注册 `FlowablePlusAutoConfigu
 
 Core 模块已实现审批核心操作（发起、同意、驳回、撤回、撤销、会签），含 BPMN 节点遍历、多实例检测和模型缓存。Starter 模块提供自动配置。Extension 模块为空壳。
 
+权限层级：已覆盖流程操作权限（assignee/发起人/上一节点审批人身份校验），数据权限待以回调扩展模式补充（见 `docs/planning/permission-integration-evaluation.md`）。
+
 ## Agent skills
 
 ### Issue tracker
@@ -122,3 +124,5 @@ Core 模块已实现审批核心操作（发起、同意、驳回、撤回、撤
 | ADR-0003 | 会签采用 Flowable 原生多实例 | 2026-07-03 |
 | ADR-0004 | 会签驳回计数否决模式 | 2026-07-03 |
 | ADR-0005 | BPMN 模型加载使用独立缓存模块 | 2026-07-03 |
+| ADR-0006 | 查询接口支持自定义过滤回调 | 2026-07-04 |
+| ADR-0007 | 流程查询权限采用回调扩展模式 | 2026-07-10 |

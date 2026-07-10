@@ -333,7 +333,7 @@ public interface TaskQueryEnhancer {
 
 ```java
 /**
- * 候选组解析器。将候选组 ID 展开为组��员列表。
+ * 候选组解析器。将候选组 ID 展开为组成员列表。
  * 默认实现基于 Flowable IdentityService，用户可替换为自定义组织架构服务。
  */
 public interface GroupResolver {
@@ -345,6 +345,36 @@ public interface GroupResolver {
     List<String> getGroupMembers(String groupId);
 }
 ```
+
+### QueryPermissionCallback（S9）
+
+```java
+/**
+ * 流程查询权限回调。
+ * 接入方实现此接口，对框架的查询结果做二次过滤。
+ * 每个方法返回 true 表示该流程实例对当前用户可见。
+ */
+public interface QueryPermissionCallback {
+
+    /**
+     * 判断当前用户是否有权查看指定的运行时流程实例。
+     * @return true 可见，false 不可见（应从结果集中移除）
+     */
+    default boolean canViewProcessInstance(ProcessInstance processInstance, String currentUserId) {
+        return true; // 默认全量可见，保持向后兼容
+    }
+
+    /**
+     * 判断当前用户是否有权查看指定的历史流程实例。
+     */
+    default boolean canViewHistoricProcessInstance(
+            HistoricProcessInstance historicProcessInstance, String currentUserId) {
+        return true;
+    }
+}
+```
+
+**理由**：flowable-plus 不持有业务数据表，无法在 SQL 层过滤。采用回调扩展模式，接入方可自由选择权限模型（RBAC、DataScope、部门隔离等）。详见 [ADR-0007](../../docs/adr/0007-query-permission-callback.md)。
 
 ## 架构决策
 
@@ -412,6 +442,7 @@ public List<NextTaskNodeVO> getNextTaskNodes(String processInstanceId, String ta
 | S6: 下一节点审批人（审批中） | `NodePreviewOperations.getNextTaskApprovers`×2 + 条件分支评估，基于当前任务获取下一节点审批人 | P1 | 待开发 |
 | S7: 下一节点（审批中） | `NodePreviewOperations.getNextTaskNodes` + `NextTaskNodeVO`，基于当前任务获取可流转的下游节点 | P1 | 待开发 |
 | S8: Starter 适配 + 测试 | 自动配置注册（`GroupResolver` 默认 Bean、`BpmnModelCache`、三个新接口的 `FlowablePlus` 实现）、集成测试、文档 | — | 待开发 |
+| S9: 查询权限回调 | `QueryPermissionCallback` SPI + 默认全量可见实现 + 所有查询路径集成过滤，支持接入方按部门/角色/数据范围二次过滤 | P1 | 待开发 |
 
 S1 和 S5 优先实现——解决最高频的列表页流程状态展示和发起前审批人预览需求。
 
@@ -447,12 +478,52 @@ public Map<String, ProcessSummaryVO> batchQueryProcessSummaries(List<String> ins
 
 核心流程参照参考项目的批量补充模式，但不包含自定义表查询（业务特性）。
 
+## S9 详细设计
+
+### 定位
+
+查询权限回调是查询模块的安全边界，对标 jw-zhyg-api 的数据权限双��过滤模式（流程参与人豁免 + 数据权限降级），但以回调 SP
+I 形式实现，保持框架中立。
+
+### 与参考项目的差异
+
+| 维度 | 参考项目方案 | flowable-plus 方案 |
+|------|---------|-------------------|
+| 权限模型 | 内建 5 级 DataScope（全部/自定义/本部门/部门及子/仅本人） | 不内建，由回调实现方自行决定 |
+| 实现方式 | AOP + Mapper XML `${}` 注入 | SPI 回调 + 内存过滤 |
+| 单条查询权限 | self 代理 + 两次查询 | 一次查询 + 回调校验（减少一次 DB 调用） |
+| SQL 注入风险 | 存在（`${params.dataScope}`） | 无（不操作 SQL） |
+| 流程参与人豁免 | `hasTaskParticipate` 判断 | 由接入方在回调中自行实现 |
+
+### 实现思路
+
+```java
+// FlowablePlus 内部
+public PageResult<TodoTaskVO> queryTodoTasks(String userId, TaskQueryDTO query) {
+    PageResult<TodoTaskVO> result = taskListOperations.queryTodoTasks(userId, query);
+    if (queryPermissionCallback != null) {
+        result.setRecords(result.getRecords().stream()
+            .filter(vo -> queryPermissionCallback.canViewProcessInstance(
+                getProcessInstance(vo.getProcessInstanceId()), userId))
+            .collect(Collectors.toList()));
+    }
+    return result;
+}
+```
+
+### 影响范围
+
+- `ProcessQueryOperations` — 2 个方法接入回调过滤
+- `TaskListOperations` — 2 个方法接入回调过滤
+- `FlowablePlus` — 构造器新增可选参数
+- `FlowablePlusAutoConfiguration` — 注册默认 Bean
+
 ## 决策记录
 
 - 2026-07-04：三期聚焦查询与视图。任意跳转/自动提交（原三期）移至 Phase 4，流程历史/流程图（原四期）移至 Phase 5。
 - 2026-07-04：采用独立 VO 返回而非反射注入基类，保持库的中立性，不与用户实体设计耦合。
 - 2026-07-04：参考成熟业务项目的批量补充模式，但去除反射和实体绑定的耦合。
-- 2026-07-05：新增 S5/S6/S7 三个"向前预审"功能，补齐发起前和审批中展示下一节点/审批人的能力。
+- 2026-07-05：新增 S5/S6/S7 三个"向前预��"功能，补齐发起前和审批中展示下一节点/审批人的能力。
 - 2026-07-05：S5 基于标准 BPMN StartEvent 遍历，不引入 draft 节点和 initialNodes 扩展属性概念，保持框架中立。
 - 2026-07-05：S6/S7 支持网关条件表达式评估，因为基于运行时任务有 processInstanceId 可用。
 - 2026-07-05：S7 设计 `NextNodeFilterStrategy` 扩展点（预留），允许业务模块注册过滤器排除不应展示的节点。
@@ -467,3 +538,4 @@ public Map<String, ProcessSummaryVO> batchQueryProcessSummaries(List<String> ins
 - 2026-07-06：S6/S7 网关条件表达式通过 Flowable `ExpressionManager` + `RuntimeService.getVariables()` 评估。
 - 2026-07-06：三期新增 `ProcessQueryOperations`、`TaskListOperations`、`NodePreviewOperations` 三个接口，`FlowablePlus` 实现全部。
 - 2026-07-06：`TaskQueryDTO.userId` 不放入 DTO，由 API 方法参数显式传入。
+- 2026-07-10：新增 S9 查询权限回调。采用回调扩展模式而非内建权限模型，保持框架中立。详见 ADR-0007。

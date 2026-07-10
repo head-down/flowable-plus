@@ -35,7 +35,7 @@ public class ProcessQueryOperationsTest {
     private RuntimeService mockRuntimeService;
     private TaskRepository mockTaskRepository;
     private HistoricRepository mockHistoricRepository;
-    private BpmnModelCache mockBpmnModelCache;
+    private MultiInstanceDetector mockMultiInstanceDetector;
     private ProcessInstanceQuery mockProcessInstanceQuery;
     private ProcessQueryWorkflow processQueryWorkflow;
 
@@ -44,14 +44,14 @@ public class ProcessQueryOperationsTest {
         mockRuntimeService = mock(RuntimeService.class);
         mockTaskRepository = mock(TaskRepository.class);
         mockHistoricRepository = mock(HistoricRepository.class);
-        mockBpmnModelCache = mock(BpmnModelCache.class);
+        mockMultiInstanceDetector = mock(MultiInstanceDetector.class);
         mockProcessInstanceQuery = mock(ProcessInstanceQuery.class);
 
         when(mockRuntimeService.createProcessInstanceQuery()).thenReturn(mockProcessInstanceQuery);
         when(mockProcessInstanceQuery.processInstanceIds(anySet())).thenReturn(mockProcessInstanceQuery);
 
         processQueryWorkflow = new ProcessQueryWorkflow(
-                mockRuntimeService, mockTaskRepository, mockHistoricRepository, mockBpmnModelCache);
+                mockRuntimeService, mockTaskRepository, mockHistoricRepository, mockMultiInstanceDetector);
     }
 
     // ======================== 参数校验 ========================
@@ -497,8 +497,8 @@ public class ProcessQueryOperationsTest {
                 .thenReturn(Collections.emptyList());
         when(mockTaskRepository.getProcessInstanceComments(instanceId))
                 .thenReturn(Collections.emptyList());
-        // BpmnModelCache 返回 isMultiInstance=true
-        when(mockBpmnModelCache.isMultiInstanceNode(anyString(), anyString())).thenReturn(true);
+        // MultiInstanceDetector 返回 isMultiInstance=true
+        when(mockMultiInstanceDetector.isMultiInstanceNode(anyString(), anyString())).thenReturn(true);
 
         List<ApprovalTraceVO> result = processQueryWorkflow.getApprovalTrace(instanceId);
 

@@ -44,6 +44,7 @@ public class TaskWorkflowTest {
     private IdentityService mockIdentityService;
     private NodeFinder mockNodeFinder;
     private BpmnModelCache mockBpmnModelCache;
+    private MultiInstanceDetector mockMultiInstanceDetector;
     private TaskWorkflow taskWorkflow;
 
     @BeforeEach
@@ -55,9 +56,10 @@ public class TaskWorkflowTest {
         mockIdentityService = mock(IdentityService.class);
         mockNodeFinder = mock(NodeFinder.class);
         mockBpmnModelCache = mock(BpmnModelCache.class);
+        mockMultiInstanceDetector = mock(MultiInstanceDetector.class);
 
         taskWorkflow = new TaskWorkflow(userContext, mockTaskRepo, mockHistoricRepo,
-                mockRuntimeService, mockIdentityService, mockNodeFinder, mockBpmnModelCache);
+                mockRuntimeService, mockIdentityService, mockNodeFinder, mockMultiInstanceDetector);
     }
 
     // ======================== 发起 ========================
@@ -123,7 +125,7 @@ public class TaskWorkflowTest {
     void testCompleteTask() {
         PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", USER_ID);
         stubTaskExists(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(false);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(false);
 
         taskWorkflow.completeTask("task-001", null, null);
 
@@ -136,7 +138,7 @@ public class TaskWorkflowTest {
     void testCompleteTaskWithComment() {
         PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", USER_ID);
         stubTaskExists(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(false);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(false);
 
         taskWorkflow.completeTask("task-001", null, "同意");
 
@@ -148,7 +150,7 @@ public class TaskWorkflowTest {
     void testCompleteTaskWithVariables() {
         PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", USER_ID);
         stubTaskExists(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(false);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(false);
 
         Map<String, Object> vars = new HashMap<>();
         vars.put("approved", true);
@@ -161,7 +163,7 @@ public class TaskWorkflowTest {
     void testCompleteTaskRejectsMultiInstance() {
         PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", USER_ID);
         stubTaskExists(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(true);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(true);
 
         assertThatThrownBy(() -> taskWorkflow.completeTask("task-001", null, null))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -208,7 +210,7 @@ public class TaskWorkflowTest {
     void testRejectTask() {
         PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", USER_ID);
         stubTaskExistsWithAssignee(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(false);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(false);
         when(mockNodeFinder.findPreviousNodes("leave:1:abc", "task2", "pi-001"))
                 .thenReturn(Collections.singletonList("task1"));
 
@@ -224,7 +226,7 @@ public class TaskWorkflowTest {
     void testRejectTaskRejectsWrongAssignee() {
         PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", "user2");
         stubTaskExists(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(false);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(false);
 
         assertThatThrownBy(() -> taskWorkflow.rejectTask("task-001", "不同意"))
                 .isInstanceOf(PermissionDeniedException.class)
@@ -235,7 +237,7 @@ public class TaskWorkflowTest {
     void testRejectTaskRejectsParallelGateway() {
         PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", USER_ID);
         stubTaskExistsWithAssignee(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(false);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(false);
         when(mockNodeFinder.findPreviousNodes("leave:1:abc", "task2", "pi-001"))
                 .thenReturn(Arrays.asList("task1a", "task1b"));
 
@@ -250,7 +252,7 @@ public class TaskWorkflowTest {
     void testRejectTaskToInitiator() {
         PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", USER_ID);
         stubTaskExistsWithAssignee(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(false);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(false);
         when(mockNodeFinder.findInitiatorNode("leave:1:abc")).thenReturn("startTask");
 
         stubRollback();
@@ -264,7 +266,7 @@ public class TaskWorkflowTest {
     void testRejectTaskToInitiatorWhenAlreadyAtInitiator() {
         PlusTask task = createTask("task-001", "leave:1:abc", "startTask", "pi-001", USER_ID);
         stubTaskExistsWithAssignee(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(false);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(false);
         when(mockNodeFinder.findInitiatorNode("leave:1:abc")).thenReturn("startTask");
 
         assertThatThrownBy(() -> taskWorkflow.rejectTaskToInitiator("task-001", "退回"))
@@ -278,7 +280,7 @@ public class TaskWorkflowTest {
     void testWithdrawTask() {
         PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", "user3");
         stubTaskExists(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(false);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(false);
         when(mockNodeFinder.findPreviousNodes("leave:1:abc", "task2", "pi-001"))
                 .thenReturn(Collections.singletonList("task1"));
 
@@ -299,7 +301,7 @@ public class TaskWorkflowTest {
     void testWithdrawTaskRejectsOwnTask() {
         PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", USER_ID);
         stubTaskExists(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(false);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(false);
 
         assertThatThrownBy(() -> taskWorkflow.withdrawTask("task-001", "撤回"))
                 .isInstanceOf(PermissionDeniedException.class)
@@ -310,7 +312,7 @@ public class TaskWorkflowTest {
     void testWithdrawTaskRejectsNotPrevAssignee() {
         PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", "user3");
         stubTaskExists(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(false);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(false);
         when(mockNodeFinder.findPreviousNodes("leave:1:abc", "task2", "pi-001"))
                 .thenReturn(Collections.singletonList("task1"));
 
@@ -425,7 +427,7 @@ public class TaskWorkflowTest {
     void testRejectTaskWithoutReason() {
         PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", USER_ID);
         stubTaskExistsWithAssignee(task);
-        when(mockBpmnModelCache.isMultiInstance(task)).thenReturn(false);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(false);
         when(mockNodeFinder.findPreviousNodes("leave:1:abc", "task2", "pi-001"))
                 .thenReturn(Collections.singletonList("task1"));
 
