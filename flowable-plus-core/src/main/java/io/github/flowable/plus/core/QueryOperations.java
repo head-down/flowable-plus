@@ -21,6 +21,14 @@ import java.util.function.Consumer;
  * <p>合并了原 TaskListOperations、NodePreviewOperations 和 ProcessQueryOperations
  * 三个接口，对调用方提供一个统一的查询能力入口。</p>
  *
+ * <p><b>关于数据权限</b>：待办/已办查询基于 Flowable 原生 TaskQuery API，
+ * 返回结果<b>不包含业务级数据权限过滤</b>。PageResult.total 为引擎原始计数，
+ * 无法反映业务权限过滤后的实际条数。如需精确分页 + 数据权限过滤，
+ * 推荐接入方自行实现 SQL 查询（MyBatis-Plus Mapper XML 直查 Flowable 内部表
+ * + DataScope 注入），配合 {@link #batchQueryProcessSummaries(List)}
+ * 批量补充流程信息。当前的待办/已办 API 适用于无精确分页要求的场景
+ * （首页摘要、我的待办小卡片等）。</p>
+ *
  * @author flowable-plus
  * @see FlowablePlus
  */

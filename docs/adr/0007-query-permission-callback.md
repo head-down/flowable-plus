@@ -1,30 +1,43 @@
-# ADR-0007: 流程查询权限采用回调扩展模式
+# ADR-0007: 流程查询权限不内建，推荐接入方自行实现
 
-*2026-07-10*
+*2026-07-10，2026-07-10 修订*
 
 ## 背景
 
 根据项目权限评估（`docs/planning/permission-integration-evaluation.md`），flowable-plus 当前仅覆盖**流程操作权限**（校验用户是否为 assignee/发起人/上一节点审批人），完全未涉及**流程查询权限**（哪些流程实例对当前用户可见）。
 
-作为框架/SDK，flowable-plus 不持有业务数据表，无法在 SQL 层注入 WHERE 条件。需要一种轻量机制让接入方自行裁定查询权限。
-
 ## 决策
 
-采用 **回调扩展模式**：提供 `QueryPermissionCallback` SPI 接口，接入方实现后注入 Spring 容器，框架在所有查询路径中回调过滤。
+**不实现查询权限回调。** 推荐接入方自行实现待办/已办列表查询 + DataScope 注入。
 
-**不在框架内建任何权限模型**（RBAC、ABAC、ACL、DataScope），权限判定逻辑完全交由接入方实现。
+## 演进过程
 
-## 理由
+### 初版方案：回调扩展模式
 
-1. **框架定位**：flowable-plus 是 Flowable 包装层，不管理业务数据。强制内建权限模型会限制适用范围。
-2. **最小侵入**：一个 `FunctionalInterface` 足以覆盖核心场景，无需引入新依赖。
-3. **向后兼容**：默认实现返回全量可见，已有接入方无感知升级。
-4. **灵活**：接入方可自由选择若依的 DataScope、Spring Security 鉴权、自定义规则等任意方案。
+最初设计了一个 `QueryPermissionCallback` SPI 接口，在待办/已办查询结果上做内存侧权限过滤。
+
+**拒绝原因**：
+
+Flowable 的 `TaskQuery` 是 DB 层分页后返回结果。内存侧过滤后 `PageResult.total` 不准确（为引擎原始计数）。如需精确分页，只能退回 SQL 层注入。框架不持有 Flowable 引擎内部的 Mapper XML，无从注入。
+
+### 调研确认
+
+| 参考 | 结论 |
+|------|------|
+| Spring Security `@PostFilter` | 接受 total 不精确，无补偿方案 |
+| Keycloak #27512 | 相同问题，2024-03 提出至今 open |
+| Flowable 官方 | 不提供业务级 data scope 过滤机制 |
+| 若依 `@DataScope` | 应用层可行（控制自己的 Mapper XML），框架层不可行 |
+
+### 最终方案
+
+待办/已办查询 API **保留**，在 `QueryOperations` 的 Javadoc 中明确说明定位：适用于首页摘要、我的待办小卡片等无精确分页要求的场景。接入方如需精确分页 + 业务级数据权限过滤，推荐自行实现 MyBatis-Plus Mapper XML 直查 Flowable 内部表 + DataScope 注入，配合 `batchQueryProcessSummaries()` 批量补充流程信息。
 
 ## 替代方案
 
 | 方案 | 拒绝原因 |
 |------|---------|
+| 回调扩展模式（初版） | 内存过滤导致 PageResult.total 不精确 |
 | SQL 注入（参考 jw-zhyg-api） | 框架不持有 Mapper XML，无法注入 |
 | MyBatis-Plus DataPermissionInterceptor | 引入不必要 ORM 依赖 |
 | Spring Security ACL | 过重，每条流程实例生成 ACL 条目不经济 |
@@ -32,5 +45,6 @@
 
 ## 后果
 
-- 接入方需要自行实现 `QueryPermissionCallback`（或接受默认全量可见行为）
-- 框架保持零外部权限依赖
+- 不提供查询权限过滤能力
+- 待办/已办 API 保留，Javadoc 标注定位
+- 接入方按需自行实现

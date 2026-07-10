@@ -538,4 +538,5 @@ public PageResult<TodoTaskVO> queryTodoTasks(String userId, TaskQueryDTO query) 
 - 2026-07-06：S6/S7 网关条件表达式通过 Flowable `ExpressionManager` + `RuntimeService.getVariables()` 评估。
 - 2026-07-06：三期新增 `ProcessQueryOperations`、`TaskListOperations`、`NodePreviewOperations` 三个接口，`FlowablePlus` 实现全部。
 - 2026-07-06：`TaskQueryDTO.userId` 不放入 DTO，由 API 方法参数显式传入。
-- 2026-07-10：新增 S9 查询权限回调。采用回调扩展模式而非内建权限模型，保持框架中立。详见 ADR-0007。
+- 2026-07-10：S9 查询权限回调 **已跳过**。内存过滤导致 PageResult.total 不精确，Flowable TaskQuery API 不可注入，
+  框架层无可行方案。推荐接入方自行实现 MyBatis-Plus Mapper XML 直查 + DataScope 注入。详见 ADR-0007 及 issue #22。
