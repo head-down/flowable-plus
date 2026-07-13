@@ -1,7 +1,10 @@
 package io.github.flowable.plus.starter;
 
 import io.github.flowable.plus.core.FlowablePlus;
+import io.github.flowable.plus.core.QueryOperations;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
+import io.github.flowable.plus.core.spi.GroupResolver;
+import io.github.flowable.plus.core.spi.TaskQueryEnhancer;
 import io.github.flowable.plus.core.spi.UserContext;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.IdentityService;
@@ -19,6 +22,8 @@ import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.boot.actuate.health.Status;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.security.core.context.SecurityContextHolder;
+
+import java.util.Collections;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -190,6 +195,51 @@ class FlowablePlusAutoConfigurationTest {
                 .run(ctx -> {
                     assertThat(ctx).doesNotHaveBean(FlowablePlus.class);
                     assertThat(ctx).doesNotHaveBean(HealthIndicator.class);
+                });
+    }
+
+    // ======================== 三期自动配置 Bean 验证 ========================
+
+    @Test
+    void testGroupResolverDefaultBeanRegistered() {
+        contextRunner.run(ctx -> {
+            assertThat(ctx).hasSingleBean(GroupResolver.class);
+            assertThat(ctx.getBean(GroupResolver.class)).isInstanceOf(IdentityGroupResolver.class);
+        });
+    }
+
+    @Test
+    void testTaskQueryEnhancerDefaultBeanRegistered() {
+        contextRunner.run(ctx -> {
+            assertThat(ctx).hasSingleBean(TaskQueryEnhancer.class);
+        });
+    }
+
+    @Test
+    void testFlowablePlusBeanImplementsQueryOperations() {
+        contextRunner.run(ctx -> {
+            FlowablePlus bean = ctx.getBean(FlowablePlus.class);
+            assertThat(bean).isInstanceOf(QueryOperations.class);
+        });
+    }
+
+    @Test
+    void testUserDefinedGroupResolverNotOverridden() {
+        GroupResolver custom = groupId -> Collections.emptyList();
+        contextRunner
+                .withBean(GroupResolver.class, () -> custom)
+                .run(ctx -> {
+                    assertThat(ctx.getBean(GroupResolver.class)).isSameAs(custom);
+                });
+    }
+
+    @Test
+    void testUserDefinedTaskQueryEnhancerNotOverridden() {
+        TaskQueryEnhancer custom = query -> {};
+        contextRunner
+                .withBean(TaskQueryEnhancer.class, () -> custom)
+                .run(ctx -> {
+                    assertThat(ctx.getBean(TaskQueryEnhancer.class)).isSameAs(custom);
                 });
     }
 }

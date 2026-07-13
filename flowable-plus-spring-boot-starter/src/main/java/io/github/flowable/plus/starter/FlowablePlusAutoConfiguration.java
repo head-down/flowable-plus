@@ -20,6 +20,7 @@ import io.github.flowable.plus.core.VOAssembler;
 import io.github.flowable.plus.core.spi.ApproverResolver;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
 import io.github.flowable.plus.core.spi.GroupResolver;
+import io.github.flowable.plus.core.spi.TaskQueryEnhancer;
 import io.github.flowable.plus.core.spi.UserContext;
 import org.flowable.common.engine.impl.el.ExpressionManager;
 import org.flowable.engine.HistoryService;
@@ -186,17 +187,46 @@ public class FlowablePlusAutoConfiguration {
     }
 
     /**
+     * 注册 GroupResolver 默认 Bean。
+     *
+     * <p>基于 Flowable IdentityService 查询组成员列表。
+     * 应用可通过声明同名 Bean 替换为自定义组织架构服务。</p>
+     *
+     * @param identityService Flowable 身份认证服务
+     * @return IdentityGroupResolver 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public GroupResolver groupResolver(IdentityService identityService) {
+        return new IdentityGroupResolver(identityService);
+    }
+
+    /**
+     * 注册 TaskQueryEnhancer 默认 Bean（空实现）。
+     *
+     * <p>默认不过滤任何待办/已办数据。接入方可通过声明同名 Bean
+     * 覆盖此实现，在 TaskQuery 上追加 processVariableValueXXX 过滤条件。</p>
+     *
+     * @return 空实现的 TaskQueryEnhancer
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public TaskQueryEnhancer taskQueryEnhancer() {
+        return query -> {};
+    }
+
+    /**
      * 注册 ApproverResolver Bean。
      *
      * <p>默认实现从 UserTask 的 assignee、candidateUsers 和
      * candidateGroups 中提取审批人。应用可通过声明同名 Bean 覆盖。</p>
      *
-     * @param groupResolver 候选组解析器（可选）
+     * @param groupResolver 候选组解析器
      * @return UserTaskApproverResolver 实例
      */
     @Bean
     @ConditionalOnMissingBean
-    public ApproverResolver approverResolver(@Autowired(required = false) GroupResolver groupResolver) {
+    public ApproverResolver approverResolver(GroupResolver groupResolver) {
         return new UserTaskApproverResolver(groupResolver);
     }
 
