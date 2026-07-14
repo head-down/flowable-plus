@@ -11,8 +11,10 @@ import org.flowable.bpmn.model.SubProcess;
 import org.flowable.bpmn.model.UserTask;
 import org.flowable.common.engine.api.delegate.Expression;
 import org.flowable.common.engine.impl.el.ExpressionManager;
+import org.flowable.engine.HistoryService;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.history.HistoricActivityInstance;
+import org.flowable.engine.history.HistoricActivityInstanceQuery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -35,21 +37,20 @@ import static org.mockito.Mockito.when;
 public class NodeFinderTest {
 
     private RepositoryService repositoryService;
-    private HistoricRepository historicRepository;
+    private HistoryService historyService;
     private BpmnModelCache bpmnModelCache;
     private DefaultNodeFinder nodeFinder;
 
     @BeforeEach
     public void setUp() {
         repositoryService = Mockito.mock(RepositoryService.class);
-        historicRepository = Mockito.mock(HistoricRepository.class);
+        historyService = Mockito.mock(HistoryService.class);
         bpmnModelCache = new DefaultBpmnModelCache(repositoryService);
-        nodeFinder = new DefaultNodeFinder(bpmnModelCache, historicRepository,
+        nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService,
                 Mockito.mock(ExpressionManager.class));
 
         // 默认返回空列表，让不需要历史数据的测试正常通过
-        when(historicRepository.findFinishedHistoricActivityInstances(anyString()))
-                .thenReturn(Collections.emptyList());
+        stubHistoricActivityInstances("any-pi", Collections.emptyList());
     }
 
     // ======================== 向后查找 ========================
@@ -107,7 +108,7 @@ public class NodeFinderTest {
         List<HistoricActivityInstance> instances = new ArrayList<>();
         instances.add(instanceTaskA);
         instances.add(instanceTask1);
-        when(historicRepository.findFinishedHistoricActivityInstances("pi-001")).thenReturn(instances);
+        stubHistoricActivityInstances("pi-001", instances);
 
         List<String> result = nodeFinder.findPreviousNodes("proc-ex", "task2", "pi-001");
 
@@ -284,7 +285,7 @@ public class NodeFinderTest {
         when(mockExprMgr.createExpression("amount > 5000")).thenReturn(exprFalse);
         when(mockExprMgr.createExpression("amount <= 5000")).thenReturn(exprTrue);
 
-        nodeFinder = new DefaultNodeFinder(bpmnModelCache, historicRepository, mockExprMgr);
+        nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService, mockExprMgr);
 
         Map<String, Object> vars = new HashMap<>();
         vars.put("amount", 3000);
@@ -432,8 +433,7 @@ public class NodeFinderTest {
         HistoricActivityInstance t1 = createMockInstance("task1", new Date(1000), new Date(2000));
         HistoricActivityInstance t2 = createMockInstance("task2", new Date(3000), new Date(4000));
         HistoricActivityInstance t3 = createMockInstance("task3", new Date(5000), new Date(6000));
-        when(historicRepository.findFinishedHistoricActivityInstances("pi-001"))
-                .thenReturn(java.util.Arrays.asList(t3, t2, t1));
+        stubHistoricActivityInstances("pi-001", java.util.Arrays.asList(t3, t2, t1));
 
         List<String> result = nodeFinder.findCompletedUserTasks("proc-single", "task3", "pi-001");
 
@@ -472,8 +472,7 @@ public class NodeFinderTest {
         HistoricActivityInstance t1 = createMockInstance("task1", new Date(1000), new Date(2000));
         HistoricActivityInstance t2 = createMockInstance("task2", new Date(3000), new Date(4000));
         // task1 在并行分支中无历史记录
-        when(historicRepository.findFinishedHistoricActivityInstances("pi-001"))
-                .thenReturn(java.util.Arrays.asList(t2, t1));
+        stubHistoricActivityInstances("pi-001", java.util.Arrays.asList(t2, t1));
 
         List<String> result = nodeFinder.findCompletedUserTasks("proc-filter", "task2", "pi-001");
 
@@ -506,8 +505,7 @@ public class NodeFinderTest {
         HistoricActivityInstance tB = createMockInstance("taskB", new Date(3000), new Date(4000));
         HistoricActivityInstance tC = createMockInstance("taskC", new Date(3000), new Date(4000));
         HistoricActivityInstance tD = createMockInstance("taskD", new Date(5000), new Date(6000));
-        when(historicRepository.findFinishedHistoricActivityInstances("pi-001"))
-                .thenReturn(java.util.Arrays.asList(tD, tC, tB, tA));
+        stubHistoricActivityInstances("pi-001", java.util.Arrays.asList(tD, tC, tB, tA));
 
         List<String> result = nodeFinder.findCompletedUserTasks("proc-parallel", "taskD", "pi-001");
 
@@ -538,8 +536,7 @@ public class NodeFinderTest {
         HistoricActivityInstance t1 = createMockInstance("task1", new Date(1000), new Date(2000));
         HistoricActivityInstance tA = createMockInstance("taskA", new Date(3000), new Date(4000));
         HistoricActivityInstance t2 = createMockInstance("task2", new Date(5000), new Date(6000));
-        when(historicRepository.findFinishedHistoricActivityInstances("pi-001"))
-                .thenReturn(java.util.Arrays.asList(t2, tA, t1));
+        stubHistoricActivityInstances("pi-001", java.util.Arrays.asList(t2, tA, t1));
 
         List<String> result = nodeFinder.findCompletedUserTasks("proc-ex", "task2", "pi-001");
 
@@ -596,6 +593,21 @@ public class NodeFinderTest {
     }
 
     // ======================== 辅助方法 ========================
+
+    private void stubHistoricActivityInstances(String processInstanceId,
+                                                List<HistoricActivityInstance> instances) {
+        HistoricActivityInstanceQuery query = Mockito.mock(HistoricActivityInstanceQuery.class);
+        when(historyService.createHistoricActivityInstanceQuery()).thenReturn(query);
+        if (processInstanceId != null) {
+            when(query.processInstanceId(processInstanceId)).thenReturn(query);
+        } else {
+            when(query.processInstanceId(anyString())).thenReturn(query);
+        }
+        when(query.finished()).thenReturn(query);
+        when(query.orderByHistoricActivityInstanceEndTime()).thenReturn(query);
+        when(query.desc()).thenReturn(query);
+        when(query.list()).thenReturn(instances != null ? instances : Collections.emptyList());
+    }
 
     private HistoricActivityInstance createMockInstance(String activityId, Date startTime, Date endTime) {
         HistoricActivityInstance instance = Mockito.mock(HistoricActivityInstance.class);

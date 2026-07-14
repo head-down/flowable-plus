@@ -4,13 +4,17 @@ import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.vo.ApprovalTraceVO;
 import io.github.flowable.plus.core.vo.AssigneeInfo;
 import io.github.flowable.plus.core.vo.ProcessSummaryVO;
+import org.flowable.engine.HistoryService;
 import org.flowable.engine.RuntimeService;
+import org.flowable.engine.TaskService;
+import org.flowable.engine.history.HistoricProcessInstance;
+import org.flowable.task.api.history.HistoricTaskInstance;
 import org.flowable.engine.runtime.ProcessInstance;
 import org.flowable.engine.task.Comment;
+import org.flowable.task.api.Task;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -27,9 +31,6 @@ import java.util.stream.Collectors;
 /**
  * 流程查询工作流模块，封装批量流程实例摘要查询与审批轨迹查询。
  *
- * <p>通过 {@link TaskRepository} 和 {@link HistoricRepository} 接缝访问任务与历史数据，
- * 运行时实例查询直接使用 {@link RuntimeService}。</p>
- *
  * @author flowable-plus
  */
 public class ProcessQueryWorkflow {
@@ -38,26 +39,26 @@ public class ProcessQueryWorkflow {
     private static final int BATCH_SIZE = 500;
 
     private final RuntimeService runtimeService;
-    private final TaskRepository taskRepository;
-    private final HistoricRepository historicRepository;
+    private final TaskService taskService;
+    private final HistoryService historyService;
     private final MultiInstanceDetector multiInstanceDetector;
 
     public ProcessQueryWorkflow(RuntimeService runtimeService,
-                                TaskRepository taskRepository,
-                                HistoricRepository historicRepository,
+                                TaskService taskService,
+                                HistoryService historyService,
                                 MultiInstanceDetector multiInstanceDetector) {
         if (runtimeService == null) {
             throw new IllegalArgumentException("RuntimeService 不可为 null");
         }
-        if (taskRepository == null) {
-            throw new IllegalArgumentException("TaskRepository 不可为 null");
+        if (taskService == null) {
+            throw new IllegalArgumentException("TaskService 不可为 null");
         }
-        if (historicRepository == null) {
-            throw new IllegalArgumentException("HistoricRepository 不可为 null");
+        if (historyService == null) {
+            throw new IllegalArgumentException("HistoryService 不可为 null");
         }
         this.runtimeService = runtimeService;
-        this.taskRepository = taskRepository;
-        this.historicRepository = historicRepository;
+        this.taskService = taskService;
+        this.historyService = historyService;
         this.multiInstanceDetector = multiInstanceDetector;
     }
 
@@ -87,24 +88,28 @@ public class ProcessQueryWorkflow {
                 runtimeMap.put(pi.getProcessInstanceId(), pi);
             }
 
-            // 2. 通过 TaskRepository 查询运行时活跃任务
+            // 2. 通过 TaskService 查询运行时活跃任务
             Map<String, List<PlusTask>> tasksByInstance = new HashMap<>();
             if (!runtimeIds.isEmpty()) {
-                List<PlusTask> activeTasks = taskRepository.findActiveTasksByProcessInstanceIds(runtimeIds);
-                for (PlusTask task : activeTasks) {
-                    tasksByInstance.computeIfAbsent(task.getProcessInstanceId(), k -> new ArrayList<>()).add(task);
+                List<Task> activeTasks = taskService.createTaskQuery()
+                        .processInstanceIdIn(runtimeIds).active().list();
+                for (Task task : activeTasks) {
+                    tasksByInstance.computeIfAbsent(task.getProcessInstanceId(), k -> new ArrayList<>())
+                            .add(PlusTask.from(task));
                 }
             }
 
-            // 3. 通过 HistoricRepository 查询历史实例（已结束的）
+            // 3. 通过 HistoryService 查询历史实例（已结束的）
             List<String> deadIds = new ArrayList<>(batchSet);
             deadIds.removeAll(runtimeIds);
             Map<String, PlusHistoricProcessInstance> histMap = new HashMap<>();
             if (!deadIds.isEmpty()) {
-                List<PlusHistoricProcessInstance> histInstances = historicRepository
-                        .findProcessInstancesByIds(new HashSet<>(deadIds));
-                for (PlusHistoricProcessInstance hpi : histInstances) {
-                    histMap.put(hpi.getId(), hpi);
+                List<HistoricProcessInstance> histInstances = historyService
+                        .createHistoricProcessInstanceQuery()
+                        .processInstanceIds(new HashSet<>(deadIds))
+                        .list();
+                for (HistoricProcessInstance hpi : histInstances) {
+                    histMap.put(hpi.getId(), PlusHistoricProcessInstance.from(hpi));
                 }
             }
 
@@ -139,16 +144,25 @@ public class ProcessQueryWorkflow {
         }
 
         // 1. 查询活跃运行时任务
-        List<PlusTask> activeTasks = taskRepository.findActiveTasksByProcessInstanceIds(
-                Collections.singletonList(processInstanceId));
+        List<Task> activeTaskObjs = taskService.createTaskQuery()
+                .processInstanceId(processInstanceId).active().list();
+        List<PlusTask> activeTasks = activeTaskObjs.stream()
+                .map(PlusTask::from).collect(Collectors.toList());
 
         // 2. 查询已结束的历史任务
-        List<PlusHistoricTask> historicTasks = historicRepository
-                .findHistoricTasksByProcessInstanceId(processInstanceId);
+        List<HistoricTaskInstance> historicTaskObjs = historyService
+                .createHistoricTaskInstanceQuery()
+                .processInstanceId(processInstanceId)
+                .finished()
+                .orderByHistoricTaskInstanceStartTime().asc()
+                .list();
+        List<PlusHistoricTask> historicTasks = historicTaskObjs.stream()
+                .map(PlusHistoricTask::from).collect(Collectors.toList());
 
         // 3. 若都为空，验证流程实例是否存在
         if (activeTasks.isEmpty() && historicTasks.isEmpty()) {
-            PlusHistoricProcessInstance hpi = historicRepository.findProcessInstance(processInstanceId);
+            HistoricProcessInstance hpi = historyService.createHistoricProcessInstanceQuery()
+                    .processInstanceId(processInstanceId).singleResult();
             if (hpi == null) {
                 throw new NotFoundException("流程实例 " + processInstanceId + " 不存在");
             }
@@ -156,7 +170,7 @@ public class ProcessQueryWorkflow {
         }
 
         // 4. 查询审批意见，按 taskId 取最后一条
-        List<Comment> comments = taskRepository.getProcessInstanceComments(processInstanceId);
+        List<Comment> comments = taskService.getProcessInstanceComments(processInstanceId);
         Map<String, String> lastCommentByTaskId = groupLastCommentByTaskId(comments);
 
         // 5. 按 nodeId 分组

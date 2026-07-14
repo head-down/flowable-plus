@@ -13,6 +13,7 @@ import org.flowable.bpmn.model.StartEvent;
 import org.flowable.bpmn.model.SubProcess;
 import org.flowable.bpmn.model.UserTask;
 import org.flowable.common.engine.api.delegate.Expression;
+import org.flowable.engine.HistoryService;
 import org.flowable.engine.history.HistoricActivityInstance;
 import org.flowable.common.engine.impl.el.ExpressionManager;
 
@@ -37,23 +38,23 @@ import java.util.Set;
  */
 public class DefaultNodeFinder implements NodeFinder {
 
-    private final HistoricRepository historicRepository;
     private final BpmnModelCache bpmnModelCache;
+    private final HistoryService historyService;
     private final ExpressionManager expressionManager;
 
-    public DefaultNodeFinder(BpmnModelCache bpmnModelCache, HistoricRepository historicRepository,
+    public DefaultNodeFinder(BpmnModelCache bpmnModelCache, HistoryService historyService,
                              ExpressionManager expressionManager) {
         if (bpmnModelCache == null) {
             throw new IllegalArgumentException("BpmnModelCache 不可为 null");
         }
-        if (historicRepository == null) {
-            throw new IllegalArgumentException("HistoricRepository 不可为 null");
+        if (historyService == null) {
+            throw new IllegalArgumentException("HistoryService 不可为 null");
         }
         if (expressionManager == null) {
             throw new IllegalArgumentException("ExpressionManager 不可为 null");
         }
         this.bpmnModelCache = bpmnModelCache;
-        this.historicRepository = historicRepository;
+        this.historyService = historyService;
         this.expressionManager = expressionManager;
     }
 
@@ -176,8 +177,12 @@ public class DefaultNodeFinder implements NodeFinder {
             return incomingFlows;
         }
 
-        List<HistoricActivityInstance> historicInstances = historicRepository
-                .findFinishedHistoricActivityInstances(processInstanceId);
+        List<HistoricActivityInstance> historicInstances = historyService
+                .createHistoricActivityInstanceQuery()
+                .processInstanceId(processInstanceId)
+                .finished()
+                .orderByHistoricActivityInstanceEndTime().desc()
+                .list();
 
         for (SequenceFlow flow : incomingFlows) {
             for (HistoricActivityInstance instance : historicInstances) {
@@ -361,8 +366,12 @@ public class DefaultNodeFinder implements NodeFinder {
         }
 
         // 2. 查询历史数据确认节点确实执行过
-        List<HistoricActivityInstance> historicInstances = historicRepository
-                .findFinishedHistoricActivityInstances(processInstanceId);
+        List<HistoricActivityInstance> historicInstances = historyService
+                .createHistoricActivityInstanceQuery()
+                .processInstanceId(processInstanceId)
+                .finished()
+                .orderByHistoricActivityInstanceEndTime().desc()
+                .list();
         Set<String> executedNodeIds = new HashSet<>();
         for (HistoricActivityInstance instance : historicInstances) {
             if (instance.getActivityId() != null) {

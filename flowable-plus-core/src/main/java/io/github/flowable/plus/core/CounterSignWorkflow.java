@@ -6,7 +6,12 @@ import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
 import io.github.flowable.plus.core.spi.UserContext;
 import cn.hutool.core.util.StrUtil;
+import org.flowable.engine.HistoryService;
 import org.flowable.engine.RuntimeService;
+import org.flowable.engine.TaskService;
+import org.flowable.engine.history.HistoricProcessInstance;
+import org.flowable.task.api.history.HistoricTaskInstance;
+import org.flowable.task.api.Task;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,6 +21,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * 会签工作流模块，封装多实例审批任务的投票与人员管理逻辑。
@@ -27,20 +33,20 @@ public class CounterSignWorkflow implements CounterSignOperations {
     private static final Logger log = LoggerFactory.getLogger(CounterSignWorkflow.class);
 
     private final UserContext userContext;
-    private final TaskRepository taskRepository;
-    private final HistoricRepository historicRepository;
+    private final TaskService taskService;
+    private final HistoryService historyService;
     private final RuntimeService runtimeService;
     private final MultiInstanceDetector multiInstanceDetector;
     private final NodeFinder nodeFinder;
     private final List<CounterSignCallback> counterSignCallbacks;
 
-    public CounterSignWorkflow(UserContext userContext, TaskRepository taskRepository,
-                        HistoricRepository historicRepository, RuntimeService runtimeService,
+    public CounterSignWorkflow(UserContext userContext, TaskService taskService,
+                        HistoryService historyService, RuntimeService runtimeService,
                         MultiInstanceDetector multiInstanceDetector, NodeFinder nodeFinder,
                         List<CounterSignCallback> counterSignCallbacks) {
         this.userContext = userContext;
-        this.taskRepository = taskRepository;
-        this.historicRepository = historicRepository;
+        this.taskService = taskService;
+        this.historyService = historyService;
         this.runtimeService = runtimeService;
         this.multiInstanceDetector = multiInstanceDetector;
         this.nodeFinder = nodeFinder;
@@ -49,7 +55,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
 
     @Override
     public void counterSign(String taskId, boolean approved, Map<String, Object> variables, String comment) {
-        PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "会签");
+        PlusTask task = TaskValidation.validateTaskExists(taskService, historyService, taskId, "会签");
         TaskValidation.validateCurrentUserIsAssignee(task, userContext.getCurrentUserId(), taskId, "会签");
         TaskValidation.validateMultiInstance(multiInstanceDetector, task, taskId, "会签");
 
@@ -61,16 +67,16 @@ public class CounterSignWorkflow implements CounterSignOperations {
             invokeCallbacks(cb -> cb.onStart(processInstanceId, taskId, assignees));
         }
 
-        taskRepository.claim(taskId, userId);
+        taskService.claim(taskId, userId);
 
         if (StrUtil.isNotBlank(comment)) {
             String commentType = approved ? "AGREE" : "COUNTER_SIGN_REJECT";
-            taskRepository.addComment(taskId, null, commentType, comment);
+            taskService.addComment(taskId, null, commentType, comment);
         }
 
         invokeCallbacks(cb -> cb.onVote(processInstanceId, taskId, userId, approved, comment));
 
-        taskRepository.complete(taskId, variables);
+        taskService.complete(taskId, variables);
 
         if (isMultiInstanceFinished(task)) {
             invokeCallbacks(cb -> cb.onFinish(processInstanceId, taskId, "finished"));
@@ -86,7 +92,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
             throw new IllegalArgumentException("assignees 不可为 null 或空");
         }
 
-        PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "加签");
+        PlusTask task = TaskValidation.validateTaskExists(taskService, historyService, taskId, "加签");
         TaskValidation.validateMultiInstance(multiInstanceDetector, task, taskId, "加签");
 
         validateCounterSignPermission(task, "加签");
@@ -124,7 +130,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
         if (!skippedAssignees.isEmpty()) {
             commentMsg.append("；跳过已存在: ").append(String.join(", ", skippedAssignees));
         }
-        taskRepository.addComment(taskId, processInstanceId, "ADD_SIGN", commentMsg.toString());
+        taskService.addComment(taskId, processInstanceId, "ADD_SIGN", commentMsg.toString());
 
         invokeCallbacks(cb -> cb.onStart(processInstanceId, taskId, newAssignees));
     }
@@ -138,7 +144,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
             throw new IllegalArgumentException("assignee 不可为 null 或空");
         }
 
-        PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "减签");
+        PlusTask task = TaskValidation.validateTaskExists(taskService, historyService, taskId, "减签");
         TaskValidation.validateMultiInstance(multiInstanceDetector, task, taskId, "减签");
 
         validateCounterSignPermission(task, "减签");
@@ -159,37 +165,53 @@ public class CounterSignWorkflow implements CounterSignOperations {
                     "减签后剩余未投票审批人不足，当前未投票人数: " + unvotedCount);
         }
 
-        PlusTask targetTask = taskRepository.findActiveTask(
-                processInstanceId, task.getTaskDefinitionKey(), assignee);
+        Task targetTaskObj = taskService.createTaskQuery()
+                .processInstanceId(processInstanceId)
+                .taskDefinitionKey(task.getTaskDefinitionKey())
+                .taskAssignee(assignee)
+                .active()
+                .singleResult();
 
-        if (targetTask == null) {
+        if (targetTaskObj == null) {
             throw new NotFoundException(
                     "未找到审批人 " + assignee + " 的活跃会签任务");
         }
 
-        runtimeService.deleteMultiInstanceExecution(targetTask.getExecutionId(), false);
+        runtimeService.deleteMultiInstanceExecution(targetTaskObj.getExecutionId(), false);
 
-        taskRepository.addComment(taskId, processInstanceId, "DELETE_SIGN",
+        taskService.addComment(taskId, processInstanceId, "DELETE_SIGN",
                 "移除审批人: " + assignee);
     }
 
     // ======================== 内部辅助 ========================
 
     private boolean hasVoted(PlusTask task, String userId) {
-        return historicRepository.countFinishedTasks(
-                task.getProcessInstanceId(), task.getTaskDefinitionKey(), userId) > 0;
+        return historyService.createHistoricTaskInstanceQuery()
+                .processInstanceId(task.getProcessInstanceId())
+                .taskDefinitionKey(task.getTaskDefinitionKey())
+                .taskAssignee(userId)
+                .finished()
+                .count() > 0;
     }
 
     private List<String> resolveCurrentAssignees(PlusTask task) {
-        return taskRepository.listActiveTasks(task.getProcessInstanceId(), task.getTaskDefinitionKey())
+        return taskService.createTaskQuery()
+                .processInstanceId(task.getProcessInstanceId())
+                .taskDefinitionKey(task.getTaskDefinitionKey())
+                .active()
+                .list()
                 .stream()
-                .map(PlusTask::getAssignee)
+                .map(Task::getAssignee)
                 .filter(Objects::nonNull)
-                .collect(ArrayList::new, ArrayList::add, ArrayList::addAll);
+                .collect(Collectors.toList());
     }
 
     private boolean isMultiInstanceFinished(PlusTask task) {
-        return taskRepository.countActiveTasks(task.getProcessInstanceId(), task.getTaskDefinitionKey()) == 0;
+        return taskService.createTaskQuery()
+                .processInstanceId(task.getProcessInstanceId())
+                .taskDefinitionKey(task.getTaskDefinitionKey())
+                .active()
+                .count() == 0;
     }
 
     private void invokeCallbacks(java.util.function.Consumer<CounterSignCallback> action) {
@@ -221,19 +243,25 @@ public class CounterSignWorkflow implements CounterSignOperations {
         String authorizedUserId;
 
         if (prevNodes.isEmpty()) {
-            PlusHistoricProcessInstance historicPi = historicRepository.findProcessInstance(processInstanceId);
-            if (historicPi == null) {
+            HistoricProcessInstance hpi = historyService.createHistoricProcessInstanceQuery()
+                    .processInstanceId(processInstanceId).singleResult();
+            if (hpi == null) {
                 throw new NotFoundException("流程实例 " + processInstanceId + " 不存在");
             }
-            authorizedUserId = historicPi.getStartUserId();
+            authorizedUserId = hpi.getStartUserId();
         } else {
             String prevNodeId = prevNodes.get(0);
-            PlusHistoricTask prevTask = historicRepository.findLatestFinishedTask(processInstanceId, prevNodeId);
+            List<HistoricTaskInstance> prevTasks = historyService.createHistoricTaskInstanceQuery()
+                    .processInstanceId(processInstanceId)
+                    .taskDefinitionKey(prevNodeId)
+                    .finished()
+                    .orderByHistoricTaskInstanceEndTime().desc()
+                    .listPage(0, 1);
 
-            if (prevTask == null) {
+            if (prevTasks.isEmpty()) {
                 throw new NotFoundException("未找到上一节点 " + prevNodeId + " 的历史任务");
             }
-            authorizedUserId = prevTask.getAssignee();
+            authorizedUserId = prevTasks.get(0).getAssignee();
         }
 
         if (!currentUserId.equals(authorizedUserId)) {

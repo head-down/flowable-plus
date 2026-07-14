@@ -1,12 +1,21 @@
 package io.github.flowable.plus.core;
 
+import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.vo.ApprovalTraceVO;
 import io.github.flowable.plus.core.vo.AssigneeInfo;
 import io.github.flowable.plus.core.vo.ProcessSummaryVO;
+import org.flowable.engine.HistoryService;
 import org.flowable.engine.RuntimeService;
+import org.flowable.engine.TaskService;
+import org.flowable.engine.history.HistoricProcessInstance;
+import org.flowable.engine.history.HistoricProcessInstanceQuery;
+import org.flowable.task.api.history.HistoricTaskInstance;
+import org.flowable.task.api.history.HistoricTaskInstanceQuery;
 import org.flowable.engine.runtime.ProcessInstance;
 import org.flowable.engine.runtime.ProcessInstanceQuery;
 import org.flowable.engine.task.Comment;
+import org.flowable.task.api.Task;
+import org.flowable.task.api.TaskQuery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -28,13 +37,13 @@ import static org.mockito.Mockito.when;
 
 /**
  * batchQueryProcessSummaries 测试：基于 ProcessQueryWorkflow，
- * 通过 TaskRepository 和 HistoricRepository 接缝访问数据。
+ * 通过 TaskService 和 HistoryService 接缝访问数据。
  */
 public class ProcessQueryOperationsTest {
 
     private RuntimeService mockRuntimeService;
-    private TaskRepository mockTaskRepository;
-    private HistoricRepository mockHistoricRepository;
+    private TaskService mockTaskService;
+    private HistoryService mockHistoryService;
     private MultiInstanceDetector mockMultiInstanceDetector;
     private ProcessInstanceQuery mockProcessInstanceQuery;
     private ProcessQueryWorkflow processQueryWorkflow;
@@ -42,8 +51,8 @@ public class ProcessQueryOperationsTest {
     @BeforeEach
     public void setUp() {
         mockRuntimeService = mock(RuntimeService.class);
-        mockTaskRepository = mock(TaskRepository.class);
-        mockHistoricRepository = mock(HistoricRepository.class);
+        mockTaskService = mock(TaskService.class);
+        mockHistoryService = mock(HistoryService.class);
         mockMultiInstanceDetector = mock(MultiInstanceDetector.class);
         mockProcessInstanceQuery = mock(ProcessInstanceQuery.class);
 
@@ -51,7 +60,7 @@ public class ProcessQueryOperationsTest {
         when(mockProcessInstanceQuery.processInstanceIds(anySet())).thenReturn(mockProcessInstanceQuery);
 
         processQueryWorkflow = new ProcessQueryWorkflow(
-                mockRuntimeService, mockTaskRepository, mockHistoricRepository, mockMultiInstanceDetector);
+                mockRuntimeService, mockTaskService, mockHistoryService, mockMultiInstanceDetector);
     }
 
     // ======================== 参数校验 ========================
@@ -297,14 +306,11 @@ public class ProcessQueryOperationsTest {
 
     @Test
     public void testApprovalTraceNotFound() {
-        when(mockHistoricRepository.findHistoricTasksByProcessInstanceId("pi-nonexistent"))
-                .thenReturn(Collections.emptyList());
-        when(mockTaskRepository.findActiveTasksByProcessInstanceIds(anyCollection()))
-                .thenReturn(Collections.emptyList());
-        when(mockHistoricRepository.findProcessInstance("pi-nonexistent")).thenReturn(null);
+        List<HistoricTaskInstance> emptyHistTasks = Collections.emptyList();
+        stubApprovalTraceQueries(Collections.emptyList(), "pi-nonexistent", null, emptyHistTasks);
 
         assertThatThrownBy(() -> processQueryWorkflow.getApprovalTrace("pi-nonexistent"))
-                .isInstanceOf(io.github.flowable.plus.core.exception.NotFoundException.class)
+                .isInstanceOf(NotFoundException.class)
                 .hasMessageContaining("pi-nonexistent");
     }
 
@@ -321,17 +327,15 @@ public class ProcessQueryOperationsTest {
         PlusHistoricTask ht2 = createPlusHistoricTask("ht-2", instanceId, "node2", "经理审批",
                 "user2", t2Start, t2End, null);
 
-        when(mockHistoricRepository.findHistoricTasksByProcessInstanceId(instanceId))
-                .thenReturn(Arrays.asList(ht1, ht2));
-        when(mockTaskRepository.findActiveTasksByProcessInstanceIds(anyCollection()))
-                .thenReturn(Collections.emptyList());
-        when(mockTaskRepository.getProcessInstanceComments(instanceId))
-                .thenReturn(Collections.emptyList());
+        HistoricTaskInstance mockHt1 = toMockHistoricTask(ht1);
+        HistoricTaskInstance mockHt2 = toMockHistoricTask(ht2);
+        stubApprovalTraceQueries(Collections.emptyList(), instanceId, null,
+                Arrays.asList(mockHt1, mockHt2));
+        when(mockTaskService.getProcessInstanceComments(instanceId)).thenReturn(Collections.emptyList());
 
         List<ApprovalTraceVO> result = processQueryWorkflow.getApprovalTrace(instanceId);
 
         assertThat(result).hasSize(2);
-        // 第一节点
         assertThat(result.get(0).getTaskId()).isEqualTo("ht-1");
         assertThat(result.get(0).getTaskName()).isEqualTo("部门审批");
         assertThat(result.get(0).getNodeId()).isEqualTo("node1");
@@ -341,7 +345,6 @@ public class ProcessQueryOperationsTest {
         assertThat(result.get(0).getDurationMillis()).isEqualTo(1000L);
         assertThat(result.get(0).getApproved()).isTrue();
         assertThat(result.get(0).getIsRejected()).isFalse();
-        // 第二节点
         assertThat(result.get(1).getTaskId()).isEqualTo("ht-2");
         assertThat(result.get(1).getTaskName()).isEqualTo("经理审批");
         assertThat(result.get(1).getNodeId()).isEqualTo("node2");
@@ -360,20 +363,16 @@ public class ProcessQueryOperationsTest {
         PlusTask activeTask = new PlusTask("task-active", "leave:1:abc", "node2", instanceId,
                 "user2", "经理审批", "exec-2", t2Start);
 
-        when(mockHistoricRepository.findHistoricTasksByProcessInstanceId(instanceId))
-                .thenReturn(Collections.singletonList(ht1));
-        when(mockTaskRepository.findActiveTasksByProcessInstanceIds(anyCollection()))
-                .thenReturn(Collections.singletonList(activeTask));
-        when(mockTaskRepository.getProcessInstanceComments(instanceId))
-                .thenReturn(Collections.emptyList());
+        HistoricTaskInstance mockHt1 = toMockHistoricTask(ht1);
+        stubApprovalTraceQueries(Collections.singletonList(toMockTask(activeTask)), instanceId, null,
+                Collections.singletonList(mockHt1));
+        when(mockTaskService.getProcessInstanceComments(instanceId)).thenReturn(Collections.emptyList());
 
         List<ApprovalTraceVO> result = processQueryWorkflow.getApprovalTrace(instanceId);
 
         assertThat(result).hasSize(2);
-        // 已完成节点
         assertThat(result.get(0).getEndTime()).isNotNull();
         assertThat(result.get(0).getApproved()).isTrue();
-        // 活跃节点
         assertThat(result.get(1).getTaskId()).isEqualTo("task-active");
         assertThat(result.get(1).getEndTime()).isNull();
         assertThat(result.get(1).getDurationMillis()).isNull();
@@ -387,19 +386,16 @@ public class ProcessQueryOperationsTest {
         Date t1Start = new Date(1000);
         Date t1End = new Date(2000);
 
-        // 驳回的任务，deleteReason 含"驳回"
         PlusHistoricTask ht1 = createPlusHistoricTask("ht-1", instanceId, "node1", "部门审批",
                 "user1", t1Start, t1End, "驳回至发起人");
-        // 正常同意的任务
         PlusHistoricTask ht2 = createPlusHistoricTask("ht-2", instanceId, "node1", "部门审批",
                 "user2", t1Start, t1End, null);
 
-        when(mockHistoricRepository.findHistoricTasksByProcessInstanceId(instanceId))
-                .thenReturn(Arrays.asList(ht1, ht2));
-        when(mockTaskRepository.findActiveTasksByProcessInstanceIds(anyCollection()))
-                .thenReturn(Collections.emptyList());
-        when(mockTaskRepository.getProcessInstanceComments(instanceId))
-                .thenReturn(Collections.emptyList());
+        HistoricTaskInstance mockHt1 = toMockHistoricTask(ht1);
+        HistoricTaskInstance mockHt2 = toMockHistoricTask(ht2);
+        stubApprovalTraceQueries(Collections.emptyList(), instanceId, null,
+                Arrays.asList(mockHt1, mockHt2));
+        when(mockTaskService.getProcessInstanceComments(instanceId)).thenReturn(Collections.emptyList());
 
         List<ApprovalTraceVO> result = processQueryWorkflow.getApprovalTrace(instanceId);
 
@@ -423,12 +419,10 @@ public class ProcessQueryOperationsTest {
         when(comment.getTaskId()).thenReturn("ht-1");
         when(comment.getFullMessage()).thenReturn("同意，请继续");
 
-        when(mockHistoricRepository.findHistoricTasksByProcessInstanceId(instanceId))
-                .thenReturn(Collections.singletonList(ht1));
-        when(mockTaskRepository.findActiveTasksByProcessInstanceIds(anyCollection()))
-                .thenReturn(Collections.emptyList());
-        when(mockTaskRepository.getProcessInstanceComments(instanceId))
-                .thenReturn(Collections.singletonList(comment));
+        HistoricTaskInstance mockHt1 = toMockHistoricTask(ht1);
+        stubApprovalTraceQueries(Collections.emptyList(), instanceId, null,
+                Collections.singletonList(mockHt1));
+        when(mockTaskService.getProcessInstanceComments(instanceId)).thenReturn(Collections.singletonList(comment));
 
         List<ApprovalTraceVO> result = processQueryWorkflow.getApprovalTrace(instanceId);
 
@@ -440,16 +434,11 @@ public class ProcessQueryOperationsTest {
     public void testApprovalTraceEmptyTasks() {
         String instanceId = "pi-no-tasks";
 
-        // 流程实例存在但无任务节点
         PlusHistoricProcessInstance hpi = new PlusHistoricProcessInstance(
                 instanceId, "biz-1", "leave:1:abc", "leave", "请假审批",
                 "userA", new Date(), new Date(), null);
 
-        when(mockHistoricRepository.findHistoricTasksByProcessInstanceId(instanceId))
-                .thenReturn(Collections.emptyList());
-        when(mockTaskRepository.findActiveTasksByProcessInstanceIds(anyCollection()))
-                .thenReturn(Collections.emptyList());
-        when(mockHistoricRepository.findProcessInstance(instanceId)).thenReturn(hpi);
+        stubApprovalTraceQueries(Collections.emptyList(), instanceId, toMockHistoricPi(hpi), null);
 
         List<ApprovalTraceVO> result = processQueryWorkflow.getApprovalTrace(instanceId);
 
@@ -465,12 +454,10 @@ public class ProcessQueryOperationsTest {
         PlusHistoricTask ht1 = createPlusHistoricTask("ht-1", instanceId, "node1", "部门审批",
                 "user1", t1Start, t1End, "WITHDRAW");
 
-        when(mockHistoricRepository.findHistoricTasksByProcessInstanceId(instanceId))
-                .thenReturn(Collections.singletonList(ht1));
-        when(mockTaskRepository.findActiveTasksByProcessInstanceIds(anyCollection()))
-                .thenReturn(Collections.emptyList());
-        when(mockTaskRepository.getProcessInstanceComments(instanceId))
-                .thenReturn(Collections.emptyList());
+        HistoricTaskInstance mockHt1 = toMockHistoricTask(ht1);
+        stubApprovalTraceQueries(Collections.emptyList(), instanceId, null,
+                Collections.singletonList(mockHt1));
+        when(mockTaskService.getProcessInstanceComments(instanceId)).thenReturn(Collections.emptyList());
 
         List<ApprovalTraceVO> result = processQueryWorkflow.getApprovalTrace(instanceId);
 
@@ -491,13 +478,13 @@ public class ProcessQueryOperationsTest {
         PlusHistoricTask ht3 = createPlusHistoricTask("ht-cs-3", instanceId, "counterSignNode", "会签审批",
                 "userC", new Date(1200), new Date(2200), null);
 
-        when(mockHistoricRepository.findHistoricTasksByProcessInstanceId(instanceId))
-                .thenReturn(Arrays.asList(ht1, ht2, ht3));
-        when(mockTaskRepository.findActiveTasksByProcessInstanceIds(anyCollection()))
-                .thenReturn(Collections.emptyList());
-        when(mockTaskRepository.getProcessInstanceComments(instanceId))
-                .thenReturn(Collections.emptyList());
-        // MultiInstanceDetector 返回 isMultiInstance=true
+        HistoricTaskInstance mockHt1 = toMockHistoricTask(ht1);
+        HistoricTaskInstance mockHt2 = toMockHistoricTask(ht2);
+        HistoricTaskInstance mockHt3 = toMockHistoricTask(ht3);
+
+        stubApprovalTraceQueries(Collections.emptyList(), instanceId, null,
+                Arrays.asList(mockHt1, mockHt2, mockHt3));
+        when(mockTaskService.getProcessInstanceComments(instanceId)).thenReturn(Collections.emptyList());
         when(mockMultiInstanceDetector.isMultiInstanceNode(anyString(), anyString())).thenReturn(true);
 
         List<ApprovalTraceVO> result = processQueryWorkflow.getApprovalTrace(instanceId);
@@ -532,7 +519,7 @@ public class ProcessQueryOperationsTest {
     private PlusTask createPlusTask(String taskId, String processInstanceId,
             String taskDefKey, String taskName, String assignee) {
         return new PlusTask(taskId, "leave:1:abc123", taskDefKey, processInstanceId,
-                assignee, taskName, null, new Date());
+                assignee, taskName, "exec-" + taskId, new Date());
     }
 
     private PlusHistoricProcessInstance createPlusHistoricPi(String instanceId, String businessKey,
@@ -549,24 +536,121 @@ public class ProcessQueryOperationsTest {
                 assignee, taskName, createTime, endTime, deleteReason);
     }
 
+    private Task toMockTask(PlusTask pt) {
+        Task mockTask = mock(Task.class);
+        when(mockTask.getId()).thenReturn(pt.getId());
+        when(mockTask.getProcessDefinitionId()).thenReturn(pt.getProcessDefinitionId());
+        when(mockTask.getTaskDefinitionKey()).thenReturn(pt.getTaskDefinitionKey());
+        when(mockTask.getProcessInstanceId()).thenReturn(pt.getProcessInstanceId());
+        when(mockTask.getAssignee()).thenReturn(pt.getAssignee());
+        when(mockTask.getName()).thenReturn(pt.getName());
+        when(mockTask.getExecutionId()).thenReturn(pt.getExecutionId());
+        when(mockTask.getCreateTime()).thenReturn(pt.getCreateTime());
+        return mockTask;
+    }
+
+    private HistoricTaskInstance toMockHistoricTask(PlusHistoricTask hpt) {
+        HistoricTaskInstance mockTask = mock(HistoricTaskInstance.class);
+        when(mockTask.getId()).thenReturn(hpt.getId());
+        when(mockTask.getProcessDefinitionId()).thenReturn(hpt.getProcessDefinitionId());
+        when(mockTask.getTaskDefinitionKey()).thenReturn(hpt.getTaskDefinitionKey());
+        when(mockTask.getProcessInstanceId()).thenReturn(hpt.getProcessInstanceId());
+        when(mockTask.getAssignee()).thenReturn(hpt.getAssignee());
+        when(mockTask.getName()).thenReturn(hpt.getName());
+        when(mockTask.getCreateTime()).thenReturn(hpt.getCreateTime());
+        when(mockTask.getEndTime()).thenReturn(hpt.getEndTime());
+        when(mockTask.getDeleteReason()).thenReturn(hpt.getDeleteReason());
+        return mockTask;
+    }
+
+    private HistoricProcessInstance toMockHistoricPi(PlusHistoricProcessInstance hpi) {
+        HistoricProcessInstance mockHpi = mock(HistoricProcessInstance.class);
+        when(mockHpi.getId()).thenReturn(hpi.getId());
+        when(mockHpi.getBusinessKey()).thenReturn(hpi.getBusinessKey());
+        when(mockHpi.getProcessDefinitionId()).thenReturn(hpi.getProcessDefinitionId());
+        when(mockHpi.getProcessDefinitionKey()).thenReturn(hpi.getProcessDefinitionKey());
+        when(mockHpi.getProcessDefinitionName()).thenReturn(hpi.getProcessDefinitionName());
+        when(mockHpi.getStartUserId()).thenReturn(hpi.getStartUserId());
+        when(mockHpi.getStartTime()).thenReturn(hpi.getStartTime());
+        when(mockHpi.getEndTime()).thenReturn(hpi.getEndTime());
+        when(mockHpi.getDeleteReason()).thenReturn(hpi.getDeleteReason());
+        return mockHpi;
+    }
+
     private void stubRunningQueries(
-            java.util.List<ProcessInstance> runtimeInstances,
-            java.util.List<PlusTask> activeTasks) {
+            List<ProcessInstance> runtimeInstances,
+            List<PlusTask> activePlusTasks) {
         when(mockProcessInstanceQuery.list()).thenReturn(runtimeInstances);
 
-        when(mockTaskRepository.findActiveTasksByProcessInstanceIds(anyCollection()))
-                .thenReturn(activeTasks);
+        List<Task> mockTasks = new ArrayList<>();
+        for (PlusTask pt : activePlusTasks) {
+            mockTasks.add(toMockTask(pt));
+        }
+        TaskQuery taskQuery = mock(TaskQuery.class);
+        when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
+        when(taskQuery.processInstanceIdIn(anyCollection())).thenReturn(taskQuery);
+        when(taskQuery.active()).thenReturn(taskQuery);
+        when(taskQuery.list()).thenReturn(mockTasks);
+
+        // Also stub HistoricProcessInstanceQuery for ended instances
+        HistoricProcessInstanceQuery histPiQuery = mock(HistoricProcessInstanceQuery.class);
+        when(mockHistoryService.createHistoricProcessInstanceQuery()).thenReturn(histPiQuery);
+        when(histPiQuery.processInstanceIds(anySet())).thenReturn(histPiQuery);
+        when(histPiQuery.list()).thenReturn(Collections.emptyList());
     }
 
     private void stubEndedQueries(
-            java.util.List<ProcessInstance> runtimeInstances,
-            java.util.List<PlusHistoricProcessInstance> histInstances) {
+            List<ProcessInstance> runtimeInstances,
+            List<PlusHistoricProcessInstance> histPlusInstances) {
         when(mockProcessInstanceQuery.list()).thenReturn(runtimeInstances);
 
-        when(mockHistoricRepository.findProcessInstancesByIds(anySet()))
-                .thenReturn(histInstances);
+        List<HistoricProcessInstance> mockHpis = new ArrayList<>();
+        for (PlusHistoricProcessInstance hpi : histPlusInstances) {
+            mockHpis.add(toMockHistoricPi(hpi));
+        }
+        HistoricProcessInstanceQuery histPiQuery = mock(HistoricProcessInstanceQuery.class);
+        when(mockHistoryService.createHistoricProcessInstanceQuery()).thenReturn(histPiQuery);
+        when(histPiQuery.processInstanceIds(anySet())).thenReturn(histPiQuery);
+        when(histPiQuery.list()).thenReturn(mockHpis);
 
-        when(mockTaskRepository.findActiveTasksByProcessInstanceIds(anyCollection()))
-                .thenReturn(Collections.emptyList());
+        TaskQuery taskQuery = mock(TaskQuery.class);
+        when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
+        when(taskQuery.processInstanceIdIn(anyCollection())).thenReturn(taskQuery);
+        when(taskQuery.active()).thenReturn(taskQuery);
+        when(taskQuery.list()).thenReturn(Collections.emptyList());
+    }
+
+    private void stubApprovalTraceQueries(List<Task> activeTasks, String instanceId,
+                                           HistoricProcessInstance hpi,
+                                           List<HistoricTaskInstance> historicTasks) {
+        // Active task queries
+        TaskQuery taskQuery = mock(TaskQuery.class);
+        when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
+        when(taskQuery.processInstanceId(instanceId)).thenReturn(taskQuery);
+        when(taskQuery.active()).thenReturn(taskQuery);
+        when(taskQuery.list()).thenReturn(activeTasks != null ? activeTasks : Collections.emptyList());
+
+        // Historic task instances
+        HistoricTaskInstanceQuery histTaskQuery = mock(HistoricTaskInstanceQuery.class);
+        when(histTaskQuery.processInstanceId(instanceId)).thenReturn(histTaskQuery);
+        when(histTaskQuery.finished()).thenReturn(histTaskQuery);
+        when(histTaskQuery.orderByHistoricTaskInstanceStartTime()).thenReturn(histTaskQuery);
+        when(histTaskQuery.asc()).thenReturn(histTaskQuery);
+        when(histTaskQuery.list()).thenReturn(historicTasks != null ? historicTasks : Collections.emptyList());
+
+        // Historic process instance (always stubbed — even when hpi is null)
+        HistoricProcessInstanceQuery histPiQuery = mock(HistoricProcessInstanceQuery.class);
+        when(histPiQuery.processInstanceId(instanceId)).thenReturn(histPiQuery);
+        when(histPiQuery.singleResult()).thenReturn(hpi);
+
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(histTaskQuery);
+        when(mockHistoryService.createHistoricProcessInstanceQuery()).thenReturn(histPiQuery);
+
+        // Comments
+        when(mockTaskService.getProcessInstanceComments(instanceId)).thenReturn(Collections.emptyList());
+    }
+
+    private void stubHistoricTasksForTrace(String instanceId, List<HistoricTaskInstance> tasks) {
+        // Merged into stubApprovalTraceQueries
     }
 }

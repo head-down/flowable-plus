@@ -9,10 +9,15 @@ import io.github.flowable.plus.core.spi.AutoApprovalRule;
 import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.vo.JumpableNodeVO;
 import cn.hutool.core.util.StrUtil;
+import org.flowable.engine.HistoryService;
 import org.flowable.engine.IdentityService;
 import org.flowable.engine.RuntimeService;
+import org.flowable.engine.TaskService;
+import org.flowable.engine.history.HistoricProcessInstance;
+import org.flowable.task.api.history.HistoricTaskInstance;
 import org.flowable.engine.runtime.ChangeActivityStateBuilder;
 import org.flowable.engine.runtime.ProcessInstance;
+import org.flowable.task.api.Task;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,6 +26,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 任务工作流模块，封装常规审批任务的推进、驳回、撤回、撤销逻辑。
@@ -32,22 +38,22 @@ public class TaskWorkflow implements ApprovalOperations {
     private static final Logger log = LoggerFactory.getLogger(TaskWorkflow.class);
 
     private final UserContext userContext;
-    private final TaskRepository taskRepository;
-    private final HistoricRepository historicRepository;
+    private final TaskService taskService;
+    private final HistoryService historyService;
     private final RuntimeService runtimeService;
     private final IdentityService identityService;
     private final NodeFinder nodeFinder;
     private final MultiInstanceDetector multiInstanceDetector;
     private final List<AutoApprovalRule> autoApprovalRules;
 
-    public TaskWorkflow(UserContext userContext, TaskRepository taskRepository,
-                 HistoricRepository historicRepository, RuntimeService runtimeService,
+    public TaskWorkflow(UserContext userContext, TaskService taskService,
+                 HistoryService historyService, RuntimeService runtimeService,
                  IdentityService identityService, NodeFinder nodeFinder,
                  MultiInstanceDetector multiInstanceDetector,
                  List<AutoApprovalRule> autoApprovalRules) {
         this.userContext = userContext;
-        this.taskRepository = taskRepository;
-        this.historicRepository = historicRepository;
+        this.taskService = taskService;
+        this.historyService = historyService;
         this.runtimeService = runtimeService;
         this.identityService = identityService;
         this.nodeFinder = nodeFinder;
@@ -84,18 +90,18 @@ public class TaskWorkflow implements ApprovalOperations {
 
     @Override
     public void completeTask(String taskId, Map<String, Object> variables, String comment) {
-        PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "审批");
+        PlusTask task = TaskValidation.validateTaskExists(taskService, historyService, taskId, "审批");
         TaskValidation.validateNotMultiInstance(multiInstanceDetector, task, taskId);
 
         String userId = userContext.getCurrentUserId();
 
-        taskRepository.claim(taskId, userId);
+        taskService.claim(taskId, userId);
 
         if (StrUtil.isNotBlank(comment)) {
-            taskRepository.addComment(taskId, null, null, comment);
+            taskService.addComment(taskId, null, null, comment);
         }
 
-        taskRepository.complete(taskId, variables);
+        taskService.complete(taskId, variables);
     }
 
     @Override
@@ -105,12 +111,12 @@ public class TaskWorkflow implements ApprovalOperations {
         }
 
         String userId = userContext.getCurrentUserId();
-        taskRepository.claim(taskId, userId);
+        taskService.claim(taskId, userId);
     }
 
     @Override
     public void rejectTask(String taskId, String reason) {
-        PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "驳回");
+        PlusTask task = TaskValidation.validateTaskExists(taskService, historyService, taskId, "驳回");
         TaskValidation.validateCurrentUserIsAssignee(task, userContext.getCurrentUserId(), taskId, "驳回");
         TaskValidation.validateNotMultiInstance(multiInstanceDetector, task, taskId);
 
@@ -130,7 +136,7 @@ public class TaskWorkflow implements ApprovalOperations {
 
     @Override
     public void rejectTaskToInitiator(String taskId, String reason) {
-        PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "驳回");
+        PlusTask task = TaskValidation.validateTaskExists(taskService, historyService, taskId, "驳回");
         TaskValidation.validateCurrentUserIsAssignee(task, userContext.getCurrentUserId(), taskId, "驳回");
         TaskValidation.validateNotMultiInstance(multiInstanceDetector, task, taskId);
 
@@ -147,7 +153,7 @@ public class TaskWorkflow implements ApprovalOperations {
     @Override
     public void withdrawTask(String taskId, String reason) {
         String currentUserId = userContext.getCurrentUserId();
-        PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "撤回");
+        PlusTask task = TaskValidation.validateTaskExists(taskService, historyService, taskId, "撤回");
         TaskValidation.validateNotMultiInstance(multiInstanceDetector, task, taskId);
 
         if (currentUserId.equals(task.getAssignee())) {
@@ -164,7 +170,13 @@ public class TaskWorkflow implements ApprovalOperations {
 
         String prevNodeId = prevNodes.get(0);
 
-        PlusHistoricTask prevTask = historicRepository.findLatestFinishedTask(processInstanceId, prevNodeId);
+        List<HistoricTaskInstance> prevTasks = historyService.createHistoricTaskInstanceQuery()
+                .processInstanceId(processInstanceId)
+                .taskDefinitionKey(prevNodeId)
+                .finished()
+                .orderByHistoricTaskInstanceEndTime().desc()
+                .listPage(0, 1);
+        PlusHistoricTask prevTask = !prevTasks.isEmpty() ? PlusHistoricTask.from(prevTasks.get(0)) : null;
 
         if (prevTask == null || !currentUserId.equals(prevTask.getAssignee())) {
             throw new PermissionDeniedException(
@@ -182,10 +194,12 @@ public class TaskWorkflow implements ApprovalOperations {
 
         String currentUserId = userContext.getCurrentUserId();
 
-        PlusHistoricProcessInstance historicPi = historicRepository.findProcessInstance(processInstanceId);
-        if (historicPi == null) {
+        HistoricProcessInstance hpi = historyService.createHistoricProcessInstanceQuery()
+                .processInstanceId(processInstanceId).singleResult();
+        if (hpi == null) {
             throw new NotFoundException("流程实例 " + processInstanceId + " 不存在");
         }
+        PlusHistoricProcessInstance historicPi = PlusHistoricProcessInstance.from(hpi);
 
         if (!currentUserId.equals(historicPi.getStartUserId())) {
             throw new PermissionDeniedException(
@@ -200,7 +214,9 @@ public class TaskWorkflow implements ApprovalOperations {
         }
 
         String initiatorNode = nodeFinder.findInitiatorNode(historicPi.getProcessDefinitionId());
-        PlusTask activeTask = taskRepository.findActiveByProcessInstance(processInstanceId);
+        Task activeTaskObj = taskService.createTaskQuery()
+                .processInstanceId(processInstanceId).active().singleResult();
+        PlusTask activeTask = activeTaskObj != null ? PlusTask.from(activeTaskObj) : null;
         if (activeTask == null || !initiatorNode.equals(activeTask.getTaskDefinitionKey())) {
             throw new TaskAlreadyCompletedException(
                     "流程实例 " + processInstanceId + " 已推进后续节点，无法撤销");
@@ -220,7 +236,7 @@ public class TaskWorkflow implements ApprovalOperations {
             throw new IllegalArgumentException("commentType 不可为 null");
         }
 
-        PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "跳转");
+        PlusTask task = TaskValidation.validateTaskExists(taskService, historyService, taskId, "跳转");
         TaskValidation.validateCurrentUserIsAssignee(task, userContext.getCurrentUserId(), taskId, "跳转");
         TaskValidation.validateNotMultiInstance(multiInstanceDetector, task, taskId);
 
@@ -245,7 +261,7 @@ public class TaskWorkflow implements ApprovalOperations {
 
     @Override
     public List<JumpableNodeVO> getJumpableNodes(String taskId) {
-        PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "查询可跳转节点");
+        PlusTask task = TaskValidation.validateTaskExists(taskService, historyService, taskId, "查询可跳转节点");
         TaskValidation.validateCurrentUserIsAssignee(task, userContext.getCurrentUserId(), taskId, "查询可跳转节点");
 
         String processDefinitionId = task.getProcessDefinitionId();
@@ -264,10 +280,16 @@ public class TaskWorkflow implements ApprovalOperations {
         for (String nodeId : nodeIds) {
             String nodeName = nodeFinder.getNodeName(processDefinitionId, nodeId);
 
-            PlusHistoricTask historicTask = historicRepository.findLatestFinishedTask(processInstanceId, nodeId);
-            if (historicTask == null) {
+            List<HistoricTaskInstance> tasks = historyService.createHistoricTaskInstanceQuery()
+                    .processInstanceId(processInstanceId)
+                    .taskDefinitionKey(nodeId)
+                    .finished()
+                    .orderByHistoricTaskInstanceEndTime().desc()
+                    .listPage(0, 1);
+            if (tasks.isEmpty()) {
                 continue; // 历史无记录，跳过
             }
+            PlusHistoricTask historicTask = PlusHistoricTask.from(tasks.get(0));
 
             result.add(JumpableNodeVO.builder()
                     .nodeId(nodeId)
@@ -287,7 +309,7 @@ public class TaskWorkflow implements ApprovalOperations {
 
     private void executeRollback(PlusTask task, String targetActivityId, String reason, String commentType) {
         if (StrUtil.isNotBlank(reason)) {
-            taskRepository.addComment(task.getId(), task.getProcessInstanceId(), commentType, reason);
+            taskService.addComment(task.getId(), task.getProcessInstanceId(), commentType, reason);
         }
 
         ChangeActivityStateBuilder builder = runtimeService.createChangeActivityStateBuilder();
@@ -301,7 +323,7 @@ public class TaskWorkflow implements ApprovalOperations {
      *
      * <p>双重守卫：
      * <ul>
-     *   <li>{@code isFirstStart} — 历史任务为空才触发，防止重新触发时误��动提交</li>
+     *   <li>{@code isFirstStart} — 历史任务为空才触发，防止重新触发时误动提交</li>
      *   <li>快照隔离 — 仅处理当前活跃任务快照，自动完成后新产生的任务不级联</li>
      * </ul>
      * 多规则 OR 逻辑：任一规则返回非 null 即触发自动提交，意见取第一个非 null 结果。
@@ -310,12 +332,16 @@ public class TaskWorkflow implements ApprovalOperations {
     private void autoCompleteFirstTasks(String processInstanceId, String userId,
                                          Map<String, Object> startVariables) {
         // 守卫 1：非首次启动不触发
-        if (historicRepository.hasHistoricTasks(processInstanceId)) {
+        long historyCount = historyService.createHistoricTaskInstanceQuery()
+                .processInstanceId(processInstanceId).count();
+        if (historyCount > 0) {
             return;
         }
 
         // 守卫 2：快照当前首任务
-        List<PlusTask> firstTasks = taskRepository.findActiveTasksByProcessInstance(processInstanceId);
+        List<Task> taskList = taskService.createTaskQuery()
+                .processInstanceId(processInstanceId).active().list();
+        List<PlusTask> firstTasks = taskList.stream().map(PlusTask::from).collect(Collectors.toList());
         if (firstTasks.isEmpty()) {
             return;
         }
@@ -326,8 +352,8 @@ public class TaskWorkflow implements ApprovalOperations {
             for (AutoApprovalRule rule : autoApprovalRules) {
                 String evalResult = rule.evaluate(task, readonlyVars);
                 if (evalResult != null) {
-                    taskRepository.addComment(task.getId(), processInstanceId, "AUTO_COMPLETE", evalResult);
-                    taskRepository.complete(task.getId(), null);
+                    taskService.addComment(task.getId(), processInstanceId, "AUTO_COMPLETE", evalResult);
+                    taskService.complete(task.getId(), null);
                     log.info("自动提交成功, taskId: {}, assignee: {}, comment: {}",
                             task.getId(), userId, evalResult);
                     break; // 当前任务已被处理，跳出规则循环

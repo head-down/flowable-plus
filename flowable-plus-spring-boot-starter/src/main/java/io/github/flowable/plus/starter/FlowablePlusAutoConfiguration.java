@@ -5,15 +5,11 @@ import io.github.flowable.plus.core.BpmnModelCache;
 import io.github.flowable.plus.core.CounterSignWorkflow;
 import io.github.flowable.plus.core.DefaultBpmnModelCache;
 import io.github.flowable.plus.core.DefaultNodeFinder;
-import io.github.flowable.plus.core.FlowableHistoricRepository;
 import io.github.flowable.plus.core.FlowablePlus;
-import io.github.flowable.plus.core.FlowableTaskRepository;
-import io.github.flowable.plus.core.HistoricRepository;
 import io.github.flowable.plus.core.MultiInstanceDetector;
 import io.github.flowable.plus.core.NodeFinder;
 import io.github.flowable.plus.core.ProcessQueryWorkflow;
 import io.github.flowable.plus.core.TaskQueryModule;
-import io.github.flowable.plus.core.TaskRepository;
 import io.github.flowable.plus.core.TaskWorkflow;
 import io.github.flowable.plus.core.UserTaskApproverResolver;
 import io.github.flowable.plus.core.VOAssembler;
@@ -90,46 +86,18 @@ public class FlowablePlusAutoConfiguration {
      *
      * <p>应用可通过声明同名 Bean 替换默认的 BPMN 节点遍历策略。</p>
      *
-     * @param bpmnModelCache     BPMN 模型缓存
-     * @param historicRepository 历史数据仓储
-     * @param processEngine      Flowable 流程引擎
+     * @param bpmnModelCache  BPMN 模型缓存
+     * @param historyService  Flowable 历史服务
+     * @param processEngine   Flowable 流程引擎
      * @return DefaultNodeFinder 实例
      */
     @Bean
     @ConditionalOnMissingBean
-    public NodeFinder nodeFinder(BpmnModelCache bpmnModelCache, HistoricRepository historicRepository,
+    public NodeFinder nodeFinder(BpmnModelCache bpmnModelCache, HistoryService historyService,
                                   ProcessEngine processEngine) {
         ExpressionManager expressionManager = ((ProcessEngineConfigurationImpl) processEngine
                 .getProcessEngineConfiguration()).getExpressionManager();
-        return new DefaultNodeFinder(bpmnModelCache, historicRepository, expressionManager);
-    }
-
-    /**
-     * 注册 Flowable TaskRepository Bean。
-     *
-     * <p>将 Flowable 的 TaskService 链式查询 API 封装为简洁的单方法调用接口。</p>
-     *
-     * @param processEngine Flowable 流程引擎
-     * @return FlowableTaskRepository 实例
-     */
-    @Bean
-    @ConditionalOnMissingBean
-    public TaskRepository taskRepository(ProcessEngine processEngine) {
-        return new FlowableTaskRepository(processEngine.getTaskService());
-    }
-
-    /**
-     * 注册 Flowable HistoricRepository Bean。
-     *
-     * <p>将 Flowable 的 HistoryService 链式查询 API 封装为简洁的单方法调用接口。</p>
-     *
-     * @param processEngine Flowable 流程引擎
-     * @return FlowableHistoricRepository 实例
-     */
-    @Bean
-    @ConditionalOnMissingBean
-    public HistoricRepository historicRepository(ProcessEngine processEngine) {
-        return new FlowableHistoricRepository(processEngine.getHistoryService());
+        return new DefaultNodeFinder(bpmnModelCache, historyService, expressionManager);
     }
 
     /**
@@ -140,8 +108,8 @@ public class FlowablePlusAutoConfiguration {
      * {@code autoApprovalRules} 为可选参数，无注册 Bean 时行为不变。</p>
      *
      * @param userContext             用户上下文
-     * @param taskRepository          任务仓储
-     * @param historicRepository      历史数据仓储
+     * @param taskService             Flowable 任务服务
+     * @param historyService          Flowable 历史服务
      * @param nodeFinder              BPMN 节点遍历策略
      * @param multiInstanceDetector   多实例检测模块
      * @param processEngine           Flowable 流程引擎
@@ -150,11 +118,11 @@ public class FlowablePlusAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    public TaskWorkflow taskWorkflow(UserContext userContext, TaskRepository taskRepository,
-                                     HistoricRepository historicRepository, NodeFinder nodeFinder,
+    public TaskWorkflow taskWorkflow(UserContext userContext, TaskService taskService,
+                                     HistoryService historyService, NodeFinder nodeFinder,
                                      MultiInstanceDetector multiInstanceDetector, ProcessEngine processEngine,
                                      @Autowired(required = false) List<AutoApprovalRule> autoApprovalRules) {
-        return new TaskWorkflow(userContext, taskRepository, historicRepository,
+        return new TaskWorkflow(userContext, taskService, historyService,
                 processEngine.getRuntimeService(), processEngine.getIdentityService(),
                 nodeFinder, multiInstanceDetector, autoApprovalRules);
     }
@@ -166,9 +134,9 @@ public class FlowablePlusAutoConfiguration {
      * 实现 {@link io.github.flowable.plus.core.CounterSignOperations} 接口。
      * 当 {@code flowable.plus.counter-sign.enabled=false} 时回调列表为空。</p>
      *
-     * @param userContext           用户上下文
-     * @param taskRepository        任务仓储
-     * @param historicRepository    历史数据仓储
+     * @param userContext            用户上下文
+     * @param taskService            Flowable 任务服务
+     * @param historyService         Flowable 历史服务
      * @param nodeFinder              BPMN 节点遍历策略
      * @param multiInstanceDetector   多实例检测模块
      * @param processEngine           Flowable 流程引擎
@@ -178,15 +146,15 @@ public class FlowablePlusAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    public CounterSignWorkflow counterSignWorkflow(UserContext userContext, TaskRepository taskRepository,
-                                                   HistoricRepository historicRepository, NodeFinder nodeFinder,
+    public CounterSignWorkflow counterSignWorkflow(UserContext userContext, TaskService taskService,
+                                                   HistoryService historyService, NodeFinder nodeFinder,
                                                    MultiInstanceDetector multiInstanceDetector,
                                                    ProcessEngine processEngine,
                                                    @Autowired(required = false) List<CounterSignCallback> counterSignCallbacks,
                                                    FlowablePlusCounterSignProperties counterSignProps) {
         List<CounterSignCallback> callbacks = counterSignProps.isEnabled() && counterSignCallbacks != null
                 ? counterSignCallbacks : Collections.emptyList();
-        return new CounterSignWorkflow(userContext, taskRepository, historicRepository,
+        return new CounterSignWorkflow(userContext, taskService, historyService,
                 processEngine.getRuntimeService(), multiInstanceDetector, nodeFinder, callbacks);
     }
 
@@ -338,18 +306,18 @@ public class FlowablePlusAutoConfiguration {
      * <p>封装批量流程实例摘要查询与审批轨迹查询。</p>
      *
      * @param runtimeService         Flowable 运行时服务
-     * @param taskRepository         任务仓储
-     * @param historicRepository     历史数据仓储
+     * @param taskService            Flowable 任务服务
+     * @param historyService         Flowable 历史服务
      * @param multiInstanceDetector  多实例检测模块
      * @return ProcessQueryWorkflow 实例
      */
     @Bean
     @ConditionalOnMissingBean
     public ProcessQueryWorkflow processQueryWorkflow(RuntimeService runtimeService,
-                                                      TaskRepository taskRepository,
-                                                      HistoricRepository historicRepository,
+                                                      TaskService taskService,
+                                                      HistoryService historyService,
                                                       MultiInstanceDetector multiInstanceDetector) {
-        return new ProcessQueryWorkflow(runtimeService, taskRepository, historicRepository, multiInstanceDetector);
+        return new ProcessQueryWorkflow(runtimeService, taskService, historyService, multiInstanceDetector);
     }
 
     /**
