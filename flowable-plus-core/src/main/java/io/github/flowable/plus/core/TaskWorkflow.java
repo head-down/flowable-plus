@@ -1,16 +1,20 @@
 package io.github.flowable.plus.core;
 
+import io.github.flowable.plus.core.exception.InvalidTargetNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.exception.TaskAlreadyCompletedException;
 import io.github.flowable.plus.core.spi.UserContext;
+import io.github.flowable.plus.core.vo.JumpableNodeVO;
 import cn.hutool.core.util.StrUtil;
 import org.flowable.engine.IdentityService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.runtime.ChangeActivityStateBuilder;
 import org.flowable.engine.runtime.ProcessInstance;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
@@ -101,7 +105,7 @@ public class TaskWorkflow implements ApprovalOperations {
         }
 
         String targetNode = prevNodes.get(0);
-        executeRollback(task, targetNode, reason, "REJECT");
+        executeRollback(task, targetNode, reason, CommentType.REJECT.name());
     }
 
     @Override
@@ -117,7 +121,7 @@ public class TaskWorkflow implements ApprovalOperations {
             throw new NoPreviousNodeException("当前已是发起人节点，无法继续驳回");
         }
 
-        executeRollback(task, initiatorNode, reason, "REJECT");
+        executeRollback(task, initiatorNode, reason, CommentType.REJECT.name());
     }
 
     @Override
@@ -183,6 +187,80 @@ public class TaskWorkflow implements ApprovalOperations {
         }
 
         runtimeService.deleteProcessInstance(processInstanceId, reason);
+    }
+
+    // ======================== 任意跳转 ========================
+
+    @Override
+    public void jumpToNode(String taskId, String targetNodeId, String reason, CommentType commentType) {
+        if (targetNodeId == null) {
+            throw new IllegalArgumentException("targetNodeId 不可为 null");
+        }
+        if (commentType == null) {
+            throw new IllegalArgumentException("commentType 不可为 null");
+        }
+
+        PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "跳转");
+        TaskValidation.validateCurrentUserIsAssignee(task, userContext.getCurrentUserId(), taskId, "跳转");
+        TaskValidation.validateNotMultiInstance(multiInstanceDetector, task, taskId);
+
+        String processDefinitionId = task.getProcessDefinitionId();
+        String currentActivityId = task.getTaskDefinitionKey();
+        String processInstanceId = task.getProcessInstanceId();
+
+        // 防止自跳转
+        if (currentActivityId.equals(targetNodeId)) {
+            throw new InvalidTargetNodeException("目标节点 " + targetNodeId + " 与当前节点相同，不支持自跳转");
+        }
+
+        // 校验目标节点在可跳转列表中
+        List<String> completedNodeIds = nodeFinder.findCompletedUserTasks(
+                processDefinitionId, currentActivityId, processInstanceId);
+        if (!completedNodeIds.contains(targetNodeId)) {
+            throw new InvalidTargetNodeException("目标节点 " + targetNodeId + " 不在可跳转的历史节点列表中");
+        }
+
+        executeRollback(task, targetNodeId, reason, commentType.name());
+    }
+
+    @Override
+    public List<JumpableNodeVO> getJumpableNodes(String taskId) {
+        PlusTask task = TaskValidation.validateTaskExists(taskRepository, historicRepository, taskId, "查询可跳转节点");
+        TaskValidation.validateCurrentUserIsAssignee(task, userContext.getCurrentUserId(), taskId, "查询可跳转节点");
+
+        String processDefinitionId = task.getProcessDefinitionId();
+        String currentActivityId = task.getTaskDefinitionKey();
+        String processInstanceId = task.getProcessInstanceId();
+
+        // 1. BPMN 回溯收集已完成的上游 UserTask
+        List<String> nodeIds = nodeFinder.findCompletedUserTasks(
+                processDefinitionId, currentActivityId, processInstanceId);
+        if (nodeIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 2. 组装 VO 列表
+        List<JumpableNodeVO> result = new ArrayList<>();
+        for (String nodeId : nodeIds) {
+            String nodeName = nodeFinder.getNodeName(processDefinitionId, nodeId);
+
+            PlusHistoricTask historicTask = historicRepository.findLatestFinishedTask(processInstanceId, nodeId);
+            if (historicTask == null) {
+                continue; // 历史无记录，跳过
+            }
+
+            result.add(JumpableNodeVO.builder()
+                    .nodeId(nodeId)
+                    .nodeName(nodeName)
+                    .assignee(historicTask.getAssignee())
+                    .completeTime(historicTask.getEndTime())
+                    .build());
+        }
+
+        // 3. 按完成时间正序排序
+        result.sort(Comparator.comparing(JumpableNodeVO::getCompleteTime));
+
+        return result;
     }
 
     // ======================== 内部辅助 ========================

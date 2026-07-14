@@ -412,6 +412,189 @@ public class NodeFinderTest {
                 .hasMessageContaining("不存在");
     }
 
+    // ======================== findCompletedUserTasks ========================
+
+    @Test
+    public void testFindCompletedUserTasksSingleChain() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        UserTask task2 = builder.addUserTask("task2");
+        UserTask task3 = builder.addUserTask("task3");
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, task2);
+        builder.addSequenceFlow("f3", task2, task3);
+        BpmnModel model = builder.build();
+
+        when(repositoryService.getBpmnModel("proc-single")).thenReturn(model);
+
+        // 所有三个节点都有历史记录
+        HistoricActivityInstance t1 = createMockInstance("task1", new Date(1000), new Date(2000));
+        HistoricActivityInstance t2 = createMockInstance("task2", new Date(3000), new Date(4000));
+        HistoricActivityInstance t3 = createMockInstance("task3", new Date(5000), new Date(6000));
+        when(historicRepository.findFinishedHistoricActivityInstances("pi-001"))
+                .thenReturn(java.util.Arrays.asList(t3, t2, t1));
+
+        List<String> result = nodeFinder.findCompletedUserTasks("proc-single", "task3", "pi-001");
+
+        assertThat(result).containsExactlyInAnyOrder("task1", "task2");
+    }
+
+    @Test
+    public void testFindCompletedUserTasksEmptyChain() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        builder.addSequenceFlow("f1", start, task1);
+        BpmnModel model = builder.build();
+
+        when(repositoryService.getBpmnModel("proc-start")).thenReturn(model);
+
+        List<String> result = nodeFinder.findCompletedUserTasks("proc-start", "task1", "pi-001");
+
+        // task1 是首节点，无上游
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    public void testFindCompletedUserTasksFiltersHistory() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        UserTask task2 = builder.addUserTask("task2");
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, task2);
+        BpmnModel model = builder.build();
+
+        when(repositoryService.getBpmnModel("proc-filter")).thenReturn(model);
+
+        // 只有 task1 有历史记录，task2 也有（当前节点）
+        HistoricActivityInstance t1 = createMockInstance("task1", new Date(1000), new Date(2000));
+        HistoricActivityInstance t2 = createMockInstance("task2", new Date(3000), new Date(4000));
+        // task1 在并行分支中无历史记录
+        when(historicRepository.findFinishedHistoricActivityInstances("pi-001"))
+                .thenReturn(java.util.Arrays.asList(t2, t1));
+
+        List<String> result = nodeFinder.findCompletedUserTasks("proc-filter", "task2", "pi-001");
+
+        assertThat(result).containsExactly("task1");
+    }
+
+    @Test
+    public void testFindCompletedUserTasksParallelGateway() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask taskA = builder.addUserTask("taskA");
+        ParallelGateway gwFork = builder.addParallelGateway("gw_fork");
+        UserTask taskB = builder.addUserTask("taskB");
+        UserTask taskC = builder.addUserTask("taskC");
+        ParallelGateway gwJoin = builder.addParallelGateway("gw_join");
+        UserTask taskD = builder.addUserTask("taskD");
+        builder.addSequenceFlow("f1", start, taskA);
+        builder.addSequenceFlow("f2", taskA, gwFork);
+        builder.addSequenceFlow("f3", gwFork, taskB);
+        builder.addSequenceFlow("f4", gwFork, taskC);
+        builder.addSequenceFlow("f5", taskB, gwJoin);
+        builder.addSequenceFlow("f6", taskC, gwJoin);
+        builder.addSequenceFlow("f7", gwJoin, taskD);
+        BpmnModel model = builder.build();
+
+        when(repositoryService.getBpmnModel("proc-parallel")).thenReturn(model);
+
+        // B、C 都有历史记录
+        HistoricActivityInstance tA = createMockInstance("taskA", new Date(1000), new Date(2000));
+        HistoricActivityInstance tB = createMockInstance("taskB", new Date(3000), new Date(4000));
+        HistoricActivityInstance tC = createMockInstance("taskC", new Date(3000), new Date(4000));
+        HistoricActivityInstance tD = createMockInstance("taskD", new Date(5000), new Date(6000));
+        when(historicRepository.findFinishedHistoricActivityInstances("pi-001"))
+                .thenReturn(java.util.Arrays.asList(tD, tC, tB, tA));
+
+        List<String> result = nodeFinder.findCompletedUserTasks("proc-parallel", "taskD", "pi-001");
+
+        // 回溯应收集 taskB、taskC（并行分支）和 taskA（上游），排除 taskD（当前节点）
+        assertThat(result).containsExactlyInAnyOrder("taskA", "taskB", "taskC");
+    }
+
+    @Test
+    public void testFindCompletedUserTasksExclusiveGateway() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        ExclusiveGateway gw = builder.addExclusiveGateway("gw");
+        UserTask taskA = builder.addUserTask("taskA");
+        UserTask taskB = builder.addUserTask("taskB");
+        UserTask task2 = builder.addUserTask("task2");
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, gw);
+        builder.addSequenceFlow("f3", gw, taskA);
+        builder.addSequenceFlow("f4", gw, taskB);
+        builder.addSequenceFlow("f5", taskA, task2);
+        builder.addSequenceFlow("f6", taskB, task2);
+        BpmnModel model = builder.build();
+
+        when(repositoryService.getBpmnModel("proc-ex")).thenReturn(model);
+
+        // 历史数据只有 taskA 分支执行过
+        HistoricActivityInstance t1 = createMockInstance("task1", new Date(1000), new Date(2000));
+        HistoricActivityInstance tA = createMockInstance("taskA", new Date(3000), new Date(4000));
+        HistoricActivityInstance t2 = createMockInstance("task2", new Date(5000), new Date(6000));
+        when(historicRepository.findFinishedHistoricActivityInstances("pi-001"))
+                .thenReturn(java.util.Arrays.asList(t2, tA, t1));
+
+        List<String> result = nodeFinder.findCompletedUserTasks("proc-ex", "task2", "pi-001");
+
+        // 应排除 taskB（不在历史中）
+        assertThat(result).containsExactlyInAnyOrder("task1", "taskA");
+    }
+
+    @Test
+    public void testFindCompletedUserTasksUnknownProcessDefinition() {
+        when(repositoryService.getBpmnModel("unknown-proc")).thenReturn(null);
+
+        assertThatThrownBy(() -> nodeFinder.findCompletedUserTasks("unknown-proc", "task1", "pi-001"))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining("不存在");
+    }
+
+    // ======================== getNodeName ========================
+
+    @Test
+    public void testGetNodeName() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        task1.setName("发起人审批");
+        builder.addSequenceFlow("f1", start, task1);
+        BpmnModel model = builder.build();
+
+        when(repositoryService.getBpmnModel("proc-name")).thenReturn(model);
+
+        String name = nodeFinder.getNodeName("proc-name", "task1");
+        assertThat(name).isEqualTo("发起人审批");
+    }
+
+    @Test
+    public void testGetNodeNameUnknownProcessDefinition() {
+        when(repositoryService.getBpmnModel("unknown")).thenReturn(null);
+
+        String name = nodeFinder.getNodeName("unknown", "task1");
+        assertThat(name).isNull();
+    }
+
+    @Test
+    public void testGetNodeNameUnknownNodeId() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        builder.addSequenceFlow("f1", start, task1);
+        BpmnModel model = builder.build();
+
+        when(repositoryService.getBpmnModel("proc-name")).thenReturn(model);
+
+        String name = nodeFinder.getNodeName("proc-name", "nonexistent");
+        assertThat(name).isNull();
+    }
+
     // ======================== 辅助方法 ========================
 
     private HistoricActivityInstance createMockInstance(String activityId, Date startTime, Date endTime) {

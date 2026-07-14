@@ -1,10 +1,12 @@
 package io.github.flowable.plus.core;
 
+import io.github.flowable.plus.core.exception.InvalidTargetNodeException;
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.exception.TaskAlreadyCompletedException;
 import io.github.flowable.plus.core.spi.UserContext;
+import io.github.flowable.plus.core.vo.JumpableNodeVO;
 import org.flowable.engine.IdentityService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.runtime.ChangeActivityStateBuilder;
@@ -17,6 +19,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -438,6 +441,200 @@ public class TaskWorkflowTest {
         // 没有 reason 时不应添加评论
         verify(mockTaskRepo, never()).addComment(anyString(), anyString(), anyString(), anyString());
         verify(mockRuntimeService).createChangeActivityStateBuilder();
+    }
+
+    // ======================== 任意跳转 — jumpToNode ========================
+
+    @Test
+    void testJumpToNodeReject() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task3", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(false);
+        when(mockNodeFinder.findCompletedUserTasks("leave:1:abc", "task3", "pi-001"))
+                .thenReturn(Arrays.asList("task1", "task2"));
+
+        stubRollback();
+
+        taskWorkflow.jumpToNode("task-001", "task1", "不同意", CommentType.REJECT);
+
+        verify(mockTaskRepo).addComment("task-001", "pi-001", CommentType.REJECT.name(), "不同意");
+        verify(mockRuntimeService).createChangeActivityStateBuilder();
+    }
+
+    @Test
+    void testJumpToNodeReturn() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task3", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(false);
+        when(mockNodeFinder.findCompletedUserTasks("leave:1:abc", "task3", "pi-001"))
+                .thenReturn(Arrays.asList("task1", "task2"));
+
+        stubRollback();
+
+        taskWorkflow.jumpToNode("task-001", "task2", "退回重审", CommentType.RETURN);
+
+        verify(mockTaskRepo).addComment("task-001", "pi-001", CommentType.RETURN.name(), "退回重审");
+    }
+
+    @Test
+    void testJumpToNodeWithoutReason() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task3", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(false);
+        when(mockNodeFinder.findCompletedUserTasks("leave:1:abc", "task3", "pi-001"))
+                .thenReturn(Collections.singletonList("task1"));
+
+        stubRollback();
+
+        taskWorkflow.jumpToNode("task-001", "task1", null, CommentType.REJECT);
+
+        verify(mockTaskRepo, never()).addComment(anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void testJumpToNodeRejectsWrongAssignee() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task3", "pi-001", "user2");
+        stubTaskExists(task);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(false);
+
+        assertThatThrownBy(() -> taskWorkflow.jumpToNode("task-001", "task1", "不同意", CommentType.REJECT))
+                .isInstanceOf(PermissionDeniedException.class)
+                .hasMessageContaining("审批人");
+    }
+
+    @Test
+    void testJumpToNodeRejectsInvalidTarget() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task3", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(false);
+        // 可跳转列表不包含 task5
+        when(mockNodeFinder.findCompletedUserTasks("leave:1:abc", "task3", "pi-001"))
+                .thenReturn(Arrays.asList("task1", "task2"));
+
+        assertThatThrownBy(() -> taskWorkflow.jumpToNode("task-001", "task5", "不同意", CommentType.REJECT))
+                .isInstanceOf(InvalidTargetNodeException.class)
+                .hasMessageContaining("不在可跳转的历史节点列表中");
+    }
+
+    @Test
+    void testJumpToNodeRejectsSelfJump() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task3", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(false);
+
+        assertThatThrownBy(() -> taskWorkflow.jumpToNode("task-001", "task3", "不同意", CommentType.REJECT))
+                .isInstanceOf(InvalidTargetNodeException.class)
+                .hasMessageContaining("自跳转");
+    }
+
+    @Test
+    void testJumpToNodeRejectsNullTargetNodeId() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task3", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(false);
+
+        assertThatThrownBy(() -> taskWorkflow.jumpToNode("task-001", null, "不同意", CommentType.REJECT))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("targetNodeId");
+    }
+
+    @Test
+    void testJumpToNodeRejectsNullCommentType() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task3", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(false);
+
+        assertThatThrownBy(() -> taskWorkflow.jumpToNode("task-001", "task1", "不同意", null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("commentType");
+    }
+
+    @Test
+    void testJumpToNodeRejectsMultiInstance() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task3", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isMultiInstance(task)).thenReturn(true);
+
+        assertThatThrownBy(() -> taskWorkflow.jumpToNode("task-001", "task1", "不同意", CommentType.REJECT))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("多实例");
+    }
+
+    // ======================== 任意跳转 — getJumpableNodes ========================
+
+    @Test
+    void testGetJumpableNodes() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task3", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+
+        when(mockNodeFinder.findCompletedUserTasks("leave:1:abc", "task3", "pi-001"))
+                .thenReturn(Arrays.asList("task2", "task1"));
+        when(mockNodeFinder.getNodeName("leave:1:abc", "task1")).thenReturn("发起人节点");
+        when(mockNodeFinder.getNodeName("leave:1:abc", "task2")).thenReturn("部门经理审批");
+
+        Date earlierTime = new Date(1000);
+        Date laterTime = new Date(2000);
+
+        PlusHistoricTask historicTask1 = new PlusHistoricTask(
+                "ht-1", "leave:1:abc", "task1", "pi-001",
+                "user1", "发起人节点", new Date(), earlierTime, null);
+        PlusHistoricTask historicTask2 = new PlusHistoricTask(
+                "ht-2", "leave:1:abc", "task2", "pi-001",
+                "user2", "部门经理审批", new Date(), laterTime, null);
+
+        when(mockHistoricRepo.findLatestFinishedTask("pi-001", "task1")).thenReturn(historicTask1);
+        when(mockHistoricRepo.findLatestFinishedTask("pi-001", "task2")).thenReturn(historicTask2);
+
+        List<JumpableNodeVO> result = taskWorkflow.getJumpableNodes("task-001");
+
+        assertThat(result).hasSize(2);
+        // 按完成时间正序：task1(earlier) → task2(later)
+        assertThat(result.get(0).getNodeId()).isEqualTo("task1");
+        assertThat(result.get(0).getNodeName()).isEqualTo("发起人节点");
+        assertThat(result.get(0).getAssignee()).isEqualTo("user1");
+        assertThat(result.get(1).getNodeId()).isEqualTo("task2");
+        assertThat(result.get(1).getNodeName()).isEqualTo("部门经理审批");
+        assertThat(result.get(1).getAssignee()).isEqualTo("user2");
+    }
+
+    @Test
+    void testGetJumpableNodesEmpty() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+
+        when(mockNodeFinder.findCompletedUserTasks("leave:1:abc", "task1", "pi-001"))
+                .thenReturn(Collections.emptyList());
+
+        List<JumpableNodeVO> result = taskWorkflow.getJumpableNodes("task-001");
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void testGetJumpableNodesFiltersHistoryWithoutRecord() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task3", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+
+        when(mockNodeFinder.findCompletedUserTasks("leave:1:abc", "task3", "pi-001"))
+                .thenReturn(Collections.singletonList("task2"));
+        when(mockNodeFinder.getNodeName("leave:1:abc", "task2")).thenReturn("部门经理审批");
+
+        // 历史无记录
+        when(mockHistoricRepo.findLatestFinishedTask("pi-001", "task2")).thenReturn(null);
+
+        List<JumpableNodeVO> result = taskWorkflow.getJumpableNodes("task-001");
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void testGetJumpableNodesRequiresCurrentAssignee() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task3", "pi-001", "user2");
+        stubTaskExists(task);
+
+        assertThatThrownBy(() -> taskWorkflow.getJumpableNodes("task-001"))
+                .isInstanceOf(PermissionDeniedException.class)
+                .hasMessageContaining("审批人");
     }
 
     // ======================== Test Helpers ========================

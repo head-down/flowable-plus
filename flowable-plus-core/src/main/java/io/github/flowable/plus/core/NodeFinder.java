@@ -62,4 +62,27 @@ public interface NodeFinder {
      */
     List<String> findNextUserTasks(String processDefinitionId, String currentActivityId,
                                    String processInstanceId, Map<String, Object> variables);
+
+    /**
+     * 从当前节点向后回溯，收集所有已完成的上游 UserTask 节点 ID。
+     * 与 {@link #findPreviousNodes} 不同：遇到 UserTask 时收集并继续回溯（不停在最近一个），
+     * 最终经历史数据确认节点确实执行过，无历史记录的 nodeId 静默丢弃。
+     *
+     * @param processDefinitionId 流程定义 ID，不可为 null
+     * @param currentActivityId   当前节点 ID，不可为 null
+     * @param processInstanceId   流程实例 ID（用于查询历史数据确认节点执行过），不可为 null
+     * @return 已完成的上游 UserTask 节点 ID 列表（无序），无上游节点时返回空列表
+     * @throws NotFoundException 流程定义或节点不存在时抛出
+     */
+    List<String> findCompletedUserTasks(String processDefinitionId, String currentActivityId,
+                                        String processInstanceId);
+
+    /**
+     * 根据节点 ID 获取 BPMN 模型中的节点名称。
+     *
+     * @param processDefinitionId 流程定义 ID，不可为 null
+     * @param nodeId              节点 definitionKey，不可为 null
+     * @return 节点名称，节点不存在时返回 null
+     */
+    String getNodeName(String processDefinitionId, String nodeId);
 }
