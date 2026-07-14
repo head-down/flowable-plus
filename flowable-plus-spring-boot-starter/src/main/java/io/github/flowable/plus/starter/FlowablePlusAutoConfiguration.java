@@ -17,7 +17,7 @@ import io.github.flowable.plus.core.spi.ApproverResolver;
 import io.github.flowable.plus.core.spi.AutoApprovalRule;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
 import io.github.flowable.plus.core.spi.GroupResolver;
-import io.github.flowable.plus.core.spi.TaskQueryEnhancer;
+
 import io.github.flowable.plus.core.spi.UserContext;
 import org.flowable.common.engine.impl.el.ExpressionManager;
 import org.flowable.engine.HistoryService;
@@ -173,19 +173,6 @@ public class FlowablePlusAutoConfiguration {
         return new IdentityGroupResolver(identityService);
     }
 
-    /**
-     * 注册 TaskQueryEnhancer 默认 Bean（空实现）。
-     *
-     * <p>默认不过滤任何待办/已办数据。接入方可通过声明同名 Bean
-     * 覆盖此实现，在 TaskQuery 上追加 processVariableValueXXX 过滤条件。</p>
-     *
-     * @return 空实现的 TaskQueryEnhancer
-     */
-    @Bean
-    @ConditionalOnMissingBean
-    public TaskQueryEnhancer taskQueryEnhancer() {
-        return query -> {};
-    }
 
     /**
      * 注册 ApproverResolver Bean。

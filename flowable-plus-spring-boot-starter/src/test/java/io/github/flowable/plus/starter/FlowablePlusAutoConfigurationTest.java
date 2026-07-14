@@ -4,7 +4,7 @@ import io.github.flowable.plus.core.FlowablePlus;
 import io.github.flowable.plus.core.QueryOperations;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
 import io.github.flowable.plus.core.spi.GroupResolver;
-import io.github.flowable.plus.core.spi.TaskQueryEnhancer;
+
 import io.github.flowable.plus.core.spi.UserContext;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.IdentityService;
@@ -209,13 +209,6 @@ class FlowablePlusAutoConfigurationTest {
     }
 
     @Test
-    void testTaskQueryEnhancerDefaultBeanRegistered() {
-        contextRunner.run(ctx -> {
-            assertThat(ctx).hasSingleBean(TaskQueryEnhancer.class);
-        });
-    }
-
-    @Test
     void testFlowablePlusBeanImplementsQueryOperations() {
         contextRunner.run(ctx -> {
             FlowablePlus bean = ctx.getBean(FlowablePlus.class);
@@ -233,13 +226,4 @@ class FlowablePlusAutoConfigurationTest {
                 });
     }
 
-    @Test
-    void testUserDefinedTaskQueryEnhancerNotOverridden() {
-        TaskQueryEnhancer custom = query -> {};
-        contextRunner
-                .withBean(TaskQueryEnhancer.class, () -> custom)
-                .run(ctx -> {
-                    assertThat(ctx.getBean(TaskQueryEnhancer.class)).isSameAs(custom);
-                });
-    }
 }
