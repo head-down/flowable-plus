@@ -93,4 +93,14 @@ public class FlowableHistoricRepository implements HistoricRepository {
                 .list();
         return tasks.stream().map(PlusHistoricTask::from).collect(java.util.stream.Collectors.toList());
     }
+
+    @Override
+    public boolean hasHistoricTasks(String processInstanceId) {
+        if (processInstanceId == null) {
+            return false;
+        }
+        return historyService.createHistoricTaskInstanceQuery()
+                .processInstanceId(processInstanceId)
+                .count() > 0;
+    }
 }

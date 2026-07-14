@@ -79,4 +79,15 @@ public interface HistoricRepository {
      * @return 历史任务列表，无结果返回空列表
      */
     List<PlusHistoricTask> findHistoricTasksByProcessInstanceId(String processInstanceId);
+
+    /**
+     * 检查流程实例是否有历史任务。
+     *
+     * <p>用于自动提交的 isFirstStart 守卫：历史任务为空表示流程首次启动，
+     * 允许触发自动提交；非空则表示流程已被重新触发，不应再次自动提交。</p>
+     *
+     * @param processInstanceId 流程实例 ID
+     * @return 有历史任务返回 true，否则 false
+     */
+    boolean hasHistoricTasks(String processInstanceId);
 }

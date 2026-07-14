@@ -5,6 +5,7 @@ import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.exception.TaskAlreadyCompletedException;
+import io.github.flowable.plus.core.spi.AutoApprovalRule;
 import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.vo.JumpableNodeVO;
 import cn.hutool.core.util.StrUtil;
@@ -12,8 +13,11 @@ import org.flowable.engine.IdentityService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.runtime.ChangeActivityStateBuilder;
 import org.flowable.engine.runtime.ProcessInstance;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -25,6 +29,8 @@ import java.util.Map;
  */
 public class TaskWorkflow implements ApprovalOperations {
 
+    private static final Logger log = LoggerFactory.getLogger(TaskWorkflow.class);
+
     private final UserContext userContext;
     private final TaskRepository taskRepository;
     private final HistoricRepository historicRepository;
@@ -32,11 +38,13 @@ public class TaskWorkflow implements ApprovalOperations {
     private final IdentityService identityService;
     private final NodeFinder nodeFinder;
     private final MultiInstanceDetector multiInstanceDetector;
+    private final List<AutoApprovalRule> autoApprovalRules;
 
     public TaskWorkflow(UserContext userContext, TaskRepository taskRepository,
                  HistoricRepository historicRepository, RuntimeService runtimeService,
                  IdentityService identityService, NodeFinder nodeFinder,
-                 MultiInstanceDetector multiInstanceDetector) {
+                 MultiInstanceDetector multiInstanceDetector,
+                 List<AutoApprovalRule> autoApprovalRules) {
         this.userContext = userContext;
         this.taskRepository = taskRepository;
         this.historicRepository = historicRepository;
@@ -44,6 +52,7 @@ public class TaskWorkflow implements ApprovalOperations {
         this.identityService = identityService;
         this.nodeFinder = nodeFinder;
         this.multiInstanceDetector = multiInstanceDetector;
+        this.autoApprovalRules = autoApprovalRules != null ? autoApprovalRules : Collections.emptyList();
     }
 
     @Override
@@ -56,7 +65,18 @@ public class TaskWorkflow implements ApprovalOperations {
         identityService.setAuthenticatedUserId(userId);
         try {
             ProcessInstance pi = runtimeService.startProcessInstanceByKey(processDefinitionKey, businessKey, variables);
-            return PlusProcessInstance.from(pi);
+            PlusProcessInstance result = PlusProcessInstance.from(pi);
+
+            // 自动提交：发起人身份下执行，仅一层
+            if (!autoApprovalRules.isEmpty()) {
+                try {
+                    autoCompleteFirstTasks(result.getProcessInstanceId(), userId, variables);
+                } catch (Exception e) {
+                    log.warn("自动提交失败，降级为不触发, processInstanceId: {}", result.getProcessInstanceId(), e);
+                }
+            }
+
+            return result;
         } finally {
             identityService.setAuthenticatedUserId(null);
         }
@@ -274,5 +294,45 @@ public class TaskWorkflow implements ApprovalOperations {
         builder.processInstanceId(task.getProcessInstanceId())
                 .moveActivityIdTo(task.getTaskDefinitionKey(), targetActivityId)
                 .changeState();
+    }
+
+    /**
+     * 自动完成发起人的首审批任务。
+     *
+     * <p>双重守卫：
+     * <ul>
+     *   <li>{@code isFirstStart} — 历史任务为空才触发，防止重新触发时误��动提交</li>
+     *   <li>快照隔离 — 仅处理当前活跃任务快照，自动完成后新产生的任务不级联</li>
+     * </ul>
+     * 多规则 OR 逻辑：任一规则返回非 null 即触发自动提交，意见取第一个非 null 结果。
+     * </p>
+     */
+    private void autoCompleteFirstTasks(String processInstanceId, String userId,
+                                         Map<String, Object> startVariables) {
+        // 守卫 1：非首次启动不触发
+        if (historicRepository.hasHistoricTasks(processInstanceId)) {
+            return;
+        }
+
+        // 守卫 2：快照当前首任务
+        List<PlusTask> firstTasks = taskRepository.findActiveTasksByProcessInstance(processInstanceId);
+        if (firstTasks.isEmpty()) {
+            return;
+        }
+
+        Map<String, Object> readonlyVars = Collections.unmodifiableMap(startVariables);
+
+        for (PlusTask task : firstTasks) {
+            for (AutoApprovalRule rule : autoApprovalRules) {
+                String evalResult = rule.evaluate(task, readonlyVars);
+                if (evalResult != null) {
+                    taskRepository.addComment(task.getId(), processInstanceId, "AUTO_COMPLETE", evalResult);
+                    taskRepository.complete(task.getId(), null);
+                    log.info("自动提交成功, taskId: {}, assignee: {}, comment: {}",
+                            task.getId(), userId, evalResult);
+                    break; // 当前任务已被处理，跳出规则循环
+                }
+            }
+        }
     }
 }

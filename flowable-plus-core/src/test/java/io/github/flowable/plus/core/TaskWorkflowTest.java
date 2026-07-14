@@ -62,7 +62,7 @@ public class TaskWorkflowTest {
         mockMultiInstanceDetector = mock(MultiInstanceDetector.class);
 
         taskWorkflow = new TaskWorkflow(userContext, mockTaskRepo, mockHistoricRepo,
-                mockRuntimeService, mockIdentityService, mockNodeFinder, mockMultiInstanceDetector);
+                mockRuntimeService, mockIdentityService, mockNodeFinder, mockMultiInstanceDetector, null);
     }
 
     // ======================== 发起 ========================

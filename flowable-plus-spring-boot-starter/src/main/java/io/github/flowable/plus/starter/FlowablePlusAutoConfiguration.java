@@ -18,6 +18,7 @@ import io.github.flowable.plus.core.TaskWorkflow;
 import io.github.flowable.plus.core.UserTaskApproverResolver;
 import io.github.flowable.plus.core.VOAssembler;
 import io.github.flowable.plus.core.spi.ApproverResolver;
+import io.github.flowable.plus.core.spi.AutoApprovalRule;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
 import io.github.flowable.plus.core.spi.GroupResolver;
 import io.github.flowable.plus.core.spi.TaskQueryEnhancer;
@@ -135,7 +136,8 @@ public class FlowablePlusAutoConfiguration {
      * 注册 TaskWorkflow Bean。
      *
      * <p>封装常规审批任务的推进、驳回、撤回、撤销逻辑。
-     * 实现 {@link io.github.flowable.plus.core.ApprovalOperations} 接口。</p>
+     * 实现 {@link io.github.flowable.plus.core.ApprovalOperations} 接口。
+     * {@code autoApprovalRules} 为可选参数，无注册 Bean 时行为不变。</p>
      *
      * @param userContext             用户上下文
      * @param taskRepository          任务仓储
@@ -143,16 +145,18 @@ public class FlowablePlusAutoConfiguration {
      * @param nodeFinder              BPMN 节点遍历策略
      * @param multiInstanceDetector   多实例检测模块
      * @param processEngine           Flowable 流程引擎
+     * @param autoApprovalRules       自动提交规则列表（可选）
      * @return TaskWorkflow 实例
      */
     @Bean
     @ConditionalOnMissingBean
     public TaskWorkflow taskWorkflow(UserContext userContext, TaskRepository taskRepository,
                                      HistoricRepository historicRepository, NodeFinder nodeFinder,
-                                     MultiInstanceDetector multiInstanceDetector, ProcessEngine processEngine) {
+                                     MultiInstanceDetector multiInstanceDetector, ProcessEngine processEngine,
+                                     @Autowired(required = false) List<AutoApprovalRule> autoApprovalRules) {
         return new TaskWorkflow(userContext, taskRepository, historicRepository,
                 processEngine.getRuntimeService(), processEngine.getIdentityService(),
-                nodeFinder, multiInstanceDetector);
+                nodeFinder, multiInstanceDetector, autoApprovalRules);
     }
 
     /**

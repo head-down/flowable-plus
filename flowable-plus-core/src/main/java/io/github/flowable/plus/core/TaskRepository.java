@@ -53,6 +53,14 @@ public interface TaskRepository {
     PlusTask findActiveByProcessInstance(String processInstanceId);
 
     /**
+     * 按流程实例 ID 查找所有活跃任务。
+     *
+     * @param processInstanceId 流程实例 ID
+     * @return 活跃任务列表，无结果返回空列表
+     */
+    List<PlusTask> findActiveTasksByProcessInstance(String processInstanceId);
+
+    /**
      * 按流程实例、定义节点和审批人查找活跃任务。
      *
      * @param processInstanceId 流程实例 ID

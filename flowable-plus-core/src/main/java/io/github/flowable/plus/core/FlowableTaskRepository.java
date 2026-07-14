@@ -58,6 +58,15 @@ public class FlowableTaskRepository implements TaskRepository {
     }
 
     @Override
+    public List<PlusTask> findActiveTasksByProcessInstance(String processInstanceId) {
+        List<Task> tasks = taskService.createTaskQuery()
+                .processInstanceId(processInstanceId)
+                .active()
+                .list();
+        return tasks.stream().map(PlusTask::from).collect(java.util.stream.Collectors.toList());
+    }
+
+    @Override
     public PlusTask findActiveTask(String processInstanceId, String taskDefinitionKey, String assignee) {
         Task task = taskService.createTaskQuery()
                 .processInstanceId(processInstanceId)
