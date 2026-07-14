@@ -15,8 +15,8 @@
 
 | 方向 | 说明 |
 |------|------|
-| 委托 | 将任务处理权临时授予另一人，委派人可收回 |
-| 转办 | 将任务拥有权彻底转移给另一人 |
+| 委托 | 将任务处理权临时授予另一人，委派人可收回 | [Phase 5](phase-5.md) |
+| 转办 | 将任务拥有权彻底转移给另一人 | [Phase 5](phase-5.md) |
 | 前置驳回 | 候选人认领前直接驳回（本次排除：completeTask 已自动认领，场景不成立） |
 | 子流程完整支持 | 驳回/跳转支持 CallActivity 子流程节点 |
 
@@ -132,7 +132,7 @@ List<String> findCompletedUserTasks(String processDefinitionId, String currentAc
 
 ## 决策记录
 
-- 2026-07-04：四期聚焦审批模式深化。委托、转办、子流程延至后续版本。
+- 2026-07-04：四期聚焦审批模式深化。委托、转办→ [Phase 5](phase-5.md)，子流程延至后续版本。
 - 2026-07-04：任意跳转和自动提交是 Issue #1 原定的三期内容，因查询与视图提前纳入 Phase 3 而被推至 Phase 4。
 - 2026-07-13：任意跳转拆分为 `rejectToNode`(REJECT) 和 `returnToNode`(RETURN) 两个显式方法，行为一致仅 commentType 不同。
 - 2026-07-13：`getRejectTargets` 改名为 `getJumpableNodes`，VO 改为 `JumpableNodeVO`，语义中立。
@@ -151,6 +151,6 @@ List<String> findCompletedUserTasks(String processDefinitionId, String currentAc
 ## 范围外
 
 - 前置驳回（本次移除）
-- 委托 / 转办（Phase 5 之后）
+- 委托 / 转办（[Phase 5](phase-5.md)）
 - 子流程完整支持
 - 跳转到非 UserTask 节点

@@ -1,100 +1,111 @@
 # Phase 5 规划
 
+> **阶段编号说明**：委派与转办是一期至四期 PRD 中被反复提及的"后续版本"功能。因四期（任意跳转）正在实施，五期（流程可视化）属展示类与操作类不搭，将委派/转办插入为轻量 Phase 5 快速交付。原五期顺延为 [Phase 6](phase-6.md)。
+
 ## 范围
 
-**流程可视化与历史追溯**，聚焦以下子方向：
+**任务委派与转办**，聚焦以下子方向：
 
 ### 本期范围
 
 | 子方向 | 优先级 | 说明 | 原始归属 |
 |--------|--------|------|----------|
-| 流程历史 | P0 | 查询流程实例的完整审批流转记录（谁在什么时间做了什么操作） | Issue #1 原定四期 |
-| 流程图展示 | P1 | 生成流程图，高亮当前节点和已走路径 | Issue #1 原定四期 |
+| 委派 (Delegate) | P0 | 审批人将任务临时委托给另一人处理，委派人可收回 | Issue #1 原定"后续版本" |
+| 转办 (Transfer) | P1 | 审批人将任务拥有权彻底转移给另一人 | Issue #1 原定"后续版本" |
 
 ## API 设计
 
-### 流程历史
-
 ```java
+// === ApprovalOperations 新增方法 ===
+
 /**
- * 查询流程实例的完整审批记录。
+ * 将任务委派给另一人处理。委派后原审批人成为 owner，被委派人成为 assignee。
+ * 委派人可通过 resolveDelegate 收回任务。
  *
- * @param processInstanceId 流程实例ID
- * @return 按时间排序的审批记录列表
+ * @param taskId          当前待办任务ID
+ * @param delegateUserId  被委派的用户ID
+ * @param reason          委派原因
  */
-List<ApprovalRecordVO> getApprovalHistory(String processInstanceId);
-```
+void delegateTask(String taskId, String delegateUserId, String reason);
 
-### ApprovalRecordVO
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `nodeId` | String | activity definitionKey |
-| `nodeName` | String | 节点名称 |
-| `action` | ApprovalAction | 操作类型：START / AGREE / REJECT / WITHDRAW / REVOKE / COUNTER_SIGN / TRANSFER |
-| `actorId` | String | 操作人ID |
-| `actorName` | String | 操作人名称（由回调填充） |
-| `comment` | String | 审批意见 |
-| `startTime` | Date | 任务开始时间 |
-| `endTime` | Date | 任务完成时间 |
-| `duration` | Long | 耗时（毫秒） |
-
-### ApprovalAction（枚举）
-
-| 值 | 说明 |
-|----|------|
-| `START` | 流程发起 |
-| `AGREE` | 同意 |
-| `REJECT` | 驳回 |
-| `WITHDRAW` | 撤回 |
-| `REVOKE` | 撤销 |
-| `COUNTER_SIGN_AGREE` | 会签同意 |
-| `COUNTER_SIGN_REJECT` | 会签驳回 |
-| `TRANSFER` | 转办/委派 |
-| `ADD_SIGN` | 加签 |
-| `DELETE_SIGN` | 减签 |
-| `TERMINATE` | 终止 |
-
-### 流程图
-
-```java
 /**
- * 获取流程定义的高亮图数据。
- * 返回 BPMN 元素的坐标和状态信息，由前端渲染。
+ * 收回已委派的任务。将 assignee 重置为 owner（委派人）。
+ * 仅委派人（owner）可操作。
+ *
+ * @param taskId 当前待办任务ID
  */
-ProcessDiagramVO getProcessDiagram(String processInstanceId);
+void resolveDelegate(String taskId);
+
+/**
+ * 将任务转办给另一人。转办后任务拥有权彻底转移，原审批人失去控制权。
+ * 与委派的区别：不可收回，owner 一并变更为目标用户。
+ *
+ * @param taskId           当前待办任务ID
+ * @param transferUserId   转办目标用户ID
+ * @param reason           转办原因
+ */
+void transferTask(String taskId, String transferUserId, String reason);
 ```
 
-### ProcessDiagramVO
+### 语义区分
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `processDefinitionId` | String | 流程定义ID |
-| `nodes` | List\<DiagramNode\> | 所有节点的坐标和状态 |
-| `flows` | List\<DiagramFlow\> | 所有连线的坐标和状态 |
-| `currentNodeIds` | List\<String\> | 当前活跃节点的 activityId 列表 |
-| `completedNodeIds` | List\<String\> | 已完成节点的 activityId 列表 |
+| 操作 | 底层 API | owner 变更 | 可收回 | commentType |
+|------|---------|-----------|--------|-------------|
+| 委派 | `TaskService.delegateTask` | 否 | 是 | `DELEGATE` |
+| 收回委派 | `TaskService.resolveTask` | 否 | — | `RESOLVE_DELEGATE` |
+| 转办 | `TaskService.setAssignee` | 是 | 否 | `TRANSFER` |
 
 ## 架构决策
 
-- **流程历史数据来源**：通过 `HistoryService.createHistoricActivityInstanceQuery()` 查询历史活动实例，关联 `HistoricTaskInstance` 获取审批意见。不需要引入自定义日志表。
-- **流程图实现**：使用 Flowable 原生的 `ProcessDiagramGenerator`，通过 `BpmnModel` 和已走/当前节点 ID 生成高亮图。返回 Base64 图片数据或 JSON 坐标数据供前端渲染。
-- **操作类型推断**：审批记录中的操作类型通过 Comment 类型字段（Phase 1 设计）和历史活动实例的边界事件推断。
+### 底层实现
+
+- **委派**: `TaskService.delegateTask(taskId, delegateUserId)` — Flowable 原生支持，委派后原审批人成为 owner
+- **收回**: `TaskService.resolveTask(taskId)` — 将 assignee 重置为 owner
+- **转办**: `TaskService.setAssignee(taskId, transferUserId)` — 直接变更 assignee，变更后由 Phase 6 的流程历史通过 commentType 追溯操作语义
+
+### 权限模型
+
+通过 `TaskService.createTaskQuery().taskId(taskId).singleResult()` 获取任务后校验：
+
+| 操作 | 权限要求 |
+|------|---------|
+| `delegateTask` | 当前用户是 assignee |
+| `resolveDelegate` | 当前用户是 owner |
+| `transferTask` | 当前用户是 assignee |
+
+### 审批意见
+
+通过 `TaskService.addComment(taskId, task.getProcessInstanceId(), reason)` 记录操作原因，commentType 区分操作类型。
+
+### 模块范围
+
+仅涉及 `flowable-plus-core`。Starter 模块无需变更——无新的自动配置 Bean。
+
+### 方法归属
+
+`ApprovalOperations` 接口新增 `delegateTask`、`resolveDelegate`、`transferTask`。
 
 ## 决策记录
 
-- 2026-07-04：五期聚焦流程可视化与历史追溯。这是 Issue #1 原定的四期内容。
+- 2026-07-14：委派与转办从 Issue #1 的"后续版本"正式纳入 Phase 5，定位轻量 Phase 快速交付。
+- 2026-07-14：委派 (delegateTask) 和收回 (resolveDelegate) 为 P0，转办 (transferTask) 为 P1。
+- 2026-07-14：底层直接使用 Flowable 原生 `TaskService` 方法，无需自定义逻辑。权限校验 + 审批意见为 flowable-plus 封装层的主要附加值。
 
 ## 实现切片
 
 | Slice | 内容 | 优先级 | 状态 |
 |-------|------|--------|------|
-| S1: 流程审批历史 | `getApprovalHistory`，基于 HistoryService 查询并聚合 | P0 | 待开发 |
-| S2: 流程图高亮 | `getProcessDiagram`，基于 ProcessDiagramGenerator 生成 | P1 | 待开发 |
-| S3: 测试 + 文档 | 集成测试、使用文档 | — | 待开发 |
+| S1: 委派 + 收回 | `delegateTask` + `resolveDelegate` | P0 | 待开发 |
+| S2: 转办 | `transferTask` | P1 | 待开发 |
+| S3: 测试 + 文档 | 单元测试、权限校验、commentType 验证 | — | 待开发 |
+
+S1 优先实现——委派和收回构成闭环的临时授权操作。
 
 ## 范围外
 
-- 自定义流程图样式
-- BPMN 设计器
-- 统计分析面板
+- 批量委派/转办（一次操作多个任务）
+- 委派链（A 委派给 B，B 再委派给 C）
+- 基于规则的自动委派（如根据组织架构自动委派给上级）
+- 委派超时自动收回
+- 管理员/流程管理员代为转办
+- 前端委派按钮 UI
