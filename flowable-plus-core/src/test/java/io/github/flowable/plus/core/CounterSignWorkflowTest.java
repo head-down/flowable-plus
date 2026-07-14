@@ -580,7 +580,119 @@ public class CounterSignWorkflowTest {
         verify(mockTaskService).complete("task-001", null);
     }
 
-    // ======================== 会签非多实例拒绝 ========================
+    // ======================== 委派与收回委派 ========================
+
+    @Test
+    void testDelegateTaskNormal() {
+        String definitionId = "leave:1:abc";
+        PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
+        stubTaskExistsWithOwner(task, null);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
+
+        counterSignWorkflow.delegateTask("task-001", "delegateUser", "出差无法审批");
+
+        verify(mockTaskService).delegateTask("task-001", "delegateUser");
+        verify(mockTaskService).addComment(eq("task-001"), eq("pi-001"),
+                eq(CommentType.DELEGATE.name()), eq("委派给 delegateUser（出差无法审批）"));
+    }
+
+    @Test
+    void testDelegateTaskWithoutReason() {
+        String definitionId = "leave:1:abc";
+        PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
+        stubTaskExistsWithOwner(task, null);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
+
+        counterSignWorkflow.delegateTask("task-001", "delegateUser", null);
+
+        verify(mockTaskService).addComment(eq("task-001"), eq("pi-001"),
+                eq(CommentType.DELEGATE.name()), eq("委派给 delegateUser"));
+    }
+
+    @Test
+    void testDelegateTaskRejectsNonMultiInstance() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "csTask", "pi-001", USER_ID);
+        stubTaskExistsWithOwner(task, null);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
+
+        assertThatThrownBy(() -> counterSignWorkflow.delegateTask("task-001", "delegateUser", null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("不是多实例子任务");
+    }
+
+    @Test
+    void testDelegateTaskRejectsWrongAssignee() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "csTask", "pi-001", "user2");
+        stubTaskExistsWithOwner(task, null);
+
+        assertThatThrownBy(() -> counterSignWorkflow.delegateTask("task-001", "delegateUser", null))
+                .isInstanceOf(PermissionDeniedException.class)
+                .hasMessageContaining("审批人");
+    }
+
+    @Test
+    void testDelegateTaskRejectsDelegateToSelf() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "csTask", "pi-001", USER_ID);
+        stubTaskExistsWithOwner(task, null);
+
+        assertThatThrownBy(() -> counterSignWorkflow.delegateTask("task-001", USER_ID, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("委派目标不可为当前审批人");
+    }
+
+    @Test
+    void testDelegateTaskRejectsNullTaskId() {
+        assertThatThrownBy(() -> counterSignWorkflow.delegateTask(null, "delegateUser", null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("taskId");
+    }
+
+    @Test
+    void testDelegateTaskRejectsBlankDelegateUserId() {
+        assertThatThrownBy(() -> counterSignWorkflow.delegateTask("task-001", "", null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("delegateUserId");
+    }
+
+    @Test
+    void testResolveDelegateNormal() {
+        String definitionId = "leave:1:abc";
+        PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", "delegateUser");
+        stubTaskExistsWithOwner(task, USER_ID);
+
+        counterSignWorkflow.resolveDelegate("task-001");
+
+        verify(mockTaskService).resolveTask("task-001");
+        verify(mockTaskService).addComment(eq("task-001"), eq("pi-001"),
+                eq(CommentType.RESOLVE_DELEGATE.name()), eq("从 delegateUser 收回委派"));
+    }
+
+    @Test
+    void testResolveDelegateRejectsNonOwner() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "csTask", "pi-001", "assignee");
+        stubTaskExistsWithOwner(task, "otherUser");
+
+        assertThatThrownBy(() -> counterSignWorkflow.resolveDelegate("task-001"))
+                .isInstanceOf(PermissionDeniedException.class)
+                .hasMessageContaining("不是任务 task-001 的委派人");
+    }
+
+    @Test
+    void testResolveDelegateRejectsWhenOwnerIsNull() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "csTask", "pi-001", "assignee");
+        stubTaskExistsWithOwner(task, null);
+
+        assertThatThrownBy(() -> counterSignWorkflow.resolveDelegate("task-001"))
+                .isInstanceOf(PermissionDeniedException.class)
+                .hasMessageContaining("不是任务 task-001 的委派人");
+    }
+
+    @Test
+    void testResolveDelegateRejectsNullTaskId() {
+        assertThatThrownBy(() -> counterSignWorkflow.resolveDelegate(null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("taskId");
+    }
 
     @Test
     void testCounterSignRejectsSingleInstanceTask() {
@@ -598,17 +710,23 @@ public class CounterSignWorkflowTest {
     private PlusTask createTask(String taskId, String definitionId, String taskDefKey,
             String instanceId, String assignee) {
         return new PlusTask(taskId, definitionId, taskDefKey, instanceId,
-                assignee, "测试任务", "exec-" + taskId, new Date());
+                assignee, null, "测试任务", "exec-" + taskId, new Date());
     }
 
     private Task createMockTask(String id, String definitionId, String taskDefKey,
             String instanceId, String assignee) {
+        return createMockTaskWithOwner(id, definitionId, taskDefKey, instanceId, assignee, null);
+    }
+
+    private Task createMockTaskWithOwner(String id, String definitionId, String taskDefKey,
+            String instanceId, String assignee, String owner) {
         Task mockTask = mock(Task.class);
         when(mockTask.getId()).thenReturn(id);
         when(mockTask.getProcessDefinitionId()).thenReturn(definitionId);
         when(mockTask.getTaskDefinitionKey()).thenReturn(taskDefKey);
         when(mockTask.getProcessInstanceId()).thenReturn(instanceId);
         when(mockTask.getAssignee()).thenReturn(assignee);
+        when(mockTask.getOwner()).thenReturn(owner);
         when(mockTask.getName()).thenReturn("测试任务");
         when(mockTask.getExecutionId()).thenReturn("exec-" + id);
         when(mockTask.getCreateTime()).thenReturn(new Date());
@@ -633,6 +751,15 @@ public class CounterSignWorkflowTest {
     private void stubTaskExists(PlusTask task) {
         Task mockTask = createMockTask(task.getId(), task.getProcessDefinitionId(),
                 task.getTaskDefinitionKey(), task.getProcessInstanceId(), task.getAssignee());
+        TaskQuery taskQuery = mock(TaskQuery.class);
+        when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
+        when(taskQuery.taskId(task.getId())).thenReturn(taskQuery);
+        when(taskQuery.singleResult()).thenReturn(mockTask);
+    }
+
+    private void stubTaskExistsWithOwner(PlusTask task, String owner) {
+        Task mockTask = createMockTaskWithOwner(task.getId(), task.getProcessDefinitionId(),
+                task.getTaskDefinitionKey(), task.getProcessInstanceId(), task.getAssignee(), owner);
         TaskQuery taskQuery = mock(TaskQuery.class);
         when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
         when(taskQuery.taskId(task.getId())).thenReturn(taskQuery);

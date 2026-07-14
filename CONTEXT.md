@@ -91,3 +91,15 @@ _Avoid_: 全字段模糊搜索、标题搜索
 **业务关联表**:
 参考项目会维护 INSTANCE_BUSINESS 表存储业务标题、创建人等信息，在待办/已办查询中直接 JOIN + SQL LIKE 实现模糊搜索。flowable-plus 不提供此类业务表——保持框架中立，不与具体业务数据模型耦合。需要业务字段搜索的用户，可在发起流程时将业务标题等字段作为流程变量存入，查询时通过 TaskQueryEnhancer 回调中的 processVariableValueLike 实现。
 _Avoid_: 业务表、INSTANCE_BUSINESS
+
+**委派**:
+会签参与者在多实例审批中将自己的投票权临时委托他人处理。底层使用 TaskService.delegateTask，原审批人成为 owner，被委派人成为 assignee。委派人可随时收回。
+_Avoid_: 任务委托
+
+**收回委派**:
+委派人收回已委托的会签子任务，恢复为当前审批人。通过 TaskService.resolveTask 实现，仅 owner 可操作。
+_Avoid_: 撤销委派、取消委派
+
+**转办**:
+审批人将单实例任务所有权彻底转移给他人，不可收回。通过 TaskService.setAssignee 变更审批人并记录 TRANSFER 类型的审批意见。
+_Avoid_: 任务转移

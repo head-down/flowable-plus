@@ -449,14 +449,14 @@ class BpmnMultiInstanceIntegrationTest {
     private PlusTask createPlusTask(String taskId, String processInstanceId,
             String processDefinitionId, String activityId, String assignee) {
         return new PlusTask(taskId, processDefinitionId, activityId, processInstanceId,
-                assignee, null, "exec-" + taskId, new Date());
+                assignee, null, null, "exec-" + taskId, new Date());
     }
 
     private List<PlusTask> createActiveAssignees(String... assignees) {
         List<PlusTask> tasks = new ArrayList<>();
         for (String assignee : assignees) {
             tasks.add(new PlusTask("task-" + assignee, "proc-cs", "csTask", "pi-001",
-                    assignee, null, "exec-" + assignee, new Date()));
+                    assignee, null, null, "exec-" + assignee, new Date()));
         }
         return tasks;
     }

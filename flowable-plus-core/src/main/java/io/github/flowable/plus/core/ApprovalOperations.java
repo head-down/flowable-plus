@@ -154,4 +154,21 @@ public interface ApprovalOperations {
      * @throws PermissionDeniedException     调用者不是当前任务审批人时抛出
      */
     List<JumpableNodeVO> getJumpableNodes(String taskId);
+
+    // ======================== 转办 ========================
+
+    /**
+     * 转办：将单实例审批任务彻底转移给他人。
+     *
+     * <p>任务所有权完全转移，不可收回。仅当前 assignee 可操作。</p>
+     *
+     * @param taskId          任务 ID，不可为 null
+     * @param transferUserId  接收人 ID，不可为 null
+     * @param reason          转办原因，可为 null
+     * @throws NotFoundException            任务不存在时抛出
+     * @throws TaskAlreadyCompletedException 任务已完成时抛出
+     * @throws PermissionDeniedException     调用者不是当前任务审批人时抛出
+     * @throws IllegalArgumentException     转办目标为当前审批人时抛出
+     */
+    void transferTask(String taskId, String transferUserId, String reason);
 }

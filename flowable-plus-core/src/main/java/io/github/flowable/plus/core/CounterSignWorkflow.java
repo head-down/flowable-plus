@@ -183,6 +183,59 @@ public class CounterSignWorkflow implements CounterSignOperations {
                 "移除审批人: " + assignee);
     }
 
+    @Override
+    public void delegateTask(String taskId, String delegateUserId, String reason) {
+        if (taskId == null) {
+            throw new IllegalArgumentException("taskId 不可为 null");
+        }
+        if (StrUtil.isBlank(delegateUserId)) {
+            throw new IllegalArgumentException("delegateUserId 不可为 null 或空");
+        }
+
+        String currentUserId = userContext.getCurrentUserId();
+
+        if (currentUserId.equals(delegateUserId)) {
+            throw new IllegalArgumentException("委派目标不可为当前审批人");
+        }
+
+        PlusTask task = TaskValidation.validateTaskExists(taskService, historyService, taskId, "委派");
+        TaskValidation.validateCurrentUserIsAssignee(task, currentUserId, taskId, "委派");
+        TaskValidation.validateMultiInstance(multiInstanceDetector, task, taskId, "委派");
+
+        String processInstanceId = task.getProcessInstanceId();
+
+        taskService.delegateTask(taskId, delegateUserId);
+
+        String comment = "委派给 " + delegateUserId;
+        if (StrUtil.isNotBlank(reason)) {
+            comment += "（" + reason + "）";
+        }
+        taskService.addComment(taskId, processInstanceId, CommentType.DELEGATE.name(), comment);
+    }
+
+    @Override
+    public void resolveDelegate(String taskId) {
+        if (taskId == null) {
+            throw new IllegalArgumentException("taskId 不可为 null");
+        }
+
+        String currentUserId = userContext.getCurrentUserId();
+
+        PlusTask task = TaskValidation.validateTaskExists(taskService, historyService, taskId, "收回委派");
+
+        String owner = task.getOwner();
+        if (owner == null || !currentUserId.equals(owner)) {
+            throw new PermissionDeniedException(
+                    "用户 " + currentUserId + " 不是任务 " + taskId + " 的委派人，无权收回");
+        }
+
+        taskService.resolveTask(taskId);
+
+        String comment = "从 " + task.getAssignee() + " 收回委派";
+        taskService.addComment(taskId, task.getProcessInstanceId(),
+                CommentType.RESOLVE_DELEGATE.name(), comment);
+    }
+
     // ======================== 内部辅助 ========================
 
     private boolean hasVoted(PlusTask task, String userId) {

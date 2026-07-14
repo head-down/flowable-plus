@@ -67,4 +67,34 @@ public interface CounterSignOperations {
      * @throws IllegalArgumentException     目标审批人已投票、减签后剩余人数不足或非多实例节点时抛出
      */
     void removeCounterSigner(String taskId, String assignee);
+
+    // ======================== 委派 ========================
+
+    /**
+     * 委派：会签参与者将当前会签子任务临时委托他人处理。
+     *
+     * <p>仅当前 assignee 可操作。委派后原审批人成为 owner，被委派人成为 assignee。
+     * 委派不可级联——不允许委派已被委派的任务。</p>
+     *
+     * @param taskId          任务 ID，不可为 null
+     * @param delegateUserId  被委派人 ID，不可为 null
+     * @param reason          委派原因，可为 null
+     * @throws NotFoundException            任务不存在时抛出
+     * @throws TaskAlreadyCompletedException 任务已完成时抛出
+     * @throws PermissionDeniedException     调用者不是当前任务审批人时抛出
+     * @throws IllegalArgumentException     非多实例子任务时抛出或委派目标为当前审批人时抛出
+     */
+    void delegateTask(String taskId, String delegateUserId, String reason);
+
+    /**
+     * 收回委派：委派人收回已委托出去的会签子任务。
+     *
+     * <p>仅任务 owner（原委派人）可操作，恢复为当前审批人。</p>
+     *
+     * @param taskId 任务 ID，不可为 null
+     * @throws NotFoundException            任务不存在时抛出
+     * @throws TaskAlreadyCompletedException 任务已完成时抛出
+     * @throws PermissionDeniedException     调用者不是任务 owner 或任务未被委派时抛出
+     */
+    void resolveDelegate(String taskId);
 }

@@ -683,12 +683,71 @@ public class TaskWorkflowTest {
                 .hasMessageContaining("审批人");
     }
 
+    // ======================== 转办 ========================
+
+    @Test
+    void testTransferTaskNormal() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+
+        taskWorkflow.transferTask("task-001", "transferUser", "工作交接");
+
+        verify(mockTaskService).setAssignee("task-001", "transferUser");
+        verify(mockTaskService).addComment(eq("task-001"), eq("pi-001"),
+                eq(CommentType.TRANSFER.name()), eq("转办给 transferUser（工作交接）"));
+    }
+
+    @Test
+    void testTransferTaskWithoutReason() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+
+        taskWorkflow.transferTask("task-001", "transferUser", null);
+
+        verify(mockTaskService).addComment(eq("task-001"), eq("pi-001"),
+                eq(CommentType.TRANSFER.name()), eq("转办给 transferUser"));
+    }
+
+    @Test
+    void testTransferTaskRejectsWrongAssignee() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", "user2");
+        stubTaskExists(task);
+
+        assertThatThrownBy(() -> taskWorkflow.transferTask("task-001", "transferUser", null))
+                .isInstanceOf(PermissionDeniedException.class)
+                .hasMessageContaining("审批人");
+    }
+
+    @Test
+    void testTransferTaskRejectsTransferToSelf() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+
+        assertThatThrownBy(() -> taskWorkflow.transferTask("task-001", USER_ID, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("转办目标不可为当前审批人");
+    }
+
+    @Test
+    void testTransferTaskRejectsNullTaskId() {
+        assertThatThrownBy(() -> taskWorkflow.transferTask(null, "transferUser", null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("taskId");
+    }
+
+    @Test
+    void testTransferTaskRejectsBlankTransferUserId() {
+        assertThatThrownBy(() -> taskWorkflow.transferTask("task-001", "", null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("transferUserId");
+    }
+
     // ======================== Test Helpers ========================
 
     private PlusTask createTask(String taskId, String definitionId, String taskDefKey,
             String instanceId, String assignee) {
         return new PlusTask(taskId, definitionId, taskDefKey, instanceId,
-                assignee, "测试任务", "exec-" + taskId, new Date());
+                assignee, null, "测试任务", "exec-" + taskId, new Date());
     }
 
     private Task createMockTask(String id, String definitionId, String taskDefKey,

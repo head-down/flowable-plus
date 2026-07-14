@@ -361,7 +361,7 @@ public class ProcessQueryOperationsTest {
         PlusHistoricTask ht1 = createPlusHistoricTask("ht-1", instanceId, "node1", "部门审批",
                 "user1", t1Start, t1End, null);
         PlusTask activeTask = new PlusTask("task-active", "leave:1:abc", "node2", instanceId,
-                "user2", "经理审批", "exec-2", t2Start);
+                "user2", null, "经理审批", "exec-2", t2Start);
 
         HistoricTaskInstance mockHt1 = toMockHistoricTask(ht1);
         stubApprovalTraceQueries(Collections.singletonList(toMockTask(activeTask)), instanceId, null,
@@ -519,7 +519,7 @@ public class ProcessQueryOperationsTest {
     private PlusTask createPlusTask(String taskId, String processInstanceId,
             String taskDefKey, String taskName, String assignee) {
         return new PlusTask(taskId, "leave:1:abc123", taskDefKey, processInstanceId,
-                assignee, taskName, "exec-" + taskId, new Date());
+                assignee, null, taskName, "exec-" + taskId, new Date());
     }
 
     private PlusHistoricProcessInstance createPlusHistoricPi(String instanceId, String businessKey,

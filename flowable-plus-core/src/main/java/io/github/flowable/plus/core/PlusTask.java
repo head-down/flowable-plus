@@ -19,18 +19,20 @@ public class PlusTask {
     private final String taskDefinitionKey;
     private final String processInstanceId;
     private final String assignee;
+    private final String owner;
     private final String name;
     private final String executionId;
     private final Date createTime;
 
     public PlusTask(String id, String processDefinitionId, String taskDefinitionKey,
-             String processInstanceId, String assignee, String name,
+             String processInstanceId, String assignee, String owner, String name,
              String executionId, Date createTime) {
         this.id = id;
         this.processDefinitionId = processDefinitionId;
         this.taskDefinitionKey = taskDefinitionKey;
         this.processInstanceId = processInstanceId;
         this.assignee = assignee;
+        this.owner = owner;
         this.name = name;
         this.executionId = executionId;
         this.createTime = createTime;
@@ -46,6 +48,7 @@ public class PlusTask {
                 task.getTaskDefinitionKey(),
                 task.getProcessInstanceId(),
                 task.getAssignee(),
+                task.getOwner(),
                 task.getName(),
                 task.getExecutionId(),
                 task.getCreateTime());
@@ -69,6 +72,10 @@ public class PlusTask {
 
     public String getAssignee() {
         return assignee;
+    }
+
+    public String getOwner() {
+        return owner;
     }
 
     public String getName() {

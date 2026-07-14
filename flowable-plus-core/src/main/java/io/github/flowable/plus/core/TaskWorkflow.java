@@ -305,6 +305,35 @@ public class TaskWorkflow implements ApprovalOperations {
         return result;
     }
 
+    @Override
+    public void transferTask(String taskId, String transferUserId, String reason) {
+        if (taskId == null) {
+            throw new IllegalArgumentException("taskId 不可为 null");
+        }
+        if (StrUtil.isBlank(transferUserId)) {
+            throw new IllegalArgumentException("transferUserId 不可为 null 或空");
+        }
+
+        String currentUserId = userContext.getCurrentUserId();
+
+        if (currentUserId.equals(transferUserId)) {
+            throw new IllegalArgumentException("转办目标不可为当前审批人");
+        }
+
+        PlusTask task = TaskValidation.validateTaskExists(taskService, historyService, taskId, "转办");
+        TaskValidation.validateCurrentUserIsAssignee(task, currentUserId, taskId, "转办");
+
+        String processInstanceId = task.getProcessInstanceId();
+
+        taskService.setAssignee(taskId, transferUserId);
+
+        String comment = "转办给 " + transferUserId;
+        if (StrUtil.isNotBlank(reason)) {
+            comment += "（" + reason + "）";
+        }
+        taskService.addComment(taskId, processInstanceId, CommentType.TRANSFER.name(), comment);
+    }
+
     // ======================== 内部辅助 ========================
 
     private void executeRollback(PlusTask task, String targetActivityId, String reason, String commentType) {
