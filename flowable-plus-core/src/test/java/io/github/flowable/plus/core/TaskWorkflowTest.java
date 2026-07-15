@@ -9,6 +9,7 @@ import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.vo.JumpableNodeVO;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.IdentityService;
+import org.flowable.engine.ManagementService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
 import org.flowable.engine.history.HistoricProcessInstance;
@@ -16,6 +17,8 @@ import org.flowable.engine.history.HistoricProcessInstanceQuery;
 import org.flowable.task.api.history.HistoricTaskInstance;
 import org.flowable.task.api.history.HistoricTaskInstanceQuery;
 import org.flowable.engine.runtime.ChangeActivityStateBuilder;
+import org.flowable.engine.runtime.Execution;
+import org.flowable.engine.runtime.ExecutionQuery;
 import org.flowable.engine.runtime.ProcessInstance;
 import org.flowable.engine.runtime.ProcessInstanceQuery;
 import org.flowable.task.api.Task;
@@ -60,6 +63,7 @@ public class TaskWorkflowTest {
     private HistoryService mockHistoryService;
     private RuntimeService mockRuntimeService;
     private IdentityService mockIdentityService;
+    private ManagementService mockManagementService;
     private NodeFinder mockNodeFinder;
     private BpmnModelCache mockBpmnModelCache;
     private MultiInstanceDetector mockMultiInstanceDetector;
@@ -72,12 +76,17 @@ public class TaskWorkflowTest {
         mockHistoryService = mock(HistoryService.class);
         mockRuntimeService = mock(RuntimeService.class);
         mockIdentityService = mock(IdentityService.class);
+        mockManagementService = mock(ManagementService.class);
         mockNodeFinder = mock(NodeFinder.class);
         mockBpmnModelCache = mock(BpmnModelCache.class);
         mockMultiInstanceDetector = mock(MultiInstanceDetector.class);
 
+        // 默认 stub：createExecutionQuery 返回空执行对象（非并行分支场景）
+        stubNoParallelBranch();
+
         taskWorkflow = new TaskWorkflow(userContext, mockTaskService, mockHistoryService,
-                mockRuntimeService, mockIdentityService, mockNodeFinder, mockMultiInstanceDetector, null);
+                mockRuntimeService, mockIdentityService, mockNodeFinder, mockMultiInstanceDetector, null,
+                mockManagementService);
     }
 
     // ======================== 发起 ========================
@@ -749,7 +758,93 @@ public class TaskWorkflowTest {
                 .hasMessageContaining("transferUserId");
     }
 
+    // ======================== 并行分支防护 ========================
+
+    @Test
+    void testRejectTaskOnForkBranchBlocked() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task2a", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
+        stubForkBranchExecution("exec-task-001", "scope-exec", 2L);
+
+        assertThatThrownBy(() -> taskWorkflow.rejectTask("task-001", "不同意"))
+                .isInstanceOf(NoPreviousNodeException.class)
+                .hasMessageContaining("并行分支");
+    }
+
+    @Test
+    void testWithdrawTaskOnForkBranchBlocked() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task2a", "pi-001", "user3");
+        stubTaskExists(task);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
+        stubForkBranchExecution("exec-task-001", "scope-exec", 2L);
+
+        assertThatThrownBy(() -> taskWorkflow.withdrawTask("task-001", "撤回"))
+                .isInstanceOf(NoPreviousNodeException.class)
+                .hasMessageContaining("并行分支");
+    }
+
+    @Test
+    void testJumpToNodeOnForkBranchBlocked() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task3", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
+        stubForkBranchExecution("exec-task-001", "scope-exec", 2L);
+
+        assertThatThrownBy(() -> taskWorkflow.jumpToNode("task-001", "task1", "不同意", CommentType.REJECT))
+                .isInstanceOf(NoPreviousNodeException.class)
+                .hasMessageContaining("并行分支");
+    }
+
+    @Test
+    void testRejectTaskToInitiatorForkBranchCleanup() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task2a", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
+        when(mockNodeFinder.findInitiatorNode("leave:1:abc")).thenReturn("startTask");
+
+        stubRollback();
+
+        taskWorkflow.rejectTaskToInitiator("task-001", "退回发起人");
+
+        verify(mockManagementService).executeCommand(any());
+        verify(mockRuntimeService).createChangeActivityStateBuilder();
+    }
+
     // ======================== Test Helpers ========================
+
+    /**
+     * 默认 stub：模拟非并行分支场景，查询结果为空执行对象。
+     * 这样 checkActiveParallelBranch 会直接 return，不抛异常。
+     */
+    private void stubNoParallelBranch() {
+        ExecutionQuery execQuery = mock(ExecutionQuery.class);
+        when(execQuery.executionId(anyString())).thenReturn(execQuery);
+        when(execQuery.singleResult()).thenReturn(null);
+        when(mockRuntimeService.createExecutionQuery()).thenReturn(execQuery);
+    }
+
+    /**
+     * Stub RuntimeService 使其模拟一个处于并行分支上的执行对象。
+     * 当前执行的 parentId 不为 null，且同级活跃执行数为 siblingCount。
+     */
+    private void stubForkBranchExecution(String executionId, String parentExecutionId, long siblingCount) {
+        Execution mockExec = mock(Execution.class);
+        when(mockExec.getId()).thenReturn(executionId);
+        when(mockExec.getParentId()).thenReturn(parentExecutionId);
+
+        ExecutionQuery execQueryById = mock(ExecutionQuery.class);
+        when(execQueryById.executionId(executionId)).thenReturn(execQueryById);
+        when(execQueryById.singleResult()).thenReturn(mockExec);
+
+        ExecutionQuery execQueryByParent = mock(ExecutionQuery.class);
+        when(execQueryByParent.parentId(parentExecutionId)).thenReturn(execQueryByParent);
+        when(execQueryByParent.count()).thenReturn(siblingCount);
+
+        when(mockRuntimeService.createExecutionQuery())
+                .thenReturn(execQueryById)
+                .thenReturn(execQueryByParent);
+    }
 
     private PlusTask createTask(String taskId, String definitionId, String taskDefKey,
             String instanceId, String assignee) {

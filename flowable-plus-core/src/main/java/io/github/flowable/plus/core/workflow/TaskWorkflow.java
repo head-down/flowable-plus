@@ -20,11 +20,18 @@ import io.github.flowable.plus.core.support.TaskValidation;
 import cn.hutool.core.util.StrUtil;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.IdentityService;
+import org.flowable.engine.ManagementService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
 import org.flowable.engine.history.HistoricProcessInstance;
 import org.flowable.task.api.history.HistoricTaskInstance;
+import org.flowable.common.engine.impl.interceptor.Command;
+import org.flowable.common.engine.impl.interceptor.CommandContext;
+import org.flowable.engine.impl.persistence.entity.ExecutionEntity;
+import org.flowable.engine.impl.persistence.entity.ExecutionEntityManager;
+import org.flowable.engine.impl.util.CommandContextUtil;
 import org.flowable.engine.runtime.ChangeActivityStateBuilder;
+import org.flowable.engine.runtime.Execution;
 import org.flowable.engine.runtime.ProcessInstance;
 import org.flowable.task.api.Task;
 import org.slf4j.Logger;
@@ -54,12 +61,14 @@ public class TaskWorkflow implements ApprovalOperations {
     private final NodeFinder nodeFinder;
     private final MultiInstanceDetector multiInstanceDetector;
     private final List<AutoApprovalRule> autoApprovalRules;
+    private final ManagementService managementService;
 
     public TaskWorkflow(UserContext userContext, TaskService taskService,
                  HistoryService historyService, RuntimeService runtimeService,
                  IdentityService identityService, NodeFinder nodeFinder,
                  MultiInstanceDetector multiInstanceDetector,
-                 List<AutoApprovalRule> autoApprovalRules) {
+                 List<AutoApprovalRule> autoApprovalRules,
+                 ManagementService managementService) {
         this.userContext = userContext;
         this.taskService = taskService;
         this.historyService = historyService;
@@ -68,6 +77,7 @@ public class TaskWorkflow implements ApprovalOperations {
         this.nodeFinder = nodeFinder;
         this.multiInstanceDetector = multiInstanceDetector;
         this.autoApprovalRules = autoApprovalRules != null ? autoApprovalRules : Collections.emptyList();
+        this.managementService = managementService;
     }
 
     @Override
@@ -133,6 +143,8 @@ public class TaskWorkflow implements ApprovalOperations {
         String currentActivityId = task.getTaskDefinitionKey();
         String processInstanceId = task.getProcessInstanceId();
 
+        checkActiveParallelBranch(task);
+
         List<String> prevNodes = nodeFinder.findPreviousNodes(processDefinitionId, currentActivityId, processInstanceId);
 
         if (prevNodes.size() > 1) {
@@ -156,6 +168,24 @@ public class TaskWorkflow implements ApprovalOperations {
             throw new NoPreviousNodeException("当前已是发起人节点，无法继续驳回");
         }
 
+        // 清理并行分支：将当前执行从并行网关 Scope 嫁接到根节点，级联删除 Scope（连带幽灵分支）
+        managementService.executeCommand((Command<Void>) commandContext -> {
+            ExecutionEntityManager em = CommandContextUtil.getExecutionEntityManager(commandContext);
+            ExecutionEntity currentExec = em.findById(task.getExecutionId());
+            ExecutionEntity scopeExec = currentExec.getParent();
+            if (scopeExec == null) {
+                return null;
+            }
+            ExecutionEntity rootExec = scopeExec.getParent();
+            // Reparent
+            scopeExec.getExecutions().remove(currentExec);
+            currentExec.setParent(rootExec);
+            rootExec.addChildExecution(currentExec);
+            // 级联删除 Scope（连带其他幽灵分支，保留历史数据）
+            em.deleteExecutionAndRelatedData(scopeExec, reason, false, true);
+            return null;
+        });
+
         executeRollback(task, initiatorNode, reason, CommentType.REJECT.name());
     }
 
@@ -170,6 +200,9 @@ public class TaskWorkflow implements ApprovalOperations {
         }
 
         String processInstanceId = task.getProcessInstanceId();
+
+        checkActiveParallelBranch(task);
+
         List<String> prevNodes = nodeFinder.findPreviousNodes(
                 task.getProcessDefinitionId(), task.getTaskDefinitionKey(), processInstanceId);
 
@@ -258,6 +291,8 @@ public class TaskWorkflow implements ApprovalOperations {
             throw new InvalidTargetNodeException("目标节点 " + targetNodeId + " 与当前节点相同，不支持自跳转");
         }
 
+        checkActiveParallelBranch(task);
+
         // 校验目标节点在可跳转列表中
         List<String> completedNodeIds = nodeFinder.findCompletedUserTasks(
                 processDefinitionId, currentActivityId, processInstanceId);
@@ -344,6 +379,30 @@ public class TaskWorkflow implements ApprovalOperations {
     }
 
     // ======================== 内部辅助 ========================
+
+    /**
+     * 检测当前任务是否处于并行网关 Fork 分支上。
+     *
+     * <p>通过 {@link RuntimeService#createExecutionQuery()} 查询当前执行对象的父级执行，
+     * 统计同级活跃叶子执行数。当活跃叶子数 &gt; 1 时，表示存在其他并行分支，
+     * 执行驳回/撤回/跳转会产生幽灵分支并导致流程死锁。</p>
+     *
+     * @param task 当前任务，不可为 null
+     * @throws NoPreviousNodeException 当前节点位于并行分支上时抛出
+     */
+    private void checkActiveParallelBranch(PlusTask task) {
+        Execution execution = runtimeService.createExecutionQuery()
+                .executionId(task.getExecutionId()).singleResult();
+        if (execution == null || execution.getParentId() == null) {
+            return;
+        }
+        long activeSiblings = runtimeService.createExecutionQuery()
+                .parentId(execution.getParentId()).count();
+        if (activeSiblings > 1) {
+            throw new NoPreviousNodeException(
+                    "当前节点位于并行分支上，存在其他活跃分支，请使用驳回至发起人操作");
+        }
+    }
 
     private void executeRollback(PlusTask task, String targetActivityId, String reason, String commentType) {
         if (StrUtil.isNotBlank(reason)) {

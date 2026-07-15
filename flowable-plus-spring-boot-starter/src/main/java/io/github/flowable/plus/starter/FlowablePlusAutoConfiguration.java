@@ -124,7 +124,8 @@ public class FlowablePlusAutoConfiguration {
                                      @Autowired(required = false) List<AutoApprovalRule> autoApprovalRules) {
         return new TaskWorkflow(userContext, taskService, historyService,
                 processEngine.getRuntimeService(), processEngine.getIdentityService(),
-                nodeFinder, multiInstanceDetector, autoApprovalRules);
+                nodeFinder, multiInstanceDetector, autoApprovalRules,
+                processEngine.getManagementService());
     }
 
     /**
