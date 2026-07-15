@@ -329,9 +329,12 @@ public class TaskWorkflow implements ApprovalOperations {
             return new ArrayList<>();
         }
 
-        // 2. 组装 VO 列表
+        // 2. 组装 VO 列表，过滤掉多实例节点（会签/或签）
         List<JumpableNodeVO> result = new ArrayList<>();
         for (String nodeId : nodeIds) {
+            if (multiInstanceDetector.isMultiInstanceNode(processDefinitionId, nodeId)) {
+                continue;
+            }
             String nodeName = nodeFinder.getNodeName(processDefinitionId, nodeId);
 
             List<HistoricTaskInstance> tasks = historyService.createHistoricTaskInstanceQuery()
@@ -415,6 +418,12 @@ public class TaskWorkflow implements ApprovalOperations {
     }
 
     private void executeRollback(PlusTask task, String targetActivityId, String reason, String commentType) {
+        if (multiInstanceDetector.isMultiInstanceNode(task.getProcessDefinitionId(), targetActivityId)) {
+            throw new InvalidTargetNodeException(
+                    "目标节点 " + targetActivityId + " 是会签（多实例）节点，"
+                    + "驳回/撤回/跳转至已完成的会签节点会破坏多实例计数器，不支持此操作");
+        }
+
         if (StrUtil.isNotBlank(reason)) {
             taskService.addComment(task.getId(), task.getProcessInstanceId(), commentType, reason);
         }
