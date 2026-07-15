@@ -280,11 +280,10 @@ public class TaskWorkflowTest {
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
         when(mockNodeFinder.findInitiatorNode("leave:1:abc")).thenReturn("startTask");
 
-        stubRollback();
-
         taskWorkflow.rejectTaskToInitiator("task-001", "退回发起人");
 
-        verify(mockRuntimeService).createChangeActivityStateBuilder();
+        // cleanup + rollback 已合并为单一 Command，回退逻辑内迁到 Command 内
+        verify(mockManagementService).executeCommand(any());
     }
 
     @Test
@@ -803,12 +802,10 @@ public class TaskWorkflowTest {
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
         when(mockNodeFinder.findInitiatorNode("leave:1:abc")).thenReturn("startTask");
 
-        stubRollback();
-
         taskWorkflow.rejectTaskToInitiator("task-001", "退回发起人");
 
+        // cleanup + rollback 已合并为单一原子 Command
         verify(mockManagementService).executeCommand(any());
-        verify(mockRuntimeService).createChangeActivityStateBuilder();
     }
 
     // ======================== Test Helpers ========================

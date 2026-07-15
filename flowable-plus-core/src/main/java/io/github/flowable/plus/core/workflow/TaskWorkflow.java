@@ -168,25 +168,37 @@ public class TaskWorkflow implements ApprovalOperations {
             throw new NoPreviousNodeException("当前已是发起人节点，无法继续驳回");
         }
 
-        // 清理并行分支：将当前执行从并行网关 Scope 嫁接到根节点，级联删除 Scope（连带幽灵分支）
+        // 原子操作：清理并行分支 + 回退到发起人节点，同一事务内执行
         managementService.executeCommand((Command<Void>) commandContext -> {
             ExecutionEntityManager em = CommandContextUtil.getExecutionEntityManager(commandContext);
             ExecutionEntity currentExec = em.findById(task.getExecutionId());
             ExecutionEntity scopeExec = currentExec.getParent();
-            if (scopeExec == null) {
-                return null;
+
+            // 仅处理并行网关 Scope（isConcurrent=true），
+            // 跳过根执行（串行流程 parent 即为 ProcessInstance，其 parent 为 null）
+            // 和子流程 Scope（isConcurrent=false，强行 Reparent 会摧毁子流程上下文）
+            if (scopeExec != null && scopeExec.isConcurrent()) {
+                ExecutionEntity rootExec = scopeExec.getParent();
+                // Reparent: 从并行网关 Scope 移除，挂到根执行下
+                scopeExec.getExecutions().remove(currentExec);
+                currentExec.setParent(rootExec);
+                rootExec.addChildExecution(currentExec);
+                // 级联删除 Scope（连带其他幽灵分支，保留历史数据）
+                em.deleteExecutionAndRelatedData(scopeExec, reason, false, true);
             }
-            ExecutionEntity rootExec = scopeExec.getParent();
-            // Reparent
-            scopeExec.getExecutions().remove(currentExec);
-            currentExec.setParent(rootExec);
-            rootExec.addChildExecution(currentExec);
-            // 级联删除 Scope（连带其他幽灵分支，保留历史数据）
-            em.deleteExecutionAndRelatedData(scopeExec, reason, false, true);
+
+            // 回退：添加审批意见 + 将当前活动移至发起人节点
+            if (StrUtil.isNotBlank(reason)) {
+                taskService.addComment(task.getId(), task.getProcessInstanceId(),
+                        CommentType.REJECT.name(), reason);
+            }
+            runtimeService.createChangeActivityStateBuilder()
+                    .processInstanceId(task.getProcessInstanceId())
+                    .moveActivityIdTo(task.getTaskDefinitionKey(), initiatorNode)
+                    .changeState();
+
             return null;
         });
-
-        executeRollback(task, initiatorNode, reason, CommentType.REJECT.name());
     }
 
     @Override
