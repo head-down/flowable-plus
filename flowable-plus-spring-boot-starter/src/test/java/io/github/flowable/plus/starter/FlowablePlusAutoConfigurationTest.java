@@ -1,7 +1,7 @@
 package io.github.flowable.plus.starter;
 
 import io.github.flowable.plus.core.FlowablePlus;
-import io.github.flowable.plus.core.QueryOperations;
+import io.github.flowable.plus.core.api.QueryOperations;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
 import io.github.flowable.plus.core.spi.GroupResolver;
 

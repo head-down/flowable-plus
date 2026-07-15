@@ -1,9 +1,13 @@
-package io.github.flowable.plus.core;
+package io.github.flowable.plus.core.workflow;
 
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.vo.ApprovalTraceVO;
 import io.github.flowable.plus.core.vo.AssigneeInfo;
 import io.github.flowable.plus.core.vo.ProcessSummaryVO;
+import io.github.flowable.plus.core.domain.PlusHistoricProcessInstance;
+import io.github.flowable.plus.core.domain.PlusHistoricTask;
+import io.github.flowable.plus.core.domain.PlusTask;
+import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;

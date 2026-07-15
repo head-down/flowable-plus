@@ -16,6 +16,15 @@ import org.flowable.task.api.history.HistoricTaskInstance;
 import org.flowable.task.api.history.HistoricTaskInstanceQuery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import io.github.flowable.plus.core.domain.PageResult;
+import io.github.flowable.plus.core.dto.TaskQueryDTO;
+import io.github.flowable.plus.core.model.BpmnModelCache;
+import io.github.flowable.plus.core.model.DefaultBpmnModelCache;
+import io.github.flowable.plus.core.model.NodeFinder;
+import io.github.flowable.plus.core.support.BpmnFormDataHelper;
+import io.github.flowable.plus.core.support.VOAssembler;
+import io.github.flowable.plus.core.workflow.ProcessQueryWorkflow;
+import io.github.flowable.plus.core.workflow.TaskQueryModule;
 
 import java.util.Arrays;
 import java.util.Collections;

@@ -1,4 +1,4 @@
-package io.github.flowable.plus.core;
+package io.github.flowable.plus.core.support;
 
 import io.github.flowable.plus.core.spi.ApproverResolver;
 import io.github.flowable.plus.core.spi.GroupResolver;

@@ -1,8 +1,8 @@
 package io.github.flowable.plus.starter;
 
 import io.github.flowable.plus.core.FlowablePlus;
-import io.github.flowable.plus.core.PageResult;
-import io.github.flowable.plus.core.TaskQueryDTO;
+import io.github.flowable.plus.core.domain.PageResult;
+import io.github.flowable.plus.core.dto.TaskQueryDTO;
 import io.github.flowable.plus.core.spi.GroupResolver;
 import io.github.flowable.plus.core.spi.TaskQueryEnhancer;
 import io.github.flowable.plus.core.spi.UserContext;
@@ -302,7 +302,7 @@ class BpmnQueryIntegrationTest {
 
     @Test
     void testFlowablePlusImplementsQueryOperations() {
-        assertThat(flowablePlus).isInstanceOf(io.github.flowable.plus.core.QueryOperations.class);
+        assertThat(flowablePlus).isInstanceOf(io.github.flowable.plus.core.api.QueryOperations.class);
     }
 
     // ======================== TaskQueryEnhancer 有效性验证 ========================

@@ -1,15 +1,15 @@
 package io.github.flowable.plus.starter;
 
-import io.github.flowable.plus.core.BpmnModelCache;
-import io.github.flowable.plus.core.CounterSignWorkflow;
-import io.github.flowable.plus.core.DefaultBpmnModelCache;
-import io.github.flowable.plus.core.DefaultNodeFinder;
-import io.github.flowable.plus.core.MultiInstanceDetector;
-import io.github.flowable.plus.core.NodeFinder;
-import io.github.flowable.plus.core.PlusHistoricProcessInstance;
-import io.github.flowable.plus.core.PlusHistoricTask;
-import io.github.flowable.plus.core.PlusTask;
-import io.github.flowable.plus.core.TaskWorkflow;
+import io.github.flowable.plus.core.model.BpmnModelCache;
+import io.github.flowable.plus.core.workflow.CounterSignWorkflow;
+import io.github.flowable.plus.core.model.DefaultBpmnModelCache;
+import io.github.flowable.plus.core.model.DefaultNodeFinder;
+import io.github.flowable.plus.core.model.MultiInstanceDetector;
+import io.github.flowable.plus.core.model.NodeFinder;
+import io.github.flowable.plus.core.domain.PlusHistoricProcessInstance;
+import io.github.flowable.plus.core.domain.PlusHistoricTask;
+import io.github.flowable.plus.core.domain.PlusTask;
+import io.github.flowable.plus.core.workflow.TaskWorkflow;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
 import io.github.flowable.plus.core.spi.UserContext;
 import org.flowable.bpmn.model.BpmnModel;

@@ -1,8 +1,9 @@
-package io.github.flowable.plus.core;
+package io.github.flowable.plus.core.model;
 
 import org.flowable.bpmn.model.Activity;
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.bpmn.model.FlowElement;
+import io.github.flowable.plus.core.domain.PlusTask;
 
 /**
  * 多实例检测模块，判断 BPMN 节点是否配置了多实例（会签/或签）。

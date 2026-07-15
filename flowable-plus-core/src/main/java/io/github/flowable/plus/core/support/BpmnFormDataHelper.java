@@ -1,4 +1,4 @@
-package io.github.flowable.plus.core;
+package io.github.flowable.plus.core.support;
 
 import org.flowable.bpmn.model.ExtensionAttribute;
 import org.flowable.bpmn.model.ExtensionElement;

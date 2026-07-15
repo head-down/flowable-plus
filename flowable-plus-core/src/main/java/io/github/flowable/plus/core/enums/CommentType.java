@@ -1,4 +1,4 @@
-package io.github.flowable.plus.core;
+package io.github.flowable.plus.core.enums;
 
 /**
  * 审批操作类型枚举，用于区分驳回、退回、委派、收回委派、转办等操作类型。

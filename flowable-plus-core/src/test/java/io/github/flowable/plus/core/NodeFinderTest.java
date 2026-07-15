@@ -18,6 +18,10 @@ import org.flowable.engine.history.HistoricActivityInstanceQuery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import io.github.flowable.plus.core.model.BpmnModelCache;
+import io.github.flowable.plus.core.model.DefaultNodeFinder;
+import io.github.flowable.plus.core.model.NodeFinder;
+import io.github.flowable.plus.core.model.DefaultBpmnModelCache;
 
 import java.util.ArrayList;
 import java.util.Collections;

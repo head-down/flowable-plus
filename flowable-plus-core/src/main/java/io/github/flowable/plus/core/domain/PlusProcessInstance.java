@@ -1,4 +1,4 @@
-package io.github.flowable.plus.core;
+package io.github.flowable.plus.core.domain;
 
 import org.flowable.engine.runtime.ProcessInstance;
 
@@ -22,7 +22,7 @@ public class PlusProcessInstance {
      * @param pi Flowable 流程实例
      * @return 领域对象
      */
-    static PlusProcessInstance from(ProcessInstance pi) {
+    public static PlusProcessInstance from(ProcessInstance pi) {
         return new PlusProcessInstance(
                 pi.getProcessInstanceId(),
                 pi.getBusinessKey(),

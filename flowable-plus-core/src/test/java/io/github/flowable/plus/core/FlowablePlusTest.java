@@ -1,6 +1,11 @@
 package io.github.flowable.plus.core;
 
 import io.github.flowable.plus.core.spi.ApproverResolver;
+import io.github.flowable.plus.core.model.BpmnModelCache;
+import io.github.flowable.plus.core.model.NodeFinder;
+import io.github.flowable.plus.core.support.BpmnFormDataHelper;
+import io.github.flowable.plus.core.workflow.ProcessQueryWorkflow;
+import io.github.flowable.plus.core.workflow.TaskQueryModule;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;

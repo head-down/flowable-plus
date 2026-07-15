@@ -22,6 +22,13 @@ import org.flowable.task.api.Task;
 import org.flowable.task.api.TaskQuery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import io.github.flowable.plus.core.domain.PlusTask;
+import io.github.flowable.plus.core.model.BpmnModelCache;
+import io.github.flowable.plus.core.model.MultiInstanceDetector;
+import io.github.flowable.plus.core.model.NodeFinder;
+import io.github.flowable.plus.core.workflow.TaskWorkflow;
+import io.github.flowable.plus.core.domain.PlusProcessInstance;
+import io.github.flowable.plus.core.enums.CommentType;
 
 import java.util.Arrays;
 import java.util.Collections;

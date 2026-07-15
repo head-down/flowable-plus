@@ -1,18 +1,18 @@
 package io.github.flowable.plus.starter;
 
-import io.github.flowable.plus.core.BpmnFormDataHelper;
-import io.github.flowable.plus.core.BpmnModelCache;
-import io.github.flowable.plus.core.CounterSignWorkflow;
-import io.github.flowable.plus.core.DefaultBpmnModelCache;
-import io.github.flowable.plus.core.DefaultNodeFinder;
+import io.github.flowable.plus.core.support.BpmnFormDataHelper;
+import io.github.flowable.plus.core.model.BpmnModelCache;
+import io.github.flowable.plus.core.workflow.CounterSignWorkflow;
+import io.github.flowable.plus.core.model.DefaultBpmnModelCache;
+import io.github.flowable.plus.core.model.DefaultNodeFinder;
 import io.github.flowable.plus.core.FlowablePlus;
-import io.github.flowable.plus.core.MultiInstanceDetector;
-import io.github.flowable.plus.core.NodeFinder;
-import io.github.flowable.plus.core.ProcessQueryWorkflow;
-import io.github.flowable.plus.core.TaskQueryModule;
-import io.github.flowable.plus.core.TaskWorkflow;
-import io.github.flowable.plus.core.UserTaskApproverResolver;
-import io.github.flowable.plus.core.VOAssembler;
+import io.github.flowable.plus.core.model.MultiInstanceDetector;
+import io.github.flowable.plus.core.model.NodeFinder;
+import io.github.flowable.plus.core.workflow.ProcessQueryWorkflow;
+import io.github.flowable.plus.core.workflow.TaskQueryModule;
+import io.github.flowable.plus.core.workflow.TaskWorkflow;
+import io.github.flowable.plus.core.support.UserTaskApproverResolver;
+import io.github.flowable.plus.core.support.VOAssembler;
 import io.github.flowable.plus.core.spi.ApproverResolver;
 import io.github.flowable.plus.core.spi.AutoApprovalRule;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
@@ -104,7 +104,7 @@ public class FlowablePlusAutoConfiguration {
      * 注册 TaskWorkflow Bean。
      *
      * <p>封装常规审批任务的推进、驳回、撤回、撤销逻辑。
-     * 实现 {@link io.github.flowable.plus.core.ApprovalOperations} 接口。
+     * 实现 {@link io.github.flowable.plus.core.api.ApprovalOperations} 接口。
      * {@code autoApprovalRules} 为可选参数，无注册 Bean 时行为不变。</p>
      *
      * @param userContext             用户上下文
@@ -131,7 +131,7 @@ public class FlowablePlusAutoConfiguration {
      * 注册 CounterSignWorkflow Bean。
      *
      * <p>封装多实例审批任务的投票与人员管理逻辑。
-     * 实现 {@link io.github.flowable.plus.core.CounterSignOperations} 接口。
+     * 实现 {@link io.github.flowable.plus.core.api.CounterSignOperations} 接口。
      * 当 {@code flowable.plus.counter-sign.enabled=false} 时回调列表为空。</p>
      *
      * @param userContext            用户上下文

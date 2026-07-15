@@ -1,4 +1,4 @@
-package io.github.flowable.plus.core;
+package io.github.flowable.plus.core.api;
 
 import io.github.flowable.plus.core.exception.InvalidTargetNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;
@@ -6,6 +6,8 @@ import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.exception.TaskAlreadyCompletedException;
 import io.github.flowable.plus.core.vo.JumpableNodeVO;
+import io.github.flowable.plus.core.domain.PlusProcessInstance;
+import io.github.flowable.plus.core.enums.CommentType;
 
 import java.util.List;
 import java.util.Map;

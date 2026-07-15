@@ -1,6 +1,6 @@
 package io.github.flowable.plus.core.spi;
 
-import io.github.flowable.plus.core.PlusTask;
+import io.github.flowable.plus.core.domain.PlusTask;
 
 import java.util.Map;
 

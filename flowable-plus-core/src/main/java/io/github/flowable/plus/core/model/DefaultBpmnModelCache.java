@@ -1,4 +1,4 @@
-package io.github.flowable.plus.core;
+package io.github.flowable.plus.core.model;
 
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.engine.RepositoryService;

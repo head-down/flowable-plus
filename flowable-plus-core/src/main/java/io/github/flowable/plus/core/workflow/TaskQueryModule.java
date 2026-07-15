@@ -1,7 +1,10 @@
-package io.github.flowable.plus.core;
+package io.github.flowable.plus.core.workflow;
 
 import io.github.flowable.plus.core.vo.DoneTaskVO;
 import io.github.flowable.plus.core.vo.TodoTaskVO;
+import io.github.flowable.plus.core.domain.PageResult;
+import io.github.flowable.plus.core.dto.TaskQueryDTO;
+import io.github.flowable.plus.core.support.VOAssembler;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.IdentityService;
 import org.flowable.engine.TaskService;

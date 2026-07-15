@@ -1,4 +1,4 @@
-package io.github.flowable.plus.core;
+package io.github.flowable.plus.core.model;
 
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;

@@ -1,10 +1,16 @@
-package io.github.flowable.plus.core;
+package io.github.flowable.plus.core.workflow;
 
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
 import io.github.flowable.plus.core.spi.UserContext;
+import io.github.flowable.plus.core.support.TaskValidation;
+import io.github.flowable.plus.core.api.CounterSignOperations;
+import io.github.flowable.plus.core.domain.PlusTask;
+import io.github.flowable.plus.core.enums.CommentType;
+import io.github.flowable.plus.core.model.MultiInstanceDetector;
+import io.github.flowable.plus.core.model.NodeFinder;
 import cn.hutool.core.util.StrUtil;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.RuntimeService;

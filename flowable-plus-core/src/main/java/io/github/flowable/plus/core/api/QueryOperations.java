@@ -1,4 +1,4 @@
-package io.github.flowable.plus.core;
+package io.github.flowable.plus.core.api;
 
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.vo.ApprovalTraceVO;
@@ -8,6 +8,8 @@ import io.github.flowable.plus.core.vo.NextTaskNodeVO;
 import io.github.flowable.plus.core.vo.NodeApproverVO;
 import io.github.flowable.plus.core.vo.ProcessSummaryVO;
 import io.github.flowable.plus.core.vo.TodoTaskVO;
+import io.github.flowable.plus.core.domain.PageResult;
+import io.github.flowable.plus.core.dto.TaskQueryDTO;
 import org.flowable.task.api.TaskQuery;
 import org.flowable.task.api.history.HistoricTaskInstanceQuery;
 

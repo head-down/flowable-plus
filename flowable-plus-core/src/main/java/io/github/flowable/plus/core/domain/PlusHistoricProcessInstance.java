@@ -1,4 +1,4 @@
-package io.github.flowable.plus.core;
+package io.github.flowable.plus.core.domain;
 
 import org.flowable.engine.history.HistoricProcessInstance;
 
@@ -35,7 +35,7 @@ public class PlusHistoricProcessInstance {
         this.deleteReason = deleteReason;
     }
 
-    static PlusHistoricProcessInstance from(HistoricProcessInstance hpi) {
+    public static PlusHistoricProcessInstance from(HistoricProcessInstance hpi) {
         return new PlusHistoricProcessInstance(
                 hpi.getId(),
                 hpi.getBusinessKey(),

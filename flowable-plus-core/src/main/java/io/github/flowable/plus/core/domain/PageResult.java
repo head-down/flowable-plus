@@ -1,4 +1,4 @@
-package io.github.flowable.plus.core;
+package io.github.flowable.plus.core.domain;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

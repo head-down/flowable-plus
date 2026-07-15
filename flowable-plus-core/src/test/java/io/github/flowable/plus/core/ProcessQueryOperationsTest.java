@@ -18,6 +18,11 @@ import org.flowable.task.api.Task;
 import org.flowable.task.api.TaskQuery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import io.github.flowable.plus.core.domain.PlusHistoricProcessInstance;
+import io.github.flowable.plus.core.domain.PlusHistoricTask;
+import io.github.flowable.plus.core.domain.PlusTask;
+import io.github.flowable.plus.core.model.MultiInstanceDetector;
+import io.github.flowable.plus.core.workflow.ProcessQueryWorkflow;
 
 import java.util.ArrayList;
 import java.util.Arrays;

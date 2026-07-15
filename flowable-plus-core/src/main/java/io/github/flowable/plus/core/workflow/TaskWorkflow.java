@@ -1,4 +1,4 @@
-package io.github.flowable.plus.core;
+package io.github.flowable.plus.core.workflow;
 
 import io.github.flowable.plus.core.exception.InvalidTargetNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;
@@ -8,6 +8,15 @@ import io.github.flowable.plus.core.exception.TaskAlreadyCompletedException;
 import io.github.flowable.plus.core.spi.AutoApprovalRule;
 import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.vo.JumpableNodeVO;
+import io.github.flowable.plus.core.api.ApprovalOperations;
+import io.github.flowable.plus.core.domain.PlusProcessInstance;
+import io.github.flowable.plus.core.domain.PlusHistoricProcessInstance;
+import io.github.flowable.plus.core.domain.PlusHistoricTask;
+import io.github.flowable.plus.core.domain.PlusTask;
+import io.github.flowable.plus.core.enums.CommentType;
+import io.github.flowable.plus.core.model.MultiInstanceDetector;
+import io.github.flowable.plus.core.model.NodeFinder;
+import io.github.flowable.plus.core.support.TaskValidation;
 import cn.hutool.core.util.StrUtil;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.IdentityService;

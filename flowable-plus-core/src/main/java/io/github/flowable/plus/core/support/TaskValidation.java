@@ -1,8 +1,10 @@
-package io.github.flowable.plus.core;
+package io.github.flowable.plus.core.support;
 
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.exception.TaskAlreadyCompletedException;
+import io.github.flowable.plus.core.domain.PlusTask;
+import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.TaskService;
 import org.flowable.task.api.history.HistoricTaskInstance;
@@ -13,7 +15,7 @@ import org.flowable.task.api.Task;
  *
  * @author flowable-plus
  */
-final class TaskValidation {
+public final class TaskValidation {
 
     private TaskValidation() {
     }
@@ -21,7 +23,7 @@ final class TaskValidation {
     /**
      * 校验任务存在性和完成状态（不做权限校验）。
      */
-    static PlusTask validateTaskExists(TaskService taskService, HistoryService historyService,
+    public static PlusTask validateTaskExists(TaskService taskService, HistoryService historyService,
                                     String taskId, String operation) {
         if (taskId == null) {
             throw new IllegalArgumentException("taskId 不可为 null");
@@ -45,7 +47,7 @@ final class TaskValidation {
      *
      * <p>调用方需先通过 {@link #validateTaskExists} 获取 task 对象。</p>
      */
-    static void validateCurrentUserIsAssignee(PlusTask task, String currentUserId,
+    public static void validateCurrentUserIsAssignee(PlusTask task, String currentUserId,
                                                String taskId, String operation) {
         if (task.getAssignee() == null || !task.getAssignee().equals(currentUserId)) {
             throw new PermissionDeniedException(
@@ -58,7 +60,7 @@ final class TaskValidation {
      *
      * @throws IllegalArgumentException 非多实例子任务时抛出
      */
-    static void validateMultiInstance(MultiInstanceDetector multiInstanceDetector, PlusTask task,
+    public static void validateMultiInstance(MultiInstanceDetector multiInstanceDetector, PlusTask task,
                                        String taskId, String operation) {
         if (!multiInstanceDetector.isMultiInstance(task)) {
             throw new IllegalArgumentException(
@@ -71,7 +73,7 @@ final class TaskValidation {
      *
      * @throws IllegalArgumentException 多实例子任务时抛出
      */
-    static void validateNotMultiInstance(MultiInstanceDetector multiInstanceDetector, PlusTask task, String taskId) {
+    public static void validateNotMultiInstance(MultiInstanceDetector multiInstanceDetector, PlusTask task, String taskId) {
         if (multiInstanceDetector.isMultiInstance(task)) {
             throw new IllegalArgumentException(
                     "任务 " + taskId + " 是多实例子任务，请使用会签操作(counterSign)");
