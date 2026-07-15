@@ -21,6 +21,12 @@
             <artifactId>flowable-engine</artifactId>
         </dependency>
 
+        <!-- Spring Transaction (annotation-only, no DI/AOP) -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-tx</artifactId>
+        </dependency>
+
         <!-- Hutool -->
         <dependency>
             <groupId>cn.hutool</groupId>

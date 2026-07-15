@@ -5,6 +5,7 @@ import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.exception.TaskAlreadyCompletedException;
+import io.github.flowable.plus.core.spi.AutoApprovalRule;
 import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.vo.JumpableNodeVO;
 import org.flowable.engine.HistoryService;
@@ -143,6 +144,49 @@ public class TaskWorkflowTest {
         PlusProcessInstance result = taskWorkflow.startProcess("leave", "biz-002", variables);
 
         assertThat(result.getProcessInstanceId()).isEqualTo("pi-002");
+    }
+
+    @Test
+    void testStartProcessPropagatesAutoCompleteException() {
+        // 注册一个会抛异常的 AutoApprovalRule
+        AutoApprovalRule failingRule = (task, vars) -> {
+            throw new RuntimeException("自动提交规则异常");
+        };
+
+        // stub 自动提交内部的 historyService 查询
+        HistoricTaskInstanceQuery historicTaskQuery = mock(HistoricTaskInstanceQuery.class);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.processInstanceId(anyString())).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.count()).thenReturn(0L);
+
+        // stub 自动提交内部的 taskService 查询
+        TaskQuery taskQuery = mock(TaskQuery.class);
+        when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
+        when(taskQuery.processInstanceId(anyString())).thenReturn(taskQuery);
+        when(taskQuery.active()).thenReturn(taskQuery);
+        when(taskQuery.list()).thenReturn(Collections.singletonList(mock(Task.class)));
+
+        taskWorkflow = new TaskWorkflow(userContext, mockTaskService, mockHistoryService,
+                mockRuntimeService, mockIdentityService, mockNodeFinder, mockMultiInstanceDetector,
+                Collections.singletonList(failingRule), mockManagementService);
+
+        ProcessInstance mockPi = mock(ProcessInstance.class);
+        when(mockPi.getProcessInstanceId()).thenReturn("pi-003");
+        when(mockPi.getBusinessKey()).thenReturn("biz-003");
+        when(mockPi.getProcessDefinitionId()).thenReturn("leave:1:abc");
+
+        Map<String, Object> variables = new HashMap<>();
+        variables.put("amount", 1000);
+        when(mockRuntimeService.startProcessInstanceByKey("leave", "biz-003", variables))
+                .thenReturn(mockPi);
+
+        // 快速失败：异常应向上传播，不被吞没
+        assertThatThrownBy(() -> taskWorkflow.startProcess("leave", "biz-003", variables))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("自动提交规则异常");
+        // 身份清理仍应在 finally 中执行
+        verify(mockIdentityService).setAuthenticatedUserId(USER_ID);
+        verify(mockIdentityService).setAuthenticatedUserId(null);
     }
 
     // ======================== 同意 ========================

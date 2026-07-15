@@ -36,6 +36,7 @@ import org.flowable.engine.runtime.ProcessInstance;
 import org.flowable.task.api.Task;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -49,6 +50,7 @@ import java.util.stream.Collectors;
  *
  * @author flowable-plus
  */
+@Transactional(rollbackFor = Exception.class)
 public class TaskWorkflow implements ApprovalOperations {
 
     private static final Logger log = LoggerFactory.getLogger(TaskWorkflow.class);
@@ -92,13 +94,9 @@ public class TaskWorkflow implements ApprovalOperations {
             ProcessInstance pi = runtimeService.startProcessInstanceByKey(processDefinitionKey, businessKey, variables);
             PlusProcessInstance result = PlusProcessInstance.from(pi);
 
-            // 自动提交：发起人身份下执行，仅一层
+            // 自动提交：发起人身份下执行，仅一层。采用快速失败模式，异常正常传播
             if (!autoApprovalRules.isEmpty()) {
-                try {
-                    autoCompleteFirstTasks(result.getProcessInstanceId(), userId, variables);
-                } catch (Exception e) {
-                    log.warn("自动提交失败，降级为不触发, processInstanceId: {}", result.getProcessInstanceId(), e);
-                }
+                autoCompleteFirstTasks(result.getProcessInstanceId(), userId, variables);
             }
 
             return result;
