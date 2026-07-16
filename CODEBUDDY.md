@@ -50,11 +50,11 @@ mvn clean package
 # 仅编译，跳过测试
 mvn clean compile -DskipTests
 
-# 运行所有测试
-mvn test
+# 运行所有测试（建议加 clean 避免 JDK 8 增量编译 NPE）
+mvn clean test
 
 # 运行单个测试类
-mvn test -pl flowable-plus-core -Dtest=MyTestClass
+mvn clean test -pl flowable-plus-core -Dtest=MyTestClass
 
 # 安装到本地 Maven 仓库
 mvn clean install -DskipTests
@@ -127,3 +127,4 @@ Core 模块已实现审批核心操作（发起、同意、驳回、撤回、撤
 | ADR-0006 | 查询接口支持自定义过滤回调 | 2026-07-04 |
 | ADR-0007 | 流程查询权限采用回调扩展模式 | 2026-07-10 |
 | ADR-0008 | 自动提交采用 AutoApprovalRule SPI，异常快速失败 | 2026-07-03 |
+| ADR-0009 | 审批历史 Comment→Action 推断采用三级策略 | 2026-07-16 |
