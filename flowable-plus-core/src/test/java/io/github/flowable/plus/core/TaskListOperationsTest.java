@@ -1,6 +1,5 @@
 package io.github.flowable.plus.core;
 
-import io.github.flowable.plus.core.spi.ApproverResolver;
 import io.github.flowable.plus.core.vo.DoneTaskVO;
 import io.github.flowable.plus.core.vo.TodoTaskVO;
 import org.flowable.engine.*;
@@ -18,11 +17,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import io.github.flowable.plus.core.domain.PageResult;
 import io.github.flowable.plus.core.dto.TaskQueryDTO;
-import io.github.flowable.plus.core.model.BpmnModelCache;
-import io.github.flowable.plus.core.model.DefaultBpmnModelCache;
-import io.github.flowable.plus.core.model.NodeFinder;
-import io.github.flowable.plus.core.support.BpmnFormDataHelper;
 import io.github.flowable.plus.core.support.VOAssembler;
+import io.github.flowable.plus.core.workflow.NodePreviewWorkflow;
 import io.github.flowable.plus.core.workflow.ProcessQueryWorkflow;
 import io.github.flowable.plus.core.workflow.TaskQueryModule;
 
@@ -48,7 +44,6 @@ public class TaskListOperationsTest {
     private HistoryService mockHistoryService;
     private RepositoryService mockRepoService;
     private IdentityService mockIdentityService;
-    private RuntimeService mockRuntimeService;
     private TaskQuery mockTaskQuery;
     private HistoricTaskInstanceQuery mockHistoricQuery;
     private FlowablePlus flowablePlus;
@@ -59,7 +54,6 @@ public class TaskListOperationsTest {
         mockHistoryService = mock(HistoryService.class);
         mockRepoService = mock(RepositoryService.class);
         mockIdentityService = mock(IdentityService.class);
-        mockRuntimeService = mock(RuntimeService.class);
         mockTaskQuery = mock(TaskQuery.class);
         mockHistoricQuery = mock(HistoricTaskInstanceQuery.class);
 
@@ -76,16 +70,10 @@ public class TaskListOperationsTest {
         VOAssembler voAssembler = new VOAssembler(mockRepoService, mockHistoryService);
         TaskQueryModule taskQueryModule = new TaskQueryModule(mockTaskService, mockHistoryService,
                 mockIdentityService, voAssembler);
-
-        NodeFinder mockNodeFinder = mock(NodeFinder.class);
-        BpmnModelCache bpmnModelCache = new DefaultBpmnModelCache(mockRepoService);
-        ApproverResolver approverResolver = mock(ApproverResolver.class);
-        BpmnFormDataHelper bpmnFormDataHelper = new BpmnFormDataHelper();
         ProcessQueryWorkflow processQueryWorkflow = mock(ProcessQueryWorkflow.class);
+        NodePreviewWorkflow nodePreviewWorkflow = mock(NodePreviewWorkflow.class);
 
-        flowablePlus = new FlowablePlus(taskQueryModule, processQueryWorkflow,
-                mockRuntimeService, mockRepoService, mockTaskService,
-                mockNodeFinder, bpmnModelCache, approverResolver, bpmnFormDataHelper);
+        flowablePlus = new FlowablePlus(taskQueryModule, processQueryWorkflow, nodePreviewWorkflow);
     }
 
     // ======================== 参数校验 ========================

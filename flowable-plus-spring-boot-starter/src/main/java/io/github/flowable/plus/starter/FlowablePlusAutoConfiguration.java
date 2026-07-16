@@ -9,6 +9,7 @@ import io.github.flowable.plus.core.model.DefaultNodeFinder;
 import io.github.flowable.plus.core.FlowablePlus;
 import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.model.NodeFinder;
+import io.github.flowable.plus.core.workflow.NodePreviewWorkflow;
 import io.github.flowable.plus.core.workflow.ProcessQueryWorkflow;
 import io.github.flowable.plus.core.workflow.TaskQueryModule;
 import io.github.flowable.plus.core.workflow.TaskWorkflow;
@@ -259,21 +260,43 @@ public class FlowablePlusAutoConfiguration {
     }
 
     /**
+     * 注册 NodePreviewWorkflow Bean。
+     *
+     * <p>封装流程定义起始节点预览、运行时任务下游节点预测等逻辑。
+     * 应用可通过声明同名 Bean 替换节点预览实现。</p>
+     *
+     * @param repositoryService  Flowable 仓储服务
+     * @param bpmnModelCache     BPMN 模型缓存
+     * @param nodeFinder         BPMN 节点遍历策略
+     * @param approverResolver   审批人解析策略
+     * @param taskService        Flowable 任务服务
+     * @param runtimeService     Flowable 运行时服务
+     * @param bpmnFormDataHelper BPMN 扩展属性解析工具
+     * @return NodePreviewWorkflow 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public NodePreviewWorkflow nodePreviewWorkflow(RepositoryService repositoryService,
+                                                    BpmnModelCache bpmnModelCache,
+                                                    NodeFinder nodeFinder,
+                                                    ApproverResolver approverResolver,
+                                                    TaskService taskService,
+                                                    RuntimeService runtimeService,
+                                                    BpmnFormDataHelper bpmnFormDataHelper) {
+        return new NodePreviewWorkflow(repositoryService, bpmnModelCache, nodeFinder,
+                approverResolver, taskService, runtimeService, bpmnFormDataHelper);
+    }
+
+    /**
      * 注册 FlowablePlus Bean。
      *
      * <p>当 {@code flowable.plus.enabled=true}（默认）时生效。
-     * 待办/已办查询委托给 TaskQueryModule，节点预览逻辑内聚于本模块，
+     * 待办/已办查询委托给 TaskQueryModule，节点预览委托给 NodePreviewWorkflow，
      * 流程追踪委托给 ProcessQueryWorkflow。</p>
      *
      * @param taskQueryModule      待办/已办查询模块
      * @param processQueryWorkflow 流程追踪模块
-     * @param runtimeService       Flowable 运行时服务
-     * @param repositoryService    Flowable 仓储服务
-     * @param taskService          Flowable 任务服务
-     * @param nodeFinder           BPMN 节点遍历策略
-     * @param bpmnModelCache       BPMN 模型缓存
-     * @param approverResolver     审批人解析策略
-     * @param bpmnFormDataHelper   BPMN 扩展属性解析工具
+     * @param nodePreviewWorkflow  节点预览模块
      * @return FlowablePlus 实例
      */
     @Bean
@@ -281,15 +304,8 @@ public class FlowablePlusAutoConfiguration {
     @ConditionalOnProperty(name = "flowable.plus.enabled", havingValue = "true", matchIfMissing = true)
     public FlowablePlus flowablePlus(TaskQueryModule taskQueryModule,
                                      ProcessQueryWorkflow processQueryWorkflow,
-                                     RuntimeService runtimeService,
-                                     RepositoryService repositoryService,
-                                     TaskService taskService,
-                                     NodeFinder nodeFinder,
-                                     BpmnModelCache bpmnModelCache,
-                                     ApproverResolver approverResolver,
-                                     BpmnFormDataHelper bpmnFormDataHelper) {
-        return new FlowablePlus(taskQueryModule, processQueryWorkflow, runtimeService, repositoryService,
-                taskService, nodeFinder, bpmnModelCache, approverResolver, bpmnFormDataHelper);
+                                     NodePreviewWorkflow nodePreviewWorkflow) {
+        return new FlowablePlus(taskQueryModule, processQueryWorkflow, nodePreviewWorkflow);
     }
 
     /**

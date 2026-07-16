@@ -10,8 +10,6 @@ import org.flowable.bpmn.model.Process;
 import org.flowable.bpmn.model.SequenceFlow;
 import org.flowable.bpmn.model.StartEvent;
 import org.flowable.bpmn.model.UserTask;
-import org.flowable.engine.HistoryService;
-import org.flowable.engine.IdentityService;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
@@ -26,8 +24,7 @@ import io.github.flowable.plus.core.model.NodeFinder;
 import io.github.flowable.plus.core.model.DefaultBpmnModelCache;
 import io.github.flowable.plus.core.support.BpmnFormDataHelper;
 import io.github.flowable.plus.core.support.UserTaskApproverResolver;
-import io.github.flowable.plus.core.workflow.ProcessQueryWorkflow;
-import io.github.flowable.plus.core.workflow.TaskQueryModule;
+import io.github.flowable.plus.core.workflow.NodePreviewWorkflow;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -37,12 +34,11 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * S5: getNextNodeApproversByProcessKey 单元测试。
+ * 节点预览操作单元测试。
  * 审批人解析通过 {@link UserTaskApproverResolver} 委托给 {@link GroupResolver}。
  */
 public class NodePreviewOperationsTest {
@@ -50,49 +46,42 @@ public class NodePreviewOperationsTest {
     private RepositoryService mockRepoService;
     private RuntimeService mockRuntimeService;
     private TaskService mockTaskService;
-    private HistoryService mockHistoryService;
-    private IdentityService mockIdentityService;
     private NodeFinder mockNodeFinder;
     private BpmnModelCache bpmnModelCache;
     private GroupResolver mockGroupResolver;
     private ApproverResolver approverResolver;
-    private FlowablePlus flowablePlus;
+    private BpmnFormDataHelper bpmnFormDataHelper;
+    private NodePreviewWorkflow nodePreviewWorkflow;
 
     @BeforeEach
     public void setUp() {
         mockRepoService = mock(RepositoryService.class);
         mockRuntimeService = mock(RuntimeService.class);
         mockTaskService = mock(TaskService.class);
-        mockHistoryService = mock(HistoryService.class);
-        mockIdentityService = mock(IdentityService.class);
         mockNodeFinder = mock(NodeFinder.class);
         mockGroupResolver = mock(GroupResolver.class);
 
         bpmnModelCache = new DefaultBpmnModelCache(mockRepoService);
         approverResolver = new UserTaskApproverResolver(mockGroupResolver);
-        BpmnFormDataHelper bpmnFormDataHelper = new BpmnFormDataHelper();
+        bpmnFormDataHelper = new BpmnFormDataHelper();
 
-        // TaskQueryModule 仅用于 FlowablePlus 构造，NodePreviewOperations 测试不调用其方法
-        TaskQueryModule taskQueryModule = mock(TaskQueryModule.class);
-        ProcessQueryWorkflow processQueryWorkflow = mock(ProcessQueryWorkflow.class);
-
-        flowablePlus = new FlowablePlus(taskQueryModule, processQueryWorkflow,
-                mockRuntimeService, mockRepoService, mockTaskService,
-                mockNodeFinder, bpmnModelCache, approverResolver, bpmnFormDataHelper);
+        nodePreviewWorkflow = new NodePreviewWorkflow(mockRepoService, bpmnModelCache,
+                mockNodeFinder, approverResolver, mockTaskService, mockRuntimeService,
+                bpmnFormDataHelper);
     }
 
     // ======================== 参数校验 ========================
 
     @Test
     public void testRejectNullProcessKey() {
-        assertThatThrownBy(() -> flowablePlus.getNextNodeApproversByProcessKey(null))
+        assertThatThrownBy(() -> nodePreviewWorkflow.getNextNodeApproversByProcessKey(null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("processKey");
     }
 
     @Test
     public void testRejectEmptyProcessKey() {
-        assertThatThrownBy(() -> flowablePlus.getNextNodeApproversByProcessKey(""))
+        assertThatThrownBy(() -> nodePreviewWorkflow.getNextNodeApproversByProcessKey(""))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("processKey");
     }
@@ -106,7 +95,7 @@ public class NodePreviewOperationsTest {
         when(pdQuery.active()).thenReturn(pdQuery);
         when(pdQuery.singleResult()).thenReturn(null);
 
-        assertThatThrownBy(() -> flowablePlus.getNextNodeApproversByProcessKey("unknown-key"))
+        assertThatThrownBy(() -> nodePreviewWorkflow.getNextNodeApproversByProcessKey("unknown-key"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("未找到流程定义");
     }
@@ -127,7 +116,7 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findAllReachableUserTasks(definitionId, null))
                 .thenReturn(Collections.singletonList("taskA"));
 
-        List<NodeApproverVO> result = flowablePlus.getNextNodeApproversByProcessKey(processKey);
+        List<NodeApproverVO> result = nodePreviewWorkflow.getNextNodeApproversByProcessKey(processKey);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getNodeId()).isEqualTo("taskA");
@@ -154,7 +143,7 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findAllReachableUserTasks(definitionId, null))
                 .thenReturn(Collections.singletonList("taskA"));
 
-        List<NodeApproverVO> result = flowablePlus.getNextNodeApproversByProcessKey(processKey);
+        List<NodeApproverVO> result = nodePreviewWorkflow.getNextNodeApproversByProcessKey(processKey);
 
         assertThat(result).hasSize(1);
         List<ApproverInfoVO> approvers = result.get(0).getApprovers();
@@ -186,7 +175,7 @@ public class NodePreviewOperationsTest {
         when(mockGroupResolver.getGroupMembers("dept_director"))
                 .thenReturn(Collections.singletonList("userC"));
 
-        List<NodeApproverVO> result = flowablePlus.getNextNodeApproversByProcessKey(processKey);
+        List<NodeApproverVO> result = nodePreviewWorkflow.getNextNodeApproversByProcessKey(processKey);
 
         assertThat(result).hasSize(1);
         List<ApproverInfoVO> approvers = result.get(0).getApprovers();
@@ -208,12 +197,9 @@ public class NodePreviewOperationsTest {
 
         stubProcessDefinition(processKey, definitionId);
 
-        TaskQueryModule taskQueryModule = mock(TaskQueryModule.class);
-        ProcessQueryWorkflow processQueryWorkflow = mock(ProcessQueryWorkflow.class);
-        BpmnFormDataHelper bpmnFormDataHelper = new BpmnFormDataHelper();
-        FlowablePlus fpWithoutResolver = new FlowablePlus(taskQueryModule, processQueryWorkflow,
-                mockRuntimeService, mockRepoService, mockTaskService, mockNodeFinder, bpmnModelCache,
-                new UserTaskApproverResolver(null), bpmnFormDataHelper);
+        NodePreviewWorkflow npwWithoutResolver = new NodePreviewWorkflow(mockRepoService, bpmnModelCache,
+                mockNodeFinder, new UserTaskApproverResolver(null), mockTaskService,
+                mockRuntimeService, bpmnFormDataHelper);
 
         UserTask userTask = buildUserTask("taskA", "多级审批", null, null,
                 Collections.singletonList("dept_manager"));
@@ -223,9 +209,8 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findAllReachableUserTasks(definitionId, null))
                 .thenReturn(Collections.singletonList("taskA"));
 
-        List<NodeApproverVO> result = fpWithoutResolver.getNextNodeApproversByProcessKey(processKey);
+        List<NodeApproverVO> result = npwWithoutResolver.getNextNodeApproversByProcessKey(processKey);
 
-        // candidateGroups 因 GroupResolver 为 null 而被跳过
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getApprovers()).isEmpty();
     }
@@ -247,7 +232,7 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findAllReachableUserTasks(definitionId, null))
                 .thenReturn(Arrays.asList("taskA", "taskB"));
 
-        List<NodeApproverVO> result = flowablePlus.getNextNodeApproversByProcessKey(processKey);
+        List<NodeApproverVO> result = nodePreviewWorkflow.getNextNodeApproversByProcessKey(processKey);
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).getNodeId()).isEqualTo("taskA");
@@ -274,7 +259,7 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findAllReachableUserTasks(definitionId, variables))
                 .thenReturn(Collections.singletonList("taskA"));
 
-        List<NodeApproverVO> result = flowablePlus.getNextNodeApproversByProcessKey(processKey, variables);
+        List<NodeApproverVO> result = nodePreviewWorkflow.getNextNodeApproversByProcessKey(processKey, variables);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getNodeId()).isEqualTo("taskA");
@@ -294,12 +279,12 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findAllReachableUserTasks(definitionId, null))
                 .thenReturn(Collections.singletonList("taskA"));
 
-        List<NodeApproverVO> result = flowablePlus.getNextNodeApproversByProcessKey(processKey, (Map<String, Object>) null);
+        List<NodeApproverVO> result = nodePreviewWorkflow.getNextNodeApproversByProcessKey(processKey, (Map<String, Object>) null);
 
         assertThat(result).hasSize(1);
     }
 
-    // ======================== S6: getNextTaskApprovers ========================
+    // ======================== getNextTaskApprovers ========================
 
     @Test
     public void testGetNextTaskApproversFlatList() {
@@ -307,23 +292,17 @@ public class NodePreviewOperationsTest {
         String processInstanceId = "pi-001";
         String definitionId = "leave:1:abc";
 
-        // 准备 Task 查询
         Task task = mockTask(taskId, definitionId, processInstanceId, "nodeA");
-
-        // 准备运行时变量
         when(mockRuntimeService.getVariables(processInstanceId)).thenReturn(new HashMap<>());
 
-        // 准备 BPMN 模型：两个下游 UserTask
         UserTask downstreamA = buildUserTask("nodeB", "部门经理", "manager1", null, null);
         UserTask downstreamB = buildUserTask("nodeC", "总经理", "ceo1", null, null);
         BpmnModel model = buildBpmnModel(downstreamA, downstreamB);
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
-
-        // NodeFinder 返回下游节点
         when(mockNodeFinder.findNextUserTasks(definitionId, "nodeA", processInstanceId, new HashMap<>()))
                 .thenReturn(Arrays.asList("nodeB", "nodeC"));
 
-        List<ApproverInfoVO> result = flowablePlus.getNextTaskApprovers(taskId);
+        List<ApproverInfoVO> result = nodePreviewWorkflow.getNextTaskApprovers(taskId);
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).getId()).isEqualTo("manager1");
@@ -350,8 +329,7 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findNextUserTasks(definitionId, "nodeA", processInstanceId, new HashMap<>()))
                 .thenReturn(Arrays.asList("nodeB", "nodeC"));
 
-        // 只查询 nodeC 的审批人
-        List<ApproverInfoVO> result = flowablePlus.getNextTaskApprovers(taskId, "nodeC");
+        List<ApproverInfoVO> result = nodePreviewWorkflow.getNextTaskApprovers(taskId, "nodeC");
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getId()).isEqualTo("ceo1");
@@ -373,26 +351,26 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findNextUserTasks(definitionId, "nodeA", processInstanceId, new HashMap<>()))
                 .thenReturn(Collections.singletonList("nodeB"));
 
-        List<ApproverInfoVO> result = flowablePlus.getNextTaskApprovers(taskId, "nonexistent");
+        List<ApproverInfoVO> result = nodePreviewWorkflow.getNextTaskApprovers(taskId, "nonexistent");
 
         assertThat(result).isEmpty();
     }
 
     @Test
     public void testGetNextTaskApproversRejectNullTaskId() {
-        assertThatThrownBy(() -> flowablePlus.getNextTaskApprovers(null))
+        assertThatThrownBy(() -> nodePreviewWorkflow.getNextTaskApprovers(null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("taskId");
     }
 
     @Test
     public void testGetNextTaskApproversRejectEmptyTaskId() {
-        assertThatThrownBy(() -> flowablePlus.getNextTaskApprovers(""))
+        assertThatThrownBy(() -> nodePreviewWorkflow.getNextTaskApprovers(""))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("taskId");
     }
 
-    // ======================== S7: getNextTaskNodes ========================
+    // ======================== getNextTaskNodes ========================
 
     @Test
     public void testGetNextTaskNodes() {
@@ -410,7 +388,7 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findNextUserTasks(definitionId, "nodeA", processInstanceId, new HashMap<>()))
                 .thenReturn(Arrays.asList("nodeB", "nodeC"));
 
-        List<NextTaskNodeVO> result = flowablePlus.getNextTaskNodes(processInstanceId, taskId);
+        List<NextTaskNodeVO> result = nodePreviewWorkflow.getNextTaskNodes(processInstanceId, taskId);
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).getTaskCode()).isEqualTo("nodeB");
@@ -423,23 +401,20 @@ public class NodePreviewOperationsTest {
 
     @Test
     public void testGetNextTaskNodesRejectNullProcessInstanceId() {
-        assertThatThrownBy(() -> flowablePlus.getNextTaskNodes(null, "task-001"))
+        assertThatThrownBy(() -> nodePreviewWorkflow.getNextTaskNodes(null, "task-001"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("processInstanceId");
     }
 
     @Test
     public void testGetNextTaskNodesRejectNullTaskId() {
-        assertThatThrownBy(() -> flowablePlus.getNextTaskNodes("pi-001", null))
+        assertThatThrownBy(() -> nodePreviewWorkflow.getNextTaskNodes("pi-001", null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("taskId");
     }
 
     // ======================== 辅助方法 ========================
 
-    /**
-     * 构建一个 Mock Task 并设置 TaskQuery chain。
-     */
     private Task mockTask(String taskId, String definitionId, String processInstanceId, String taskDefinitionKey) {
         TaskQuery taskQuery = mock(TaskQuery.class);
         when(taskQuery.taskId(taskId)).thenReturn(taskQuery);

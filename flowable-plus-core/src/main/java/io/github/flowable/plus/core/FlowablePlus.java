@@ -1,7 +1,5 @@
 package io.github.flowable.plus.core;
 
-import io.github.flowable.plus.core.spi.ApproverResolver;
-import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.vo.ApprovalTraceVO;
 import io.github.flowable.plus.core.vo.ApproverInfoVO;
 import io.github.flowable.plus.core.vo.DoneTaskVO;
@@ -12,24 +10,13 @@ import io.github.flowable.plus.core.vo.TodoTaskVO;
 import io.github.flowable.plus.core.api.QueryOperations;
 import io.github.flowable.plus.core.domain.PageResult;
 import io.github.flowable.plus.core.dto.TaskQueryDTO;
-import io.github.flowable.plus.core.model.BpmnModelCache;
-import io.github.flowable.plus.core.model.NodeFinder;
-import io.github.flowable.plus.core.support.BpmnFormDataHelper;
 import io.github.flowable.plus.core.workflow.ProcessQueryWorkflow;
 import io.github.flowable.plus.core.workflow.TaskQueryModule;
+import io.github.flowable.plus.core.workflow.NodePreviewWorkflow;
 import lombok.extern.slf4j.Slf4j;
-import org.flowable.bpmn.model.BpmnModel;
-import org.flowable.bpmn.model.FlowElement;
-import org.flowable.bpmn.model.UserTask;
-import org.flowable.engine.RepositoryService;
-import org.flowable.engine.RuntimeService;
-import org.flowable.engine.TaskService;
-import org.flowable.engine.repository.ProcessDefinition;
-import org.flowable.task.api.Task;
 import org.flowable.task.api.TaskQuery;
 import org.flowable.task.api.history.HistoricTaskInstanceQuery;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -39,11 +26,7 @@ import java.util.function.Consumer;
  *
  * <p>待办/已办查询委托给 {@link TaskQueryModule}，
  * 流程追踪委托给 {@link ProcessQueryWorkflow}，
- * BPMN 扩展解析委托给 {@link BpmnFormDataHelper}，
- * VO 转换委托给 {@link VOAssembler}（通过 TaskQueryModule 间接使用）。
- * 节点预览逻辑内聚于本模块。
- * 常规任务推进与驳回操作已下沉至 {@link TaskWorkflow}，
- * 会签操作已下沉至 {@link CounterSignWorkflow}。</p>
+ * 节点预览委托给 {@link NodePreviewWorkflow}。</p>
  *
  * @author flowable-plus
  */
@@ -52,72 +35,30 @@ public class FlowablePlus implements QueryOperations {
 
     private final TaskQueryModule taskQueryModule;
     private final ProcessQueryWorkflow processQueryWorkflow;
-    private final RuntimeService runtimeService;
-    private final RepositoryService repositoryService;
-    private final TaskService taskService;
-    private final NodeFinder nodeFinder;
-    private final BpmnModelCache bpmnModelCache;
-    private final ApproverResolver approverResolver;
-    private final BpmnFormDataHelper bpmnFormDataHelper;
+    private final NodePreviewWorkflow nodePreviewWorkflow;
 
     /**
      * 构造器注入所有依赖。
      *
      * @param taskQueryModule      待办/已办查询模块，不可为 null
      * @param processQueryWorkflow 流程追踪模块，不可为 null
-     * @param runtimeService       Flowable 运行时服务，不可为 null
-     * @param repositoryService    Flowable 仓储服务，不可为 null
-     * @param taskService          Flowable 任务服务，不可为 null
-     * @param nodeFinder           BPMN 节点遍历策略，不可为 null
-     * @param bpmnModelCache       BPMN 模型缓存，不可为 null
-     * @param approverResolver     审批人解析策略，不可为 null
-     * @param bpmnFormDataHelper   BPMN 扩展属性解析工具，不可为 null
+     * @param nodePreviewWorkflow  节点预览模块，不可为 null
      */
     public FlowablePlus(TaskQueryModule taskQueryModule,
                         ProcessQueryWorkflow processQueryWorkflow,
-                        RuntimeService runtimeService,
-                        RepositoryService repositoryService,
-                        TaskService taskService,
-                        NodeFinder nodeFinder,
-                        BpmnModelCache bpmnModelCache,
-                        ApproverResolver approverResolver,
-                        BpmnFormDataHelper bpmnFormDataHelper) {
+                        NodePreviewWorkflow nodePreviewWorkflow) {
         if (taskQueryModule == null) {
             throw new IllegalArgumentException("TaskQueryModule 不可为 null");
         }
         if (processQueryWorkflow == null) {
             throw new IllegalArgumentException("ProcessQueryWorkflow 不可为 null");
         }
-        if (runtimeService == null) {
-            throw new IllegalArgumentException("RuntimeService 不可为 null");
-        }
-        if (repositoryService == null) {
-            throw new IllegalArgumentException("RepositoryService 不可为 null");
-        }
-        if (taskService == null) {
-            throw new IllegalArgumentException("TaskService 不可为 null");
-        }
-        if (nodeFinder == null) {
-            throw new IllegalArgumentException("NodeFinder 不可为 null");
-        }
-        if (bpmnModelCache == null) {
-            throw new IllegalArgumentException("BpmnModelCache 不可为 null");
-        }
-        if (approverResolver == null) {
-            throw new IllegalArgumentException("ApproverResolver 不可为 null");
-        }
-        if (bpmnFormDataHelper == null) {
-            throw new IllegalArgumentException("BpmnFormDataHelper 不可为 null");
+        if (nodePreviewWorkflow == null) {
+            throw new IllegalArgumentException("NodePreviewWorkflow 不可为 null");
         }
         this.taskQueryModule = taskQueryModule;
         this.processQueryWorkflow = processQueryWorkflow;
-        this.runtimeService = runtimeService;
-        this.repositoryService = repositoryService;
-        this.taskService = taskService;
-        this.nodeFinder = nodeFinder;
-        this.bpmnModelCache = bpmnModelCache;
-        this.approverResolver = approverResolver;
-        this.bpmnFormDataHelper = bpmnFormDataHelper;
+        this.nodePreviewWorkflow = nodePreviewWorkflow;
     }
 
     // ======================== QueryOperations: 待办/已办 (委托给 TaskQueryModule) ========================
@@ -143,119 +84,31 @@ public class FlowablePlus implements QueryOperations {
         return taskQueryModule.queryDoneTasks(userId, query, enhancer);
     }
 
-    // ======================== QueryOperations: 节点预览 ========================
+    // ======================== QueryOperations: 节点预览 (委托给 NodePreviewWorkflow) ========================
 
     @Override
     public List<NodeApproverVO> getNextNodeApproversByProcessKey(String processKey) {
-        return getNextNodeApproversByProcessKey(processKey, null);
+        return nodePreviewWorkflow.getNextNodeApproversByProcessKey(processKey);
     }
 
     @Override
     public List<NodeApproverVO> getNextNodeApproversByProcessKey(String processKey, Map<String, Object> variables) {
-        if (processKey == null || processKey.isEmpty()) {
-            throw new IllegalArgumentException("processKey 不可为 null 或空");
-        }
-
-        ProcessDefinition definition = repositoryService.createProcessDefinitionQuery()
-                .processDefinitionKey(processKey)
-                .latestVersion()
-                .active()
-                .singleResult();
-        if (definition == null) {
-            throw new IllegalArgumentException("未找到流程定义，processKey=" + processKey);
-        }
-
-        String definitionId = definition.getId();
-        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(definitionId);
-
-        List<String> nodeIds = nodeFinder.findAllReachableUserTasks(definitionId, variables);
-
-        List<NodeApproverVO> result = new ArrayList<>();
-        for (String nodeId : nodeIds) {
-            FlowElement flowElement = bpmnModel.getFlowElement(nodeId);
-            if (!(flowElement instanceof UserTask)) {
-                continue;
-            }
-            UserTask userTask = (UserTask) flowElement;
-
-            List<ApproverInfoVO> approvers = approverResolver.resolveApprovers(userTask);
-
-            result.add(NodeApproverVO.builder()
-                    .nodeId(nodeId)
-                    .nodeName(userTask.getName())
-                    .approvers(approvers)
-                    .build());
-        }
-
-        return result;
+        return nodePreviewWorkflow.getNextNodeApproversByProcessKey(processKey, variables);
     }
 
     @Override
     public List<ApproverInfoVO> getNextTaskApprovers(String taskId) {
-        return getNextTaskApprovers(taskId, null);
+        return nodePreviewWorkflow.getNextTaskApprovers(taskId);
     }
 
     @Override
     public List<ApproverInfoVO> getNextTaskApprovers(String taskId, String targetNodeId) {
-        if (taskId == null || taskId.isEmpty()) {
-            throw new IllegalArgumentException("taskId 不可为 null 或空");
-        }
-
-        Task task = taskService.createTaskQuery()
-                .taskId(taskId).singleResult();
-        if (task == null) {
-            throw new NotFoundException("任务 " + taskId + " 不存在");
-        }
-
-        List<ResolvedNode> nodes = resolveDownstreamNodes(
-                task.getProcessDefinitionId(), task.getTaskDefinitionKey(), task.getProcessInstanceId());
-
-        List<ApproverInfoVO> result = new ArrayList<>();
-        for (ResolvedNode node : nodes) {
-            if (targetNodeId != null && !targetNodeId.equals(node.nodeId)) {
-                continue;
-            }
-            if (!(node.flowElement instanceof UserTask)) {
-                continue;
-            }
-            List<ApproverInfoVO> approvers = approverResolver.resolveApprovers((UserTask) node.flowElement);
-            for (ApproverInfoVO vo : approvers) {
-                vo.setNodeId(node.nodeId);
-                vo.setNodeName(node.nodeName);
-            }
-            result.addAll(approvers);
-        }
-        return result;
+        return nodePreviewWorkflow.getNextTaskApprovers(taskId, targetNodeId);
     }
 
     @Override
     public List<NextTaskNodeVO> getNextTaskNodes(String processInstanceId, String taskId) {
-        if (processInstanceId == null || processInstanceId.isEmpty()) {
-            throw new IllegalArgumentException("processInstanceId 不可为 null 或空");
-        }
-        if (taskId == null || taskId.isEmpty()) {
-            throw new IllegalArgumentException("taskId 不可为 null 或空");
-        }
-
-        Task task = taskService.createTaskQuery()
-                .taskId(taskId).singleResult();
-        if (task == null) {
-            throw new NotFoundException("任务 " + taskId + " 不存在");
-        }
-
-        List<ResolvedNode> nodes = resolveDownstreamNodes(
-                task.getProcessDefinitionId(), task.getTaskDefinitionKey(), processInstanceId);
-
-        List<NextTaskNodeVO> result = new ArrayList<>();
-        for (ResolvedNode node : nodes) {
-            String formData = bpmnFormDataHelper.extractFormData(node.flowElement);
-            result.add(NextTaskNodeVO.builder()
-                    .taskCode(node.nodeId)
-                    .taskName(node.nodeName)
-                    .formData(formData)
-                    .build());
-        }
-        return result;
+        return nodePreviewWorkflow.getNextTaskNodes(processInstanceId, taskId);
     }
 
     // ======================== QueryOperations: 流程追踪 (委托给 ProcessQueryWorkflow) ========================
@@ -268,45 +121,5 @@ public class FlowablePlus implements QueryOperations {
     @Override
     public List<ApprovalTraceVO> getApprovalTrace(String processInstanceId) {
         return processQueryWorkflow.getApprovalTrace(processInstanceId);
-    }
-
-    // ======================== 内部辅助 ========================
-
-    /**
-     * 共享遍历逻辑：从当前任务节点出发，解析下游节点列表。
-     * 通过 RuntimeService 获取运行时变量用于条件评估。
-     */
-    private List<ResolvedNode> resolveDownstreamNodes(String processDefinitionId,
-                                                       String currentActivityId, String processInstanceId) {
-        Map<String, Object> variables = runtimeService.getVariables(processInstanceId);
-
-        List<String> nodeIds = nodeFinder.findNextUserTasks(
-                processDefinitionId, currentActivityId, processInstanceId, variables);
-
-        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(processDefinitionId);
-
-        List<ResolvedNode> nodes = new ArrayList<>();
-        for (String nodeId : nodeIds) {
-            FlowElement element = bpmnModel.getFlowElement(nodeId);
-            if (element != null) {
-                nodes.add(new ResolvedNode(nodeId, element.getName(), element));
-            }
-        }
-        return nodes;
-    }
-
-    /**
-     * 遍历中间结果 VO：存储节点 ID、名称和原始 BPMN 元素引用。
-     */
-    static class ResolvedNode {
-        final String nodeId;
-        final String nodeName;
-        final FlowElement flowElement;
-
-        ResolvedNode(String nodeId, String nodeName, FlowElement flowElement) {
-            this.nodeId = nodeId;
-            this.nodeName = nodeName;
-            this.flowElement = flowElement;
-        }
     }
 }
