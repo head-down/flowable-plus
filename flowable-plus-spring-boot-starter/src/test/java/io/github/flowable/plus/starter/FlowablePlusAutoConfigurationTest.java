@@ -4,6 +4,7 @@ import io.github.flowable.plus.core.FlowablePlus;
 import io.github.flowable.plus.core.api.QueryOperations;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
 import io.github.flowable.plus.core.spi.GroupResolver;
+import io.github.flowable.plus.core.spi.IdentityResolver;
 
 import io.github.flowable.plus.core.spi.UserContext;
 import org.flowable.engine.HistoryService;
@@ -225,6 +226,63 @@ class FlowablePlusAutoConfigurationTest {
                 .withBean(GroupResolver.class, () -> custom)
                 .run(ctx -> {
                     assertThat(ctx.getBean(GroupResolver.class)).isSameAs(custom);
+                });
+    }
+
+    // ======================== IdentityResolver 自动配置测试 ========================
+
+    @Test
+    void testIdentityResolverDefaultBeanRegistered() {
+        contextRunner.run(ctx -> {
+            assertThat(ctx).hasSingleBean(IdentityResolver.class);
+            IdentityResolver resolver = ctx.getBean(IdentityResolver.class);
+            // 兜底实现：userId→userId
+            assertThat(resolver.resolve("testUser")).isEqualTo("testUser");
+            assertThat(resolver.resolve("admin")).isEqualTo("admin");
+        });
+    }
+
+    @Test
+    void testIdentityResolverResolveBatchDefault() {
+        contextRunner.run(ctx -> {
+            IdentityResolver resolver = ctx.getBean(IdentityResolver.class);
+            java.util.Map<String, String> result = resolver.resolveBatch(
+                    java.util.Arrays.asList("u1", "u2", "u3"));
+            // 兜底实现下，batch 结果也是 userId→userId
+            assertThat(result)
+                    .containsEntry("u1", "u1")
+                    .containsEntry("u2", "u2")
+                    .containsEntry("u3", "u3")
+                    .hasSize(3);
+        });
+    }
+
+    @Test
+    void testCustomIdentityResolverNotOverridden() {
+        IdentityResolver custom = userId -> "Custom_" + userId;
+        contextRunner
+                .withBean(IdentityResolver.class, () -> custom)
+                .run(ctx -> {
+                    IdentityResolver resolver = ctx.getBean(IdentityResolver.class);
+                    assertThat(resolver).isSameAs(custom);
+                    // 自定义映射生效
+                    assertThat(resolver.resolve("user1")).isEqualTo("Custom_user1");
+                    assertThat(resolver.resolve("user2")).isEqualTo("Custom_user2");
+                });
+    }
+
+    @Test
+    void testCustomIdentityResolverResolveBatchUsesCustomMapping() {
+        IdentityResolver custom = userId -> "Mapped_" + userId;
+        contextRunner
+                .withBean(IdentityResolver.class, () -> custom)
+                .run(ctx -> {
+                    IdentityResolver resolver = ctx.getBean(IdentityResolver.class);
+                    java.util.Map<String, String> result = resolver.resolveBatch(
+                            java.util.Arrays.asList("a", "b"));
+                    assertThat(result)
+                            .containsEntry("a", "Mapped_a")
+                            .containsEntry("b", "Mapped_b");
                 });
     }
 

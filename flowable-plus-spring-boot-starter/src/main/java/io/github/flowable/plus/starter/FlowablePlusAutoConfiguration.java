@@ -20,6 +20,7 @@ import io.github.flowable.plus.core.spi.AutoApprovalRule;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
 import io.github.flowable.plus.core.spi.ExecutionTreeHelper;
 import io.github.flowable.plus.core.spi.GroupResolver;
+import io.github.flowable.plus.core.spi.IdentityResolver;
 
 import io.github.flowable.plus.core.spi.UserContext;
 import org.flowable.common.engine.impl.el.ExpressionManager;
@@ -194,6 +195,20 @@ public class FlowablePlusAutoConfiguration {
         return new IdentityGroupResolver(identityService);
     }
 
+
+    /**
+     * 注册 IdentityResolver 默认 Bean。
+     *
+     * <p>兜底实现为 userId→userId，直接返回用户 ID 作为名称。
+     * 应用可通过声明同名 Bean 替换为自定义身份服务。</p>
+     *
+     * @return IdentityResolver 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public IdentityResolver identityResolver() {
+        return userId -> userId;
+    }
 
     /**
      * 注册 ApproverResolver Bean。
