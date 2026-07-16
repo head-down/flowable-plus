@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import io.github.flowable.plus.core.domain.PageResult;
 import io.github.flowable.plus.core.dto.TaskQueryDTO;
 import io.github.flowable.plus.core.support.VOAssembler;
+import io.github.flowable.plus.core.workflow.DiagramWorkflow;
 import io.github.flowable.plus.core.workflow.NodePreviewWorkflow;
 import io.github.flowable.plus.core.workflow.ProcessQueryWorkflow;
 import io.github.flowable.plus.core.workflow.TaskQueryModule;
@@ -72,8 +73,9 @@ public class TaskListOperationsTest {
                 mockIdentityService, voAssembler);
         ProcessQueryWorkflow processQueryWorkflow = mock(ProcessQueryWorkflow.class);
         NodePreviewWorkflow nodePreviewWorkflow = mock(NodePreviewWorkflow.class);
+        DiagramWorkflow diagramWorkflow = mock(DiagramWorkflow.class);
 
-        flowablePlus = new FlowablePlus(taskQueryModule, processQueryWorkflow, nodePreviewWorkflow);
+        flowablePlus = new FlowablePlus(taskQueryModule, processQueryWorkflow, nodePreviewWorkflow, diagramWorkflow);
     }
 
     // ======================== 参数校验 ========================

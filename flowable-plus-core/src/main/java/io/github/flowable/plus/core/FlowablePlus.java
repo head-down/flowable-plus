@@ -5,11 +5,14 @@ import io.github.flowable.plus.core.vo.ApproverInfoVO;
 import io.github.flowable.plus.core.vo.DoneTaskVO;
 import io.github.flowable.plus.core.vo.NextTaskNodeVO;
 import io.github.flowable.plus.core.vo.NodeApproverVO;
+import io.github.flowable.plus.core.vo.ProcessDiagramVO;
 import io.github.flowable.plus.core.vo.ProcessSummaryVO;
 import io.github.flowable.plus.core.vo.TodoTaskVO;
+import io.github.flowable.plus.core.api.DiagramOperations;
 import io.github.flowable.plus.core.api.QueryOperations;
 import io.github.flowable.plus.core.domain.PageResult;
 import io.github.flowable.plus.core.dto.TaskQueryDTO;
+import io.github.flowable.plus.core.workflow.DiagramWorkflow;
 import io.github.flowable.plus.core.workflow.ProcessQueryWorkflow;
 import io.github.flowable.plus.core.workflow.TaskQueryModule;
 import io.github.flowable.plus.core.workflow.NodePreviewWorkflow;
@@ -26,16 +29,18 @@ import java.util.function.Consumer;
  *
  * <p>待办/已办查询委托给 {@link TaskQueryModule}，
  * 流程追踪委托给 {@link ProcessQueryWorkflow}，
- * 节点预览委托给 {@link NodePreviewWorkflow}。</p>
+ * 节点预览委托给 {@link NodePreviewWorkflow}，
+ * 流程图委托给 {@link DiagramWorkflow}。</p>
  *
  * @author flowable-plus
  */
 @Slf4j
-public class FlowablePlus implements QueryOperations {
+public class FlowablePlus implements QueryOperations, DiagramOperations {
 
     private final TaskQueryModule taskQueryModule;
     private final ProcessQueryWorkflow processQueryWorkflow;
     private final NodePreviewWorkflow nodePreviewWorkflow;
+    private final DiagramWorkflow diagramWorkflow;
 
     /**
      * 构造器注入所有依赖。
@@ -43,10 +48,12 @@ public class FlowablePlus implements QueryOperations {
      * @param taskQueryModule      待办/已办查询模块，不可为 null
      * @param processQueryWorkflow 流程追踪模块，不可为 null
      * @param nodePreviewWorkflow  节点预览模块，不可为 null
+     * @param diagramWorkflow      流程图生成模块，不可为 null
      */
     public FlowablePlus(TaskQueryModule taskQueryModule,
                         ProcessQueryWorkflow processQueryWorkflow,
-                        NodePreviewWorkflow nodePreviewWorkflow) {
+                        NodePreviewWorkflow nodePreviewWorkflow,
+                        DiagramWorkflow diagramWorkflow) {
         if (taskQueryModule == null) {
             throw new IllegalArgumentException("TaskQueryModule 不可为 null");
         }
@@ -56,9 +63,13 @@ public class FlowablePlus implements QueryOperations {
         if (nodePreviewWorkflow == null) {
             throw new IllegalArgumentException("NodePreviewWorkflow 不可为 null");
         }
+        if (diagramWorkflow == null) {
+            throw new IllegalArgumentException("DiagramWorkflow 不可为 null");
+        }
         this.taskQueryModule = taskQueryModule;
         this.processQueryWorkflow = processQueryWorkflow;
         this.nodePreviewWorkflow = nodePreviewWorkflow;
+        this.diagramWorkflow = diagramWorkflow;
     }
 
     // ======================== QueryOperations: 待办/已办 (委托给 TaskQueryModule) ========================
@@ -121,5 +132,12 @@ public class FlowablePlus implements QueryOperations {
     @Override
     public List<ApprovalTraceVO> getApprovalTrace(String processInstanceId) {
         return processQueryWorkflow.getApprovalTrace(processInstanceId);
+    }
+
+    // ======================== DiagramOperations: 流程图 (委托给 DiagramWorkflow) ========================
+
+    @Override
+    public ProcessDiagramVO getProcessDiagram(String processInstanceId) {
+        return diagramWorkflow.getProcessDiagram(processInstanceId);
     }
 }

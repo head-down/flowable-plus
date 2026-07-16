@@ -3,6 +3,7 @@ package io.github.flowable.plus.starter;
 import io.github.flowable.plus.core.support.BpmnFormDataHelper;
 import io.github.flowable.plus.core.model.BpmnModelCache;
 import io.github.flowable.plus.core.workflow.CounterSignWorkflow;
+import io.github.flowable.plus.core.workflow.DiagramWorkflow;
 import io.github.flowable.plus.core.workflow.FlowableExecutionTreeHelper;
 import io.github.flowable.plus.core.model.DefaultBpmnModelCache;
 import io.github.flowable.plus.core.model.DefaultNodeFinder;
@@ -303,15 +304,32 @@ public class FlowablePlusAutoConfiguration {
     }
 
     /**
+     * 注册 DiagramWorkflow Bean。
+     *
+     * <p>封装流程图生成逻辑，包含节点状态分类和 SVG 渲染。
+     * 应用可通过声明同名 Bean 替换默认实现。</p>
+     *
+     * @param historyService  Flowable 历史服务
+     * @param bpmnModelCache  BPMN 模型缓存
+     * @return DiagramWorkflow 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public DiagramWorkflow diagramWorkflow(HistoryService historyService, BpmnModelCache bpmnModelCache) {
+        return new DiagramWorkflow(historyService, bpmnModelCache);
+    }
+
+    /**
      * 注册 FlowablePlus Bean。
      *
      * <p>当 {@code flowable.plus.enabled=true}（默认）时生效。
      * 待办/已办查询委托给 TaskQueryModule，节点预览委托给 NodePreviewWorkflow，
-     * 流程追踪委托给 ProcessQueryWorkflow。</p>
+     * 流程追踪委托给 ProcessQueryWorkflow，流程图委托给 DiagramWorkflow。</p>
      *
      * @param taskQueryModule      待办/已办查询模块
      * @param processQueryWorkflow 流程追踪模块
      * @param nodePreviewWorkflow  节点预览模块
+     * @param diagramWorkflow      流程图生成模块
      * @return FlowablePlus 实例
      */
     @Bean
@@ -319,8 +337,9 @@ public class FlowablePlusAutoConfiguration {
     @ConditionalOnProperty(name = "flowable.plus.enabled", havingValue = "true", matchIfMissing = true)
     public FlowablePlus flowablePlus(TaskQueryModule taskQueryModule,
                                      ProcessQueryWorkflow processQueryWorkflow,
-                                     NodePreviewWorkflow nodePreviewWorkflow) {
-        return new FlowablePlus(taskQueryModule, processQueryWorkflow, nodePreviewWorkflow);
+                                     NodePreviewWorkflow nodePreviewWorkflow,
+                                     DiagramWorkflow diagramWorkflow) {
+        return new FlowablePlus(taskQueryModule, processQueryWorkflow, nodePreviewWorkflow, diagramWorkflow);
     }
 
     /**
