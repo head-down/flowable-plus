@@ -110,7 +110,7 @@ public TaskWorkflow(UserContext userContext, TaskService taskService,
         taskService.claim(taskId, userId);
 
         if (StrUtil.isNotBlank(comment)) {
-            taskService.addComment(taskId, null, null, comment);
+            taskService.addComment(taskId, task.getProcessInstanceId(), CommentType.AGREE.name(), comment);
         }
 
         taskService.complete(taskId, variables);
@@ -210,7 +210,7 @@ public TaskWorkflow(UserContext userContext, TaskService taskService,
                     "用户 " + currentUserId + " 不是上一节点审批人，无权撤回任务 " + taskId);
         }
 
-        executeRollback(task, prevNodeId, reason, "WITHDRAW");
+        executeRollback(task, prevNodeId, reason, CommentType.WITHDRAW.name());
     }
 
     @Override
@@ -248,6 +248,9 @@ public TaskWorkflow(UserContext userContext, TaskService taskService,
             throw new TaskAlreadyCompletedException(
                     "流程实例 " + processInstanceId + " 已推进后续节点，无法撤销");
         }
+
+        String commentText = StrUtil.isNotBlank(reason) ? reason : "撤销流程实例";
+        taskService.addComment(activeTask.getId(), processInstanceId, CommentType.REVOKE.name(), commentText);
 
         runtimeService.deleteProcessInstance(processInstanceId, reason);
     }
@@ -443,7 +446,7 @@ public TaskWorkflow(UserContext userContext, TaskService taskService,
             for (AutoApprovalRule rule : autoApprovalRules) {
                 String evalResult = rule.evaluate(task, readonlyVars);
                 if (evalResult != null) {
-                    taskService.addComment(task.getId(), processInstanceId, "AUTO_COMPLETE", evalResult);
+                    taskService.addComment(task.getId(), processInstanceId, CommentType.AUTO_COMPLETE.name(), evalResult);
                     taskService.complete(task.getId(), null);
                     log.info("自动提交成功, taskId: {}, assignee: {}, comment: {}",
                             task.getId(), userId, evalResult);

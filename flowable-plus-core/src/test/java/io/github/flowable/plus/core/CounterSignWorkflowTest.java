@@ -113,7 +113,7 @@ public class CounterSignWorkflowTest {
         counterSignWorkflow.counterSign("task-001", true, null, "同意");
 
         verify(mockTaskService).claim("task-001", USER_ID);
-        verify(mockTaskService).addComment("task-001", null, "AGREE", "同意");
+        verify(mockTaskService).addComment("task-001", "pi-001", CommentType.COUNTER_SIGN_AGREE.name(), "同意");
         verify(mockTaskService).complete("task-001", null);
         assertThat(onStartCount.get()).isEqualTo(1);
         assertThat(onVoteCount.get()).isEqualTo(1);
@@ -157,7 +157,7 @@ public class CounterSignWorkflowTest {
 
         counterSignWorkflow.counterSign("task-001", false, null, "不同意");
 
-        verify(mockTaskService).addComment("task-001", null, "COUNTER_SIGN_REJECT", "不同意");
+        verify(mockTaskService).addComment("task-001", "pi-001", CommentType.COUNTER_SIGN_REJECT.name(), "不同意");
         verify(mockTaskService).complete("task-001", null);
     }
 
@@ -269,7 +269,7 @@ public class CounterSignWorkflowTest {
 
         verify(mockRuntimeService).addMultiInstanceExecution("csTask", "pi-001",
                 new HashMap<String, Object>() {{ put("assignee", "newUser"); }});
-        verify(mockTaskService).addComment(anyString(), eq("pi-001"), eq("ADD_SIGN"), anyString());
+        verify(mockTaskService).addComment(anyString(), eq("pi-001"), eq(CommentType.ADD_SIGN.name()), anyString());
         assertThat(onStartCount.get()).isEqualTo(1);
     }
 
@@ -425,7 +425,7 @@ public class CounterSignWorkflowTest {
         counterSignWorkflow.removeCounterSigner("task-001", "user2");
 
         verify(mockRuntimeService).deleteMultiInstanceExecution("exec-sub-1", false);
-        verify(mockTaskService).addComment(anyString(), eq("pi-001"), eq("DELETE_SIGN"), anyString());
+        verify(mockTaskService).addComment(anyString(), eq("pi-001"), eq(CommentType.DELETE_SIGN.name()), anyString());
     }
 
     @Test

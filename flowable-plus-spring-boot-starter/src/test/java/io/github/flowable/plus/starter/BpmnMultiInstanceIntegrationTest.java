@@ -178,7 +178,7 @@ class BpmnMultiInstanceIntegrationTest {
 
         assertThat(onVoteCount.get()).isEqualTo(1);
         assertThat(onFinishCount.get()).isEqualTo(0);
-        verify(mockTaskService).addComment("task-001", null, "COUNTER_SIGN_REJECT", "驳回");
+        verify(mockTaskService).addComment("task-001", "pi-001", "COUNTER_SIGN_REJECT", "驳回");
     }
 
     // ======================== 驳回：部分驳回流程不推进 ========================

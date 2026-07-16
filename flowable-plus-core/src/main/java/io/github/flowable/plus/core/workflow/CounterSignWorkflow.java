@@ -76,8 +76,8 @@ public class CounterSignWorkflow implements CounterSignOperations {
         taskService.claim(taskId, userId);
 
         if (StrUtil.isNotBlank(comment)) {
-            String commentType = approved ? "AGREE" : "COUNTER_SIGN_REJECT";
-            taskService.addComment(taskId, null, commentType, comment);
+            String commentType = approved ? CommentType.COUNTER_SIGN_AGREE.name() : CommentType.COUNTER_SIGN_REJECT.name();
+            taskService.addComment(taskId, processInstanceId, commentType, comment);
         }
 
         invokeCallbacks(cb -> cb.onVote(processInstanceId, taskId, userId, approved, comment));
@@ -136,7 +136,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
         if (!skippedAssignees.isEmpty()) {
             commentMsg.append("；跳过已存在: ").append(String.join(", ", skippedAssignees));
         }
-        taskService.addComment(taskId, processInstanceId, "ADD_SIGN", commentMsg.toString());
+        taskService.addComment(taskId, processInstanceId, CommentType.ADD_SIGN.name(), commentMsg.toString());
 
         invokeCallbacks(cb -> cb.onStart(processInstanceId, taskId, newAssignees));
     }
@@ -185,7 +185,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
 
         runtimeService.deleteMultiInstanceExecution(targetTaskObj.getExecutionId(), false);
 
-        taskService.addComment(taskId, processInstanceId, "DELETE_SIGN",
+        taskService.addComment(taskId, processInstanceId, CommentType.DELETE_SIGN.name(),
                 "移除审批人: " + assignee);
     }
 

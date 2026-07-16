@@ -212,7 +212,7 @@ public class TaskWorkflowTest {
 
         taskWorkflow.completeTask("task-001", null, "同意");
 
-        verify(mockTaskService).addComment("task-001", null, null, "同意");
+        verify(mockTaskService).addComment("task-001", "pi-001", CommentType.AGREE.name(), "同意");
         verify(mockTaskService).complete("task-001", null);
     }
 
@@ -370,7 +370,7 @@ public class TaskWorkflowTest {
 
         taskWorkflow.withdrawTask("task-001", "撤回测试");
 
-        verify(mockTaskService).addComment("task-001", "pi-001", "WITHDRAW", "撤回测试");
+        verify(mockTaskService).addComment("task-001", "pi-001", CommentType.WITHDRAW.name(), "撤回测试");
     }
 
     @Test
@@ -438,6 +438,7 @@ public class TaskWorkflowTest {
         taskWorkflow.revokeProcess("pi-001", "发起人撤销");
 
         verify(mockRuntimeService).deleteProcessInstance("pi-001", "发起人撤销");
+        verify(mockTaskService).addComment("task-001", "pi-001", CommentType.REVOKE.name(), "发起人撤销");
     }
 
     @Test
