@@ -3,6 +3,7 @@ package io.github.flowable.plus.starter;
 import io.github.flowable.plus.core.support.BpmnFormDataHelper;
 import io.github.flowable.plus.core.model.BpmnModelCache;
 import io.github.flowable.plus.core.workflow.CounterSignWorkflow;
+import io.github.flowable.plus.core.workflow.FlowableExecutionTreeHelper;
 import io.github.flowable.plus.core.model.DefaultBpmnModelCache;
 import io.github.flowable.plus.core.model.DefaultNodeFinder;
 import io.github.flowable.plus.core.FlowablePlus;
@@ -16,6 +17,7 @@ import io.github.flowable.plus.core.support.VOAssembler;
 import io.github.flowable.plus.core.spi.ApproverResolver;
 import io.github.flowable.plus.core.spi.AutoApprovalRule;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
+import io.github.flowable.plus.core.spi.ExecutionTreeHelper;
 import io.github.flowable.plus.core.spi.GroupResolver;
 
 import io.github.flowable.plus.core.spi.UserContext;
@@ -101,6 +103,21 @@ public class FlowablePlusAutoConfiguration {
     }
 
     /**
+     * 注册 ExecutionTreeHelper Bean。
+     *
+     * <p>默认实现基于 Flowable 内部 API，封装并行网关分支剥离与清理操作。
+     * 应用可通过声明同名 Bean 替换为其他 Flowable 版本的适配实现。</p>
+     *
+     * @param processEngine Flowable 流程引擎
+     * @return FlowableExecutionTreeHelper 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public ExecutionTreeHelper executionTreeHelper(ProcessEngine processEngine) {
+        return new FlowableExecutionTreeHelper(processEngine.getManagementService());
+    }
+
+    /**
      * 注册 TaskWorkflow Bean。
      *
      * <p>封装常规审批任务的推进、驳回、撤回、撤销逻辑。
@@ -114,6 +131,7 @@ public class FlowablePlusAutoConfiguration {
      * @param multiInstanceDetector   多实例检测模块
      * @param processEngine           Flowable 流程引擎
      * @param autoApprovalRules       自动提交规则列表（可选）
+     * @param executionTreeHelper     执行树操作辅助
      * @return TaskWorkflow 实例
      */
     @Bean
@@ -121,11 +139,12 @@ public class FlowablePlusAutoConfiguration {
     public TaskWorkflow taskWorkflow(UserContext userContext, TaskService taskService,
                                      HistoryService historyService, NodeFinder nodeFinder,
                                      MultiInstanceDetector multiInstanceDetector, ProcessEngine processEngine,
-                                     @Autowired(required = false) List<AutoApprovalRule> autoApprovalRules) {
+                                     @Autowired(required = false) List<AutoApprovalRule> autoApprovalRules,
+                                     ExecutionTreeHelper executionTreeHelper) {
         return new TaskWorkflow(userContext, taskService, historyService,
                 processEngine.getRuntimeService(), processEngine.getIdentityService(),
                 nodeFinder, multiInstanceDetector, autoApprovalRules,
-                processEngine.getManagementService());
+                executionTreeHelper);
     }
 
     /**

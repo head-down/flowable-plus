@@ -6,11 +6,11 @@ import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.exception.TaskAlreadyCompletedException;
 import io.github.flowable.plus.core.spi.AutoApprovalRule;
+import io.github.flowable.plus.core.spi.ExecutionTreeHelper;
 import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.vo.JumpableNodeVO;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.IdentityService;
-import org.flowable.engine.ManagementService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
 import org.flowable.engine.history.HistoricProcessInstance;
@@ -64,10 +64,10 @@ public class TaskWorkflowTest {
     private HistoryService mockHistoryService;
     private RuntimeService mockRuntimeService;
     private IdentityService mockIdentityService;
-    private ManagementService mockManagementService;
     private NodeFinder mockNodeFinder;
     private BpmnModelCache mockBpmnModelCache;
     private MultiInstanceDetector mockMultiInstanceDetector;
+    private ExecutionTreeHelper mockExecutionTreeHelper;
     private TaskWorkflow taskWorkflow;
 
     @BeforeEach
@@ -77,17 +77,17 @@ public class TaskWorkflowTest {
         mockHistoryService = mock(HistoryService.class);
         mockRuntimeService = mock(RuntimeService.class);
         mockIdentityService = mock(IdentityService.class);
-        mockManagementService = mock(ManagementService.class);
         mockNodeFinder = mock(NodeFinder.class);
         mockBpmnModelCache = mock(BpmnModelCache.class);
         mockMultiInstanceDetector = mock(MultiInstanceDetector.class);
+        mockExecutionTreeHelper = mock(ExecutionTreeHelper.class);
 
         // 默认 stub：createExecutionQuery 返回空执行对象（非并行分支场景）
         stubNoParallelBranch();
 
         taskWorkflow = new TaskWorkflow(userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockIdentityService, mockNodeFinder, mockMultiInstanceDetector, null,
-                mockManagementService);
+                mockExecutionTreeHelper);
     }
 
     // ======================== 发起 ========================
@@ -168,7 +168,7 @@ public class TaskWorkflowTest {
 
         taskWorkflow = new TaskWorkflow(userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockIdentityService, mockNodeFinder, mockMultiInstanceDetector,
-                Collections.singletonList(failingRule), mockManagementService);
+                Collections.singletonList(failingRule), mockExecutionTreeHelper);
 
         ProcessInstance mockPi = mock(ProcessInstance.class);
         when(mockPi.getProcessInstanceId()).thenReturn("pi-003");
@@ -324,10 +324,12 @@ public class TaskWorkflowTest {
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
         when(mockNodeFinder.findInitiatorNode("leave:1:abc")).thenReturn("startTask");
 
+        stubRollback();
+
         taskWorkflow.rejectTaskToInitiator("task-001", "退回发起人");
 
-        // cleanup + rollback 已合并为单一 Command，回退逻辑内迁到 Command 内
-        verify(mockManagementService).executeCommand(any());
+        // cleanup 已委托给 ExecutionTreeHelper，回退逻辑独立执行
+        verify(mockExecutionTreeHelper).detachFromParallelGateway(eq("exec-task-001"), anyString());
     }
 
     @Test
@@ -846,10 +848,12 @@ public class TaskWorkflowTest {
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
         when(mockNodeFinder.findInitiatorNode("leave:1:abc")).thenReturn("startTask");
 
+        stubRollback();
+
         taskWorkflow.rejectTaskToInitiator("task-001", "退回发起人");
 
-        // cleanup + rollback 已合并为单一原子 Command
-        verify(mockManagementService).executeCommand(any());
+        // cleanup 委托给 ExecutionTreeHelper，回退逻辑独立执行
+        verify(mockExecutionTreeHelper).detachFromParallelGateway(eq("exec-task-001"), anyString());
     }
 
     // ======================== Test Helpers ========================

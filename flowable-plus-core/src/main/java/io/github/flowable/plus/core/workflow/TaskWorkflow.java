@@ -6,6 +6,7 @@ import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.exception.TaskAlreadyCompletedException;
 import io.github.flowable.plus.core.spi.AutoApprovalRule;
+import io.github.flowable.plus.core.spi.ExecutionTreeHelper;
 import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.vo.JumpableNodeVO;
 import io.github.flowable.plus.core.api.ApprovalOperations;
@@ -20,16 +21,10 @@ import io.github.flowable.plus.core.support.TaskValidation;
 import cn.hutool.core.util.StrUtil;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.IdentityService;
-import org.flowable.engine.ManagementService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
 import org.flowable.engine.history.HistoricProcessInstance;
 import org.flowable.task.api.history.HistoricTaskInstance;
-import org.flowable.common.engine.impl.interceptor.Command;
-import org.flowable.common.engine.impl.interceptor.CommandContext;
-import org.flowable.engine.impl.persistence.entity.ExecutionEntity;
-import org.flowable.engine.impl.persistence.entity.ExecutionEntityManager;
-import org.flowable.engine.impl.util.CommandContextUtil;
 import org.flowable.engine.runtime.ChangeActivityStateBuilder;
 import org.flowable.engine.runtime.Execution;
 import org.flowable.engine.runtime.ProcessInstance;
@@ -50,7 +45,6 @@ import java.util.stream.Collectors;
  *
  * @author flowable-plus
  */
-@Transactional(rollbackFor = Exception.class)
 public class TaskWorkflow implements ApprovalOperations {
 
     private static final Logger log = LoggerFactory.getLogger(TaskWorkflow.class);
@@ -63,14 +57,14 @@ public class TaskWorkflow implements ApprovalOperations {
     private final NodeFinder nodeFinder;
     private final MultiInstanceDetector multiInstanceDetector;
     private final List<AutoApprovalRule> autoApprovalRules;
-    private final ManagementService managementService;
+    private final ExecutionTreeHelper executionTreeHelper;
 
-    public TaskWorkflow(UserContext userContext, TaskService taskService,
-                 HistoryService historyService, RuntimeService runtimeService,
-                 IdentityService identityService, NodeFinder nodeFinder,
-                 MultiInstanceDetector multiInstanceDetector,
-                 List<AutoApprovalRule> autoApprovalRules,
-                 ManagementService managementService) {
+public TaskWorkflow(UserContext userContext, TaskService taskService,
+             HistoryService historyService, RuntimeService runtimeService,
+             IdentityService identityService, NodeFinder nodeFinder,
+             MultiInstanceDetector multiInstanceDetector,
+             List<AutoApprovalRule> autoApprovalRules,
+             ExecutionTreeHelper executionTreeHelper) {
         this.userContext = userContext;
         this.taskService = taskService;
         this.historyService = historyService;
@@ -79,10 +73,11 @@ public class TaskWorkflow implements ApprovalOperations {
         this.nodeFinder = nodeFinder;
         this.multiInstanceDetector = multiInstanceDetector;
         this.autoApprovalRules = autoApprovalRules != null ? autoApprovalRules : Collections.emptyList();
-        this.managementService = managementService;
+        this.executionTreeHelper = executionTreeHelper;
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public PlusProcessInstance startProcess(String processDefinitionKey, String businessKey, Map<String, Object> variables) {
         if (processDefinitionKey == null) {
             throw new IllegalArgumentException("processDefinitionKey 不可为 null");
@@ -166,37 +161,17 @@ public class TaskWorkflow implements ApprovalOperations {
             throw new NoPreviousNodeException("当前已是发起人节点，无法继续驳回");
         }
 
-        // 原子操作：清理并行分支 + 回退到发起人节点，同一事务内执行
-        managementService.executeCommand((Command<Void>) commandContext -> {
-            ExecutionEntityManager em = CommandContextUtil.getExecutionEntityManager(commandContext);
-            ExecutionEntity currentExec = em.findById(task.getExecutionId());
-            ExecutionEntity scopeExec = currentExec.getParent();
+        // 驳回至发起人：先剥离并行网关分支，再回退节点
+        executionTreeHelper.detachFromParallelGateway(task.getExecutionId(), reason);
 
-            // 仅处理并行网关 Scope（isConcurrent=true），
-            // 跳过根执行（串行流程 parent 即为 ProcessInstance，其 parent 为 null）
-            // 和子流程 Scope（isConcurrent=false，强行 Reparent 会摧毁子流程上下文）
-            if (scopeExec != null && scopeExec.isConcurrent()) {
-                ExecutionEntity rootExec = scopeExec.getParent();
-                // Reparent: 从并行网关 Scope 移除，挂到根执行下
-                scopeExec.getExecutions().remove(currentExec);
-                currentExec.setParent(rootExec);
-                rootExec.addChildExecution(currentExec);
-                // 级联删除 Scope（连带其他幽灵分支，保留历史数据）
-                em.deleteExecutionAndRelatedData(scopeExec, reason, false, true);
-            }
-
-            // 回退：添加审批意见 + 将当前活动移至发起人节点
-            if (StrUtil.isNotBlank(reason)) {
-                taskService.addComment(task.getId(), task.getProcessInstanceId(),
-                        CommentType.REJECT.name(), reason);
-            }
-            runtimeService.createChangeActivityStateBuilder()
-                    .processInstanceId(task.getProcessInstanceId())
-                    .moveActivityIdTo(task.getTaskDefinitionKey(), initiatorNode)
-                    .changeState();
-
-            return null;
-        });
+        if (StrUtil.isNotBlank(reason)) {
+            taskService.addComment(task.getId(), task.getProcessInstanceId(),
+                    CommentType.REJECT.name(), reason);
+        }
+        runtimeService.createChangeActivityStateBuilder()
+                .processInstanceId(task.getProcessInstanceId())
+                .moveActivityIdTo(task.getTaskDefinitionKey(), initiatorNode)
+                .changeState();
     }
 
     @Override

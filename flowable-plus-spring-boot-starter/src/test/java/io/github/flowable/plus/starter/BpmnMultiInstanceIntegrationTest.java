@@ -108,7 +108,7 @@ class BpmnMultiInstanceIntegrationTest {
         taskWorkflow = new TaskWorkflow(userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mock(org.flowable.engine.IdentityService.class),
                 mockNodeFinder, multiInstanceDetector, null,
-                mock(org.flowable.engine.ManagementService.class));
+                mock(io.github.flowable.plus.core.spi.ExecutionTreeHelper.class));
     }
 
     // ======================== 会签：全票通过后推进 ========================

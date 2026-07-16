@@ -8,6 +8,7 @@ import io.github.flowable.plus.core.spi.GroupResolver;
 import io.github.flowable.plus.core.spi.UserContext;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.IdentityService;
+import org.flowable.engine.ManagementService;
 import org.flowable.engine.ProcessEngine;
 import org.flowable.engine.impl.cfg.ProcessEngineConfigurationImpl;
 import org.flowable.engine.RepositoryService;
@@ -58,6 +59,7 @@ class FlowablePlusAutoConfigurationTest {
         when(engine.getTaskService()).thenReturn(taskService);
         when(engine.getHistoryService()).thenReturn(mock(HistoryService.class));
         when(engine.getIdentityService()).thenReturn(mock(IdentityService.class));
+        when(engine.getManagementService()).thenReturn(mock(ManagementService.class));
         return engine;
     }
 
