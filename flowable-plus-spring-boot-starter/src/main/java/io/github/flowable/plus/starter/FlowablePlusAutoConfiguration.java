@@ -5,6 +5,7 @@ import io.github.flowable.plus.core.model.BpmnModelCache;
 import io.github.flowable.plus.core.workflow.CounterSignWorkflow;
 import io.github.flowable.plus.core.workflow.DiagramWorkflow;
 import io.github.flowable.plus.core.workflow.FlowableExecutionTreeHelper;
+import io.github.flowable.plus.core.workflow.HistoryWorkflow;
 import io.github.flowable.plus.core.model.DefaultBpmnModelCache;
 import io.github.flowable.plus.core.model.DefaultNodeFinder;
 import io.github.flowable.plus.core.FlowablePlus;
@@ -320,16 +321,42 @@ public class FlowablePlusAutoConfiguration {
     }
 
     /**
+     * 注册 HistoryWorkflow Bean。
+     *
+     * <p>封装审批历史查询逻辑，实现 ADR-0009 三级 Comment→Action 推断策略。
+     * 应用可通过声明同名 Bean 替换默认实现。</p>
+     *
+     * @param historyService         Flowable 历史服务
+     * @param taskService            Flowable 任务服务
+     * @param bpmnModelCache         BPMN 模型缓存
+     * @param multiInstanceDetector  多实例检测模块
+     * @param identityResolver       身份解析器
+     * @return HistoryWorkflow 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public HistoryWorkflow historyWorkflow(HistoryService historyService,
+                                            TaskService taskService,
+                                            BpmnModelCache bpmnModelCache,
+                                            MultiInstanceDetector multiInstanceDetector,
+                                            IdentityResolver identityResolver) {
+        return new HistoryWorkflow(historyService, taskService, bpmnModelCache,
+                multiInstanceDetector, identityResolver);
+    }
+
+    /**
      * 注册 FlowablePlus Bean。
      *
      * <p>当 {@code flowable.plus.enabled=true}（默认）时生效。
      * 待办/已办查询委托给 TaskQueryModule，节点预览委托给 NodePreviewWorkflow，
-     * 流程追踪委托给 ProcessQueryWorkflow，流程图委托给 DiagramWorkflow。</p>
+     * 流程追踪委托给 ProcessQueryWorkflow，流程图委托给 DiagramWorkflow，
+     * 审批历史委托给 HistoryWorkflow。</p>
      *
      * @param taskQueryModule      待办/已办查询模块
      * @param processQueryWorkflow 流程追踪模块
      * @param nodePreviewWorkflow  节点预览模块
      * @param diagramWorkflow      流程图生成模块
+     * @param historyWorkflow      审批历史查询模块
      * @return FlowablePlus 实例
      */
     @Bean
@@ -338,8 +365,10 @@ public class FlowablePlusAutoConfiguration {
     public FlowablePlus flowablePlus(TaskQueryModule taskQueryModule,
                                      ProcessQueryWorkflow processQueryWorkflow,
                                      NodePreviewWorkflow nodePreviewWorkflow,
-                                     DiagramWorkflow diagramWorkflow) {
-        return new FlowablePlus(taskQueryModule, processQueryWorkflow, nodePreviewWorkflow, diagramWorkflow);
+                                     DiagramWorkflow diagramWorkflow,
+                                     HistoryWorkflow historyWorkflow) {
+        return new FlowablePlus(taskQueryModule, processQueryWorkflow, nodePreviewWorkflow,
+                diagramWorkflow, historyWorkflow);
     }
 
     /**

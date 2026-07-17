@@ -1,5 +1,6 @@
 package io.github.flowable.plus.core;
 
+import io.github.flowable.plus.core.vo.ApprovalRecordVO;
 import io.github.flowable.plus.core.vo.ApprovalTraceVO;
 import io.github.flowable.plus.core.vo.ApproverInfoVO;
 import io.github.flowable.plus.core.vo.DoneTaskVO;
@@ -9,10 +10,12 @@ import io.github.flowable.plus.core.vo.ProcessDiagramVO;
 import io.github.flowable.plus.core.vo.ProcessSummaryVO;
 import io.github.flowable.plus.core.vo.TodoTaskVO;
 import io.github.flowable.plus.core.api.DiagramOperations;
+import io.github.flowable.plus.core.api.HistoryOperations;
 import io.github.flowable.plus.core.api.QueryOperations;
 import io.github.flowable.plus.core.domain.PageResult;
 import io.github.flowable.plus.core.dto.TaskQueryDTO;
 import io.github.flowable.plus.core.workflow.DiagramWorkflow;
+import io.github.flowable.plus.core.workflow.HistoryWorkflow;
 import io.github.flowable.plus.core.workflow.ProcessQueryWorkflow;
 import io.github.flowable.plus.core.workflow.TaskQueryModule;
 import io.github.flowable.plus.core.workflow.NodePreviewWorkflow;
@@ -30,17 +33,19 @@ import java.util.function.Consumer;
  * <p>待办/已办查询委托给 {@link TaskQueryModule}，
  * 流程追踪委托给 {@link ProcessQueryWorkflow}，
  * 节点预览委托给 {@link NodePreviewWorkflow}，
- * 流程图委托给 {@link DiagramWorkflow}。</p>
+ * 流程图委托给 {@link DiagramWorkflow}，
+ * 审批历史委托给 {@link HistoryWorkflow}。</p>
  *
  * @author flowable-plus
  */
 @Slf4j
-public class FlowablePlus implements QueryOperations, DiagramOperations {
+public class FlowablePlus implements QueryOperations, DiagramOperations, HistoryOperations {
 
     private final TaskQueryModule taskQueryModule;
     private final ProcessQueryWorkflow processQueryWorkflow;
     private final NodePreviewWorkflow nodePreviewWorkflow;
     private final DiagramWorkflow diagramWorkflow;
+    private final HistoryWorkflow historyWorkflow;
 
     /**
      * 构造器注入所有依赖。
@@ -49,11 +54,13 @@ public class FlowablePlus implements QueryOperations, DiagramOperations {
      * @param processQueryWorkflow 流程追踪模块，不可为 null
      * @param nodePreviewWorkflow  节点预览模块，不可为 null
      * @param diagramWorkflow      流程图生成模块，不可为 null
+     * @param historyWorkflow      审批历史查询模块，不可为 null
      */
     public FlowablePlus(TaskQueryModule taskQueryModule,
                         ProcessQueryWorkflow processQueryWorkflow,
                         NodePreviewWorkflow nodePreviewWorkflow,
-                        DiagramWorkflow diagramWorkflow) {
+                        DiagramWorkflow diagramWorkflow,
+                        HistoryWorkflow historyWorkflow) {
         if (taskQueryModule == null) {
             throw new IllegalArgumentException("TaskQueryModule 不可为 null");
         }
@@ -66,10 +73,14 @@ public class FlowablePlus implements QueryOperations, DiagramOperations {
         if (diagramWorkflow == null) {
             throw new IllegalArgumentException("DiagramWorkflow 不可为 null");
         }
+        if (historyWorkflow == null) {
+            throw new IllegalArgumentException("HistoryWorkflow 不可为 null");
+        }
         this.taskQueryModule = taskQueryModule;
         this.processQueryWorkflow = processQueryWorkflow;
         this.nodePreviewWorkflow = nodePreviewWorkflow;
         this.diagramWorkflow = diagramWorkflow;
+        this.historyWorkflow = historyWorkflow;
     }
 
     // ======================== QueryOperations: 待办/已办 (委托给 TaskQueryModule) ========================
@@ -139,5 +150,12 @@ public class FlowablePlus implements QueryOperations, DiagramOperations {
     @Override
     public ProcessDiagramVO getProcessDiagram(String processInstanceId) {
         return diagramWorkflow.getProcessDiagram(processInstanceId);
+    }
+
+    // ======================== HistoryOperations: 审批历史 (委托给 HistoryWorkflow) ========================
+
+    @Override
+    public List<ApprovalRecordVO> getApprovalHistory(String processInstanceId) {
+        return historyWorkflow.getApprovalHistory(processInstanceId);
     }
 }

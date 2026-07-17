@@ -19,6 +19,7 @@ import io.github.flowable.plus.core.domain.PageResult;
 import io.github.flowable.plus.core.dto.TaskQueryDTO;
 import io.github.flowable.plus.core.support.VOAssembler;
 import io.github.flowable.plus.core.workflow.DiagramWorkflow;
+import io.github.flowable.plus.core.workflow.HistoryWorkflow;
 import io.github.flowable.plus.core.workflow.NodePreviewWorkflow;
 import io.github.flowable.plus.core.workflow.ProcessQueryWorkflow;
 import io.github.flowable.plus.core.workflow.TaskQueryModule;
@@ -74,8 +75,10 @@ public class TaskListOperationsTest {
         ProcessQueryWorkflow processQueryWorkflow = mock(ProcessQueryWorkflow.class);
         NodePreviewWorkflow nodePreviewWorkflow = mock(NodePreviewWorkflow.class);
         DiagramWorkflow diagramWorkflow = mock(DiagramWorkflow.class);
+        HistoryWorkflow historyWorkflow = mock(HistoryWorkflow.class);
 
-        flowablePlus = new FlowablePlus(taskQueryModule, processQueryWorkflow, nodePreviewWorkflow, diagramWorkflow);
+        flowablePlus = new FlowablePlus(taskQueryModule, processQueryWorkflow, nodePreviewWorkflow,
+                diagramWorkflow, historyWorkflow);
     }
 
     // ======================== 参数校验 ========================
