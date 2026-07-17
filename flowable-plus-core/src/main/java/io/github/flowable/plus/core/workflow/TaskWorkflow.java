@@ -25,6 +25,7 @@ import io.github.flowable.plus.core.domain.PlusTask;
 import io.github.flowable.plus.core.enums.CommentType;
 import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.model.NodeFinder;
+import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.support.TaskValidation;
 import cn.hutool.core.util.StrUtil;
 import org.flowable.engine.HistoryService;
@@ -67,6 +68,7 @@ public class TaskWorkflow implements ApprovalOperations {
     private final List<AutoApprovalRule> autoApprovalRules;
     private final ExecutionTreeHelper executionTreeHelper;
     private final EventPublisher eventPublisher;
+    private final ProcessEndDetector processEndDetector;
 
     public TaskWorkflow(UserContext userContext, TaskService taskService,
                  HistoryService historyService, RuntimeService runtimeService,
@@ -74,7 +76,8 @@ public class TaskWorkflow implements ApprovalOperations {
                  MultiInstanceDetector multiInstanceDetector,
                  List<AutoApprovalRule> autoApprovalRules,
                  ExecutionTreeHelper executionTreeHelper,
-                 EventPublisher eventPublisher) {
+                 EventPublisher eventPublisher,
+                 ProcessEndDetector processEndDetector) {
         this.userContext = userContext;
         this.taskService = taskService;
         this.historyService = historyService;
@@ -85,6 +88,7 @@ public class TaskWorkflow implements ApprovalOperations {
         this.autoApprovalRules = autoApprovalRules != null ? autoApprovalRules : Collections.emptyList();
         this.executionTreeHelper = executionTreeHelper;
         this.eventPublisher = eventPublisher;
+        this.processEndDetector = processEndDetector;
     }
 
     @Override
@@ -134,7 +138,7 @@ public class TaskWorkflow implements ApprovalOperations {
         if (eventPublisher != null) {
             eventPublisher.publish(TaskCompletedEvent.of(task.getId(), task.getProcessInstanceId(),
                     task.getName(), task.getTaskDefinitionKey(), userId, comment, new java.util.Date()));
-            tryPublishProcessEnded(task.getProcessInstanceId());
+            processEndDetector.checkAndPublish(task.getProcessInstanceId());
         }
     }
 
@@ -511,22 +515,5 @@ public class TaskWorkflow implements ApprovalOperations {
             }
         }
     }
-
-    /**
-     * 检测流程实例是否已结束并发布 ProcessEndedEvent。
-     * 通过 RuntimeService 查询活跃实例，若返回 null 则流程已结束。
-     */
-    private void tryPublishProcessEnded(String processInstanceId) {
-        ProcessInstance runtimePi = runtimeService.createProcessInstanceQuery()
-                .processInstanceId(processInstanceId).singleResult();
-        if (runtimePi == null) {
-            HistoricProcessInstance hpi = historyService.createHistoricProcessInstanceQuery()
-                    .processInstanceId(processInstanceId).singleResult();
-            if (hpi != null) {
-                eventPublisher.publish(ProcessEndedEvent.of(processInstanceId,
-                        hpi.getProcessDefinitionKey(), hpi.getBusinessKey(),
-                        hpi.getEndTime()));
-            }
-        }
-    }
 }
+

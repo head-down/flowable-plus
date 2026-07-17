@@ -1,6 +1,7 @@
 package io.github.flowable.plus.starter;
 
 import io.github.flowable.plus.core.support.BpmnFormDataHelper;
+import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.model.BpmnModelCache;
 import io.github.flowable.plus.core.workflow.CounterSignWorkflow;
 import io.github.flowable.plus.core.workflow.DiagramWorkflow;
@@ -170,6 +171,14 @@ public class FlowablePlusAutoConfiguration {
         return syncPublisher;
     }
 
+    @Bean
+    @ConditionalOnMissingBean
+    public ProcessEndDetector processEndDetector(RuntimeService runtimeService,
+                                                   HistoryService historyService,
+                                                   @Autowired(required = false) EventPublisher eventPublisher) {
+        return new ProcessEndDetector(runtimeService, historyService, eventPublisher);
+    }
+
     /**
      * 注册 TaskWorkflow Bean。
      *
@@ -194,11 +203,12 @@ public class FlowablePlusAutoConfiguration {
                                      MultiInstanceDetector multiInstanceDetector, ProcessEngine processEngine,
                                      @Autowired(required = false) List<AutoApprovalRule> autoApprovalRules,
                                      ExecutionTreeHelper executionTreeHelper,
-                                     @Autowired(required = false) EventPublisher eventPublisher) {
+                                     @Autowired(required = false) EventPublisher eventPublisher,
+                                     ProcessEndDetector processEndDetector) {
         return new TaskWorkflow(userContext, taskService, historyService,
                 processEngine.getRuntimeService(), processEngine.getIdentityService(),
                 nodeFinder, multiInstanceDetector, autoApprovalRules,
-                executionTreeHelper, eventPublisher);
+                executionTreeHelper, eventPublisher, processEndDetector);
     }
 
     /**
@@ -226,12 +236,13 @@ public class FlowablePlusAutoConfiguration {
                                                    ProcessEngine processEngine,
                                                    @Autowired(required = false) List<CounterSignCallback> counterSignCallbacks,
                                                    FlowablePlusCounterSignProperties counterSignProps,
-                                                   @Autowired(required = false) EventPublisher eventPublisher) {
+                                                   @Autowired(required = false) EventPublisher eventPublisher,
+                                                   ProcessEndDetector processEndDetector) {
         List<CounterSignCallback> callbacks = counterSignProps.isEnabled() && counterSignCallbacks != null
                 ? counterSignCallbacks : Collections.emptyList();
         return new CounterSignWorkflow(userContext, taskService, historyService,
                 processEngine.getRuntimeService(), multiInstanceDetector, nodeFinder, callbacks,
-                eventPublisher);
+                eventPublisher, processEndDetector);
     }
 
     /**

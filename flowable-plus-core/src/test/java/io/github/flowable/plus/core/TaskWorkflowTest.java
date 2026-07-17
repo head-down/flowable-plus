@@ -1,6 +1,7 @@
 package io.github.flowable.plus.core;
 
 import io.github.flowable.plus.core.event.EventPublisher;
+import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.exception.InvalidTargetNodeException;
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;
@@ -69,6 +70,7 @@ public class TaskWorkflowTest {
     private BpmnModelCache mockBpmnModelCache;
     private MultiInstanceDetector mockMultiInstanceDetector;
     private ExecutionTreeHelper mockExecutionTreeHelper;
+    private ProcessEndDetector mockProcessEndDetector;
     private TaskWorkflow taskWorkflow;
 
     @BeforeEach
@@ -82,13 +84,14 @@ public class TaskWorkflowTest {
         mockBpmnModelCache = mock(BpmnModelCache.class);
         mockMultiInstanceDetector = mock(MultiInstanceDetector.class);
         mockExecutionTreeHelper = mock(ExecutionTreeHelper.class);
+        mockProcessEndDetector = mock(ProcessEndDetector.class);
 
         // 默认 stub：createExecutionQuery 返回空执行对象（非并行分支场景）
         stubNoParallelBranch();
 
         taskWorkflow = new TaskWorkflow(userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockIdentityService, mockNodeFinder, mockMultiInstanceDetector, null,
-                mockExecutionTreeHelper, null);
+                mockExecutionTreeHelper, null, mockProcessEndDetector);
     }
 
     // ======================== 发起 ========================
@@ -169,7 +172,7 @@ public class TaskWorkflowTest {
 
         taskWorkflow = new TaskWorkflow(userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockIdentityService, mockNodeFinder, mockMultiInstanceDetector,
-                Collections.singletonList(failingRule), mockExecutionTreeHelper, null);
+                Collections.singletonList(failingRule), mockExecutionTreeHelper, null, mockProcessEndDetector);
 
         ProcessInstance mockPi = mock(ProcessInstance.class);
         when(mockPi.getProcessInstanceId()).thenReturn("pi-003");
@@ -1016,9 +1019,10 @@ public class TaskWorkflowTest {
     // ======================== 事件发布 ========================
 
     private TaskWorkflow createWorkflowWithEventPublisher(EventPublisher ep) {
+        ProcessEndDetector ped = new ProcessEndDetector(mockRuntimeService, mockHistoryService, ep);
         return new TaskWorkflow(userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockIdentityService, mockNodeFinder, mockMultiInstanceDetector, null,
-                mockExecutionTreeHelper, ep);
+                mockExecutionTreeHelper, ep, ped);
     }
 
     @Test

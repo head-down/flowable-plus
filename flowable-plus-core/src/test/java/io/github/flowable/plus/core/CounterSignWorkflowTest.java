@@ -1,6 +1,7 @@
 package io.github.flowable.plus.core;
 
 import io.github.flowable.plus.core.event.EventPublisher;
+import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.exception.TaskAlreadyCompletedException;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
@@ -62,6 +63,7 @@ public class CounterSignWorkflowTest {
     private AtomicInteger onStartCount;
     private AtomicInteger onVoteCount;
     private AtomicInteger onFinishCount;
+    private ProcessEndDetector mockProcessEndDetector;
     private CounterSignWorkflow counterSignWorkflow;
 
     @BeforeEach
@@ -93,9 +95,11 @@ public class CounterSignWorkflowTest {
             }
         };
 
+        mockProcessEndDetector = mock(ProcessEndDetector.class);
+
         counterSignWorkflow = new CounterSignWorkflow(userContext, mockTaskService,
                 mockHistoryService, mockRuntimeService, mockMultiInstanceDetector, mockNodeFinder,
-                Collections.singletonList(trackingCallback), null);
+                Collections.singletonList(trackingCallback), null, mockProcessEndDetector);
     }
 
     // ======================== 会签：首次投票 ========================
@@ -581,7 +585,7 @@ public class CounterSignWorkflowTest {
         };
         CounterSignWorkflow fp = new CounterSignWorkflow(userContext, mockTaskService,
                 mockHistoryService, mockRuntimeService, mockMultiInstanceDetector, mockNodeFinder,
-                Collections.singletonList(failingCb), null);
+                Collections.singletonList(failingCb), null, mockProcessEndDetector);
 
         // 不应抛异常，应继续完成
         fp.counterSign("task-001", true, null, "同意");
@@ -856,9 +860,10 @@ public class CounterSignWorkflowTest {
     // ======================== 事件发布 ========================
 
     private CounterSignWorkflow createWorkflowWithEventPublisher(EventPublisher ep) {
+        ProcessEndDetector ped = new ProcessEndDetector(mockRuntimeService, mockHistoryService, ep);
         return new CounterSignWorkflow(userContext, mockTaskService,
                 mockHistoryService, mockRuntimeService, mockMultiInstanceDetector, mockNodeFinder,
-                Collections.emptyList(), ep);
+                Collections.emptyList(), ep, ped);
     }
 
     @Test
