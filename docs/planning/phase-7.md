@@ -90,10 +90,10 @@ public void completeTask(String taskId, String comment) {
 
 | Slice | 内容 | 优先级 | 状态 |
 |-------|------|--------|------|
-| S1: 核心 SPI + EventPublisher | 事件对象定义 + SPI 接口 + EventPublisher 组件 | P0 | 待开发 |
-| S2: 各 API 集成 | FlowablePlus 各方法中集成 EventPublisher | P0 | 待开发 |
-| S3: Spring Boot 自动配置 | 多监听器注册、线程池、配置开关 | P1 | 待开发 |
-| S4: 测试 + 文档 | 单元测试、集成测试、使用文档 | — | 待开发 |
+| S1: 核心 SPI + EventPublisher | 事件对象定义 + SPI 接口 + EventPublisher 组件 | P0 | 已完成 |
+| S2: 各 API 集成 | FlowablePlus 各方法中集成 EventPublisher | P0 | 已完成 |
+| S3: Spring Boot 自动配置 | 多监听器注册、线程池、配置开关 | P1 | 已完成 |
+| S4: 测试 + 文档 | 单元测试、集成测试、使用文档 | — | 已完成 |
 
 ## 范围外
 

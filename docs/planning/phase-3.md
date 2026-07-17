@@ -434,15 +434,15 @@ public List<NextTaskNodeVO> getNextTaskNodes(String processInstanceId, String ta
 
 | Slice | 内容 | 优先级 | 状态 |
 |-------|------|--------|------|
-| S1: 批量补充流程信息 | `ProcessQueryOperations.batchQueryProcessSummaries` + `ProcessSummaryVO`，批量查询引擎状态并分组映射 | P0 | 待开发 |
-| S2: 待办列表查询 | `TaskListOperations.queryTodoTasks` + `TodoTaskVO` + `TaskQueryDTO` + `TaskQueryEnhancer`，基于引擎 TaskService/TaskQuery 封装分页 | P1 | 待开发 |
-| S3: 已办列表查询 | `TaskListOperations.queryDoneTasks` + `DoneTaskVO` + `TaskQueryDTO` + `TaskQueryEnhancer`，基于引擎 HistoryService 封装分页 | P1 | 待开发 |
-| S4: 审批轨迹 | `ProcessQueryOperations.getApprovalTrace` + `ApprovalTraceVO`，基于 HistoryService 查询历史活动实例并聚合审批意见 | P2 | 待开发 |
-| S5: 下一节点审批人（发起前） | `NodePreviewOperations.getNextNodeApproversByProcessKey` + `NodeApproverVO` + `ApproverInfoVO` + `GroupResolver`，基于 BPMN 模型遍历和审批人解析 | P0 | 待开发 |
-| S6: 下一节点审批人（审批中） | `NodePreviewOperations.getNextTaskApprovers`×2 + 条件分支评估，基于当前任务获取下一节点审批人 | P1 | 待开发 |
-| S7: 下一节点（审批中） | `NodePreviewOperations.getNextTaskNodes` + `NextTaskNodeVO`，基于当前任务获取可流转的下游节点 | P1 | 待开发 |
-| S8: Starter 适配 + 测试 | 自动配置注册（`GroupResolver` 默认 Bean、`BpmnModelCache`、三个新接口的 `FlowablePlus` 实现）、集成测试、文档 | — | 待开发 |
-| S9: 查询权限回调 | `QueryPermissionCallback` SPI + 默认全量可见实现 + 所有查询路径集成过滤，支持接入方按部门/角色/数据范围二次过滤 | P1 | 待开发 |
+| S1: 批量补充流程信息 | `ProcessQueryOperations.batchQueryProcessSummaries` + `ProcessSummaryVO`，批量查询引擎状态并分组映射 | P0 | 已完成 |
+| S2: 待办列表查询 | `TaskListOperations.queryTodoTasks` + `TodoTaskVO` + `TaskQueryDTO` + `TaskQueryEnhancer`，基于引擎 TaskService/TaskQuery 封装分页 | P1 | 已完成 |
+| S3: 已办列表查询 | `TaskListOperations.queryDoneTasks` + `DoneTaskVO` + `TaskQueryDTO` + `TaskQueryEnhancer`，基于引擎 HistoryService 封装分页 | P1 | 已完成 |
+| S4: 审批轨迹 | `ProcessQueryOperations.getApprovalTrace` + `ApprovalTraceVO`，基于 HistoryService 查询历史活动实例并聚合审批意见 | P2 | 已完成 |
+| S5: 下一节点审批人（发起前） | `NodePreviewOperations.getNextNodeApproversByProcessKey` + `NodeApproverVO` + `ApproverInfoVO` + `GroupResolver`，基于 BPMN 模型遍历和审批人解析 | P0 | 已完成 |
+| S6: 下一节点审批人（审批中） | `NodePreviewOperations.getNextTaskApprovers`×2 + 条件分支评估，基于当前任务获取下一节点审批人 | P1 | 已完成 |
+| S7: 下一节点（审批中） | `NodePreviewOperations.getNextTaskNodes` + `NextTaskNodeVO`，基于当前任务获取可流转的下游节点 | P1 | 已完成 |
+| S8: Starter 适配 + 测试 | 自动配置注册（`GroupResolver` 默认 Bean、`BpmnModelCache`、三个新接口的 `FlowablePlus` 实现）、集成测试、文档 | — | 已完成 |
+| S9: 查询权限回调 | `QueryPermissionCallback` SPI + 默认全量可见实现 + 所有查询路径集成过滤，支持接入方按部门/角色/数据范围二次过滤 | P1 | 已跳过 (ADR-0007) |
 
 S1 和 S5 优先实现——解决最高频的列表页流程状态展示和发起前审批人预览需求。
 

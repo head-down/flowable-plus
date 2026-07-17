@@ -95,9 +95,9 @@ void transferTask(String taskId, String transferUserId, String reason);
 
 | Slice | 内容 | 优先级 | 状态 |
 |-------|------|--------|------|
-| S1: 委派 + 收回 | `delegateTask` + `resolveDelegate` | P0 | 待开发 |
-| S2: 转办 | `transferTask` | P1 | 待开发 |
-| S3: 测试 + 文档 | 单元测试、权限校验、commentType 验证 | — | 待开发 |
+| S1: 委派 + 收回 | `delegateTask` + `resolveDelegate` | P0 | 已完成 |
+| S2: 转办 | `transferTask` | P1 | 已完成 |
+| S3: 测试 + 文档 | 单元测试、权限校验、commentType 验证 | — | 已完成 |
 
 S1 优先实现——委派和收回构成闭环的临时授权操作。
 

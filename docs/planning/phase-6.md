@@ -90,9 +90,9 @@ ProcessDiagramVO getProcessDiagram(String processInstanceId);
 
 | Slice | 内容 | 优先级 | 状态 |
 |-------|------|--------|------|
-| S1: 流程审批历史 | `getApprovalHistory`，基于 HistoryService 查询并聚合 | P0 | 待开发 |
-| S2: 流程图高亮 | `getProcessDiagram`，基于 ProcessDiagramGenerator 生成 | P1 | 待开发 |
-| S3: 测试 + 文档 | 集成测试、使用文档 | — | 待开发 |
+| S1: 流程审批历史 | `getApprovalHistory`，基于 HistoryService 查询并聚合 | P0 | 已完成 |
+| S2: 流程图高亮 | `getProcessDiagram`，基于 ProcessDiagramGenerator 生成 | P1 | 已完成 |
+| S3: 测试 + 文档 | 集成测试、使用文档 | — | 已完成 |
 
 ## 范围外
 

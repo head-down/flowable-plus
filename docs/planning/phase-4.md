@@ -144,9 +144,9 @@ List<String> findCompletedUserTasks(String processDefinitionId, String currentAc
 
 | Slice | 内容 | 优先级 | 状态 |
 |-------|------|--------|------|
-| S1: 任意跳转 | `rejectToNode` + `returnToNode` + `getJumpableNodes`，NodeFinder 新增 `findCompletedUserTasks`，`JumpableNodeVO` | P0 | 待开发 |
-| S2: 自动提交 | `AutoApprovalRule` SPI + `TaskWorkflow.startProcess` 内嵌触发 | P1 | 待开发 |
-| S3: 测试 + 文档 | TaskWorkflow 单元测试（新增方法）、集成测试、使用文档 | — | 待开发 |
+| S1: 任意跳转 | `rejectToNode` + `returnToNode` + `getJumpableNodes`，NodeFinder 新增 `findCompletedUserTasks`，`JumpableNodeVO` | P0 | 已完成 |
+| S2: 自动提交 | `AutoApprovalRule` SPI + `TaskWorkflow.startProcess` 内嵌触发 | P1 | 已完成 |
+| S3: 测试 + 文档 | TaskWorkflow 单元测试（新增方法）、集成测试、使用文档 | — | 已完成 |
 
 ## 范围外
 
