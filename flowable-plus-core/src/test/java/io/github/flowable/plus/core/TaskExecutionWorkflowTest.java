@@ -14,6 +14,7 @@ import io.github.flowable.plus.core.spi.ExecutionTreeHelper;
 import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.vo.JumpableNodeVO;
+import io.github.flowable.plus.core.support.PreviousNodeAuthorizer;
 import io.github.flowable.plus.core.workflow.TaskExecutionWorkflow;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.RuntimeService;
@@ -64,6 +65,7 @@ public class TaskExecutionWorkflowTest {
     private ExecutionTreeHelper mockExecutionTreeHelper;
     private ProcessEndDetector mockProcessEndDetector;
     private TaskExecutionWorkflow workflow;
+    private PreviousNodeAuthorizer mockPreviousNodeAuthorizer;
 
     @BeforeEach
     void setUp() {
@@ -76,12 +78,16 @@ public class TaskExecutionWorkflowTest {
         mockExecutionTreeHelper = mock(ExecutionTreeHelper.class);
         mockProcessEndDetector = mock(ProcessEndDetector.class);
 
+        mockPreviousNodeAuthorizer = mock(PreviousNodeAuthorizer.class);
+        when(mockPreviousNodeAuthorizer.isAuthorized(anyString(), anyString())).thenReturn(true);
+
         // 默认 stub：createExecutionQuery 返回空执行对象（非并行分支场景）
         stubNoParallelBranch();
 
         workflow = new TaskExecutionWorkflow(userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockNodeFinder, mockMultiInstanceDetector,
-                mockExecutionTreeHelper, null, mockProcessEndDetector);
+                mockExecutionTreeHelper, null, mockProcessEndDetector,
+                mockPreviousNodeAuthorizer);
     }
 
     // ======================== 同意 ========================
@@ -298,6 +304,8 @@ public class TaskExecutionWorkflowTest {
         when(histTaskQuery.orderByHistoricTaskInstanceEndTime()).thenReturn(histTaskQuery);
         when(histTaskQuery.desc()).thenReturn(histTaskQuery);
         when(histTaskQuery.listPage(0, 1)).thenReturn(Collections.singletonList(prevTask));
+
+        when(mockPreviousNodeAuthorizer.isAuthorized(USER_ID, "task-001")).thenReturn(false);
 
         assertThatThrownBy(() -> workflow.withdrawTask("task-001", "撤回"))
                 .isInstanceOf(PermissionDeniedException.class)
@@ -645,7 +653,8 @@ public class TaskExecutionWorkflowTest {
         ProcessEndDetector ped = new ProcessEndDetector(mockRuntimeService, mockHistoryService, ep);
         return new TaskExecutionWorkflow(userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockNodeFinder, mockMultiInstanceDetector,
-                mockExecutionTreeHelper, ep, ped);
+                mockExecutionTreeHelper, ep, ped,
+                mockPreviousNodeAuthorizer);
     }
 
     @Test

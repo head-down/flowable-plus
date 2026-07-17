@@ -5,12 +5,12 @@ import io.github.flowable.plus.core.event.TaskCompletedEvent;
 import io.github.flowable.plus.core.event.TaskDelegatedEvent;
 import io.github.flowable.plus.core.event.TaskRejectedEvent;
 import io.github.flowable.plus.core.exception.NotFoundException;
-import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
 import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.support.TaskValidation;
+import io.github.flowable.plus.core.support.PreviousNodeAuthorizer;
 import io.github.flowable.plus.core.api.CounterSignOperations;
 import io.github.flowable.plus.core.domain.PlusTask;
 import io.github.flowable.plus.core.enums.CommentType;
@@ -20,14 +20,12 @@ import cn.hutool.core.util.StrUtil;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
-import org.flowable.engine.history.HistoricProcessInstance;
 import org.flowable.task.api.history.HistoricTaskInstance;
 import org.flowable.task.api.Task;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -52,13 +50,15 @@ public class CounterSignWorkflow implements CounterSignOperations {
     private final List<CounterSignCallback> counterSignCallbacks;
     private final EventPublisher eventPublisher;
     private final ProcessEndDetector processEndDetector;
+    private final PreviousNodeAuthorizer previousNodeAuthorizer;
 
     public CounterSignWorkflow(UserContext userContext, TaskService taskService,
                         HistoryService historyService, RuntimeService runtimeService,
                         MultiInstanceDetector multiInstanceDetector, NodeFinder nodeFinder,
                         List<CounterSignCallback> counterSignCallbacks,
                         EventPublisher eventPublisher,
-                        ProcessEndDetector processEndDetector) {
+                        ProcessEndDetector processEndDetector,
+                        PreviousNodeAuthorizer previousNodeAuthorizer) {
         this.userContext = userContext;
         this.taskService = taskService;
         this.historyService = historyService;
@@ -68,6 +68,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
         this.counterSignCallbacks = counterSignCallbacks;
         this.eventPublisher = eventPublisher;
         this.processEndDetector = processEndDetector;
+        this.previousNodeAuthorizer = previousNodeAuthorizer;
     }
 
     @Override
@@ -124,7 +125,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
         PlusTask task = TaskValidation.validateTaskExists(taskService, historyService, taskId, "加签");
         TaskValidation.validateMultiInstance(multiInstanceDetector, task, taskId, "加签");
 
-        validateCounterSignPermission(task, "加签");
+        validateCounterSignPermission(task);
 
         String processInstanceId = task.getProcessInstanceId();
         String activityId = task.getTaskDefinitionKey();
@@ -176,7 +177,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
         PlusTask task = TaskValidation.validateTaskExists(taskService, historyService, taskId, "减签");
         TaskValidation.validateMultiInstance(multiInstanceDetector, task, taskId, "减签");
 
-        validateCounterSignPermission(task, "减签");
+        validateCounterSignPermission(task);
 
         String processInstanceId = task.getProcessInstanceId();
 
@@ -312,49 +313,11 @@ public class CounterSignWorkflow implements CounterSignOperations {
         }
     }
 
-    private void validateCounterSignPermission(PlusTask task, String operation) {
+    private void validateCounterSignPermission(PlusTask task) {
         String currentUserId = userContext.getCurrentUserId();
-        String processInstanceId = task.getProcessInstanceId();
-
-        List<String> prevNodes;
-        try {
-            prevNodes = nodeFinder.findPreviousNodes(
-                    task.getProcessDefinitionId(), task.getTaskDefinitionKey(), processInstanceId);
-        } catch (NoPreviousNodeException e) {
-            prevNodes = Collections.emptyList();
-        }
-
-        if (prevNodes.size() > 1) {
-            throw new NoPreviousNodeException("当前节点位于并行网关汇合之后，无法确定" + operation + "权限");
-        }
-
-        String authorizedUserId;
-
-        if (prevNodes.isEmpty()) {
-            HistoricProcessInstance hpi = historyService.createHistoricProcessInstanceQuery()
-                    .processInstanceId(processInstanceId).singleResult();
-            if (hpi == null) {
-                throw new NotFoundException("流程实例 " + processInstanceId + " 不存在");
-            }
-            authorizedUserId = hpi.getStartUserId();
-        } else {
-            String prevNodeId = prevNodes.get(0);
-            List<HistoricTaskInstance> prevTasks = historyService.createHistoricTaskInstanceQuery()
-                    .processInstanceId(processInstanceId)
-                    .taskDefinitionKey(prevNodeId)
-                    .finished()
-                    .orderByHistoricTaskInstanceEndTime().desc()
-                    .listPage(0, 1);
-
-            if (prevTasks.isEmpty()) {
-                throw new NotFoundException("未找到上一节点 " + prevNodeId + " 的历史任务");
-            }
-            authorizedUserId = prevTasks.get(0).getAssignee();
-        }
-
-        if (!currentUserId.equals(authorizedUserId)) {
+        if (!previousNodeAuthorizer.isAuthorized(currentUserId, task.getId())) {
             throw new PermissionDeniedException(
-                    "用户 " + currentUserId + " 无权" + operation + "，仅上一节点审批人可操作");
+                    "用户 " + currentUserId + " 无权操作会签任务，仅上一节点审批人可操作");
         }
     }
 }

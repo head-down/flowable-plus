@@ -12,6 +12,7 @@ import io.github.flowable.plus.core.model.BpmnModelCache;
 import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.model.NodeFinder;
 import io.github.flowable.plus.core.workflow.CounterSignWorkflow;
+import io.github.flowable.plus.core.support.PreviousNodeAuthorizer;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
@@ -65,6 +66,7 @@ public class CounterSignWorkflowTest {
     private AtomicInteger onFinishCount;
     private ProcessEndDetector mockProcessEndDetector;
     private CounterSignWorkflow counterSignWorkflow;
+    private PreviousNodeAuthorizer mockPreviousNodeAuthorizer;
 
     @BeforeEach
     void setUp() {
@@ -97,9 +99,13 @@ public class CounterSignWorkflowTest {
 
         mockProcessEndDetector = mock(ProcessEndDetector.class);
 
+        mockPreviousNodeAuthorizer = mock(PreviousNodeAuthorizer.class);
+        when(mockPreviousNodeAuthorizer.isAuthorized(anyString(), anyString())).thenReturn(true);
+
         counterSignWorkflow = new CounterSignWorkflow(userContext, mockTaskService,
                 mockHistoryService, mockRuntimeService, mockMultiInstanceDetector, mockNodeFinder,
-                Collections.singletonList(trackingCallback), null, mockProcessEndDetector);
+                Collections.singletonList(trackingCallback), null, mockProcessEndDetector,
+                mockPreviousNodeAuthorizer);
     }
 
     // ======================== 会签：首次投票 ========================
@@ -358,9 +364,9 @@ public class CounterSignWorkflowTest {
     // ======================== 减签 ========================
 
     /**
-     * removeCounterSigner 调用顺序：
+     * removeCounterSigner 调用顺序（PreviousNodeAuthorizer 接管权限校验后）：
      * 1. validateTaskExists → taskService.createTaskQuery() [Q1]
-     * 2. validateCounterSignPermission → historyService.createHistoricTaskInstanceQuery() [HQ1: listPage→prevTask]
+     * 2. authorize → PreviousNodeAuthorizer.isAuthorized() [mock 返回 true]
      * 3. hasVoted(task, assignee) → historyService.createHistoricTaskInstanceQuery() [HQ2: count]
      * 4. resolveCurrentAssignees → taskService.createTaskQuery() [Q2: list]
      * 5. hasVoted(task, a) for each → historyService.createHistoricTaskInstanceQuery() [HQ3..N: count]
@@ -372,27 +378,11 @@ public class CounterSignWorkflowTest {
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
 
-        // nodeFinder for validateCounterSignPermission
-        when(mockNodeFinder.findPreviousNodes(definitionId, "csTask", "pi-001"))
-                .thenReturn(Collections.singletonList("prevTask"));
-
         // Q1: validateTaskExists
         Task mockExistTask = createMockTask(task.getId(), definitionId, "csTask", "pi-001", USER_ID);
         TaskQuery q1 = mock(TaskQuery.class);
         when(q1.taskId(task.getId())).thenReturn(q1);
         when(q1.singleResult()).thenReturn(mockExistTask);
-
-        // HQ1: validateCounterSignPermission — findLatestFinishedTask for prevTask
-        HistoricTaskInstance prevTask = createMockHistoricTask(
-                "ht-prev", definitionId, "prevTask", "pi-001",
-                USER_ID, null, new Date(), new Date(), null);
-        HistoricTaskInstanceQuery hq1 = mock(HistoricTaskInstanceQuery.class);
-        when(hq1.processInstanceId("pi-001")).thenReturn(hq1);
-        when(hq1.taskDefinitionKey("prevTask")).thenReturn(hq1);
-        when(hq1.finished()).thenReturn(hq1);
-        when(hq1.orderByHistoricTaskInstanceEndTime()).thenReturn(hq1);
-        when(hq1.desc()).thenReturn(hq1);
-        when(hq1.listPage(0, 1)).thenReturn(Collections.singletonList(prevTask));
 
         // HQ2: hasVoted(task, "user2") → 0
         HistoricTaskInstanceQuery hq2 = mock(HistoricTaskInstanceQuery.class);
@@ -424,10 +414,7 @@ public class CounterSignWorkflowTest {
         when(q3.singleResult()).thenReturn(targetTask);
 
         when(mockTaskService.createTaskQuery()).thenReturn(q1, q2, q3);
-        // HQ1 for permission, then HQ2 for all hasVoted calls (count=0)
-        when(mockHistoryService.createHistoricTaskInstanceQuery())
-                .thenReturn(hq1)
-                .thenReturn(hq2);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(hq2);
 
         counterSignWorkflow.removeCounterSigner("task-001", "user2");
 
@@ -441,27 +428,12 @@ public class CounterSignWorkflowTest {
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
 
-        when(mockNodeFinder.findPreviousNodes(definitionId, "csTask", "pi-001"))
-                .thenReturn(Collections.singletonList("prevTask"));
-
         // Q1: validateTaskExists
         Task mockExistTask = createMockTask(task.getId(), definitionId, "csTask", "pi-001", USER_ID);
         TaskQuery q1 = mock(TaskQuery.class);
         when(q1.taskId(task.getId())).thenReturn(q1);
         when(q1.singleResult()).thenReturn(mockExistTask);
         when(mockTaskService.createTaskQuery()).thenReturn(q1);
-
-        // HQ1: validateCounterSignPermission
-        HistoricTaskInstance prevTask = createMockHistoricTask(
-                "ht-prev", definitionId, "prevTask", "pi-001",
-                USER_ID, null, new Date(), new Date(), null);
-        HistoricTaskInstanceQuery hq1 = mock(HistoricTaskInstanceQuery.class);
-        when(hq1.processInstanceId("pi-001")).thenReturn(hq1);
-        when(hq1.taskDefinitionKey("prevTask")).thenReturn(hq1);
-        when(hq1.finished()).thenReturn(hq1);
-        when(hq1.orderByHistoricTaskInstanceEndTime()).thenReturn(hq1);
-        when(hq1.desc()).thenReturn(hq1);
-        when(hq1.listPage(0, 1)).thenReturn(Collections.singletonList(prevTask));
 
         // HQ2: hasVoted(task, "user2") → 1 (已投票)
         HistoricTaskInstanceQuery hq2 = mock(HistoricTaskInstanceQuery.class);
@@ -471,9 +443,7 @@ public class CounterSignWorkflowTest {
         when(hq2.finished()).thenReturn(hq2);
         when(hq2.count()).thenReturn(1L);
 
-        when(mockHistoryService.createHistoricTaskInstanceQuery())
-                .thenReturn(hq1)
-                .thenReturn(hq2);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(hq2);
 
         assertThatThrownBy(() -> counterSignWorkflow.removeCounterSigner("task-001", "user2"))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -485,9 +455,6 @@ public class CounterSignWorkflowTest {
         String definitionId = "leave:1:abc";
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
-
-        when(mockNodeFinder.findPreviousNodes(definitionId, "csTask", "pi-001"))
-                .thenReturn(Collections.singletonList("prevTask"));
 
         // Q1: validateTaskExists
         Task mockExistTask = createMockTask(task.getId(), definitionId, "csTask", "pi-001", USER_ID);
@@ -505,18 +472,6 @@ public class CounterSignWorkflowTest {
 
         when(mockTaskService.createTaskQuery()).thenReturn(q1, q2);
 
-        // HQ1: validateCounterSignPermission
-        HistoricTaskInstance prevTask = createMockHistoricTask(
-                "ht-prev", definitionId, "prevTask", "pi-001",
-                USER_ID, null, new Date(), new Date(), null);
-        HistoricTaskInstanceQuery hq1 = mock(HistoricTaskInstanceQuery.class);
-        when(hq1.processInstanceId("pi-001")).thenReturn(hq1);
-        when(hq1.taskDefinitionKey("prevTask")).thenReturn(hq1);
-        when(hq1.finished()).thenReturn(hq1);
-        when(hq1.orderByHistoricTaskInstanceEndTime()).thenReturn(hq1);
-        when(hq1.desc()).thenReturn(hq1);
-        when(hq1.listPage(0, 1)).thenReturn(Collections.singletonList(prevTask));
-
         // HQ2: hasVoted → 0 for all calls
         HistoricTaskInstanceQuery hq2 = mock(HistoricTaskInstanceQuery.class);
         when(hq2.processInstanceId(anyString())).thenReturn(hq2);
@@ -525,9 +480,7 @@ public class CounterSignWorkflowTest {
         when(hq2.finished()).thenReturn(hq2);
         when(hq2.count()).thenReturn(0L);
 
-        when(mockHistoryService.createHistoricTaskInstanceQuery())
-                .thenReturn(hq1)
-                .thenReturn(hq2);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(hq2);
 
         assertThatThrownBy(() -> counterSignWorkflow.removeCounterSigner("task-001", "user2"))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -543,24 +496,11 @@ public class CounterSignWorkflowTest {
         stubTaskExists(task);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
 
-        // 上一节点审批人是 otherUser，不是当前用户
-        when(mockNodeFinder.findPreviousNodes(definitionId, "csTask", "pi-001"))
-                .thenReturn(Collections.singletonList("prevTask"));
-        HistoricTaskInstance prevTask = createMockHistoricTask(
-                "ht-prev", definitionId, "prevTask", "pi-001",
-                "otherUser", null, new Date(), new Date(), null);
-        HistoricTaskInstanceQuery histTaskQuery = mock(HistoricTaskInstanceQuery.class);
-        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(histTaskQuery);
-        when(histTaskQuery.processInstanceId("pi-001")).thenReturn(histTaskQuery);
-        when(histTaskQuery.taskDefinitionKey("prevTask")).thenReturn(histTaskQuery);
-        when(histTaskQuery.finished()).thenReturn(histTaskQuery);
-        when(histTaskQuery.orderByHistoricTaskInstanceEndTime()).thenReturn(histTaskQuery);
-        when(histTaskQuery.desc()).thenReturn(histTaskQuery);
-        when(histTaskQuery.listPage(0, 1)).thenReturn(Collections.singletonList(prevTask));
+        when(mockPreviousNodeAuthorizer.isAuthorized(USER_ID, "task-001")).thenReturn(false);
 
         assertThatThrownBy(() -> counterSignWorkflow.addCounterSigner("task-001", Collections.singletonList("u")))
                 .isInstanceOf(PermissionDeniedException.class)
-                .hasMessageContaining("无权加签");
+                .hasMessageContaining("无权");
     }
 
     // ======================== 回调异常隔离 ========================
@@ -585,7 +525,8 @@ public class CounterSignWorkflowTest {
         };
         CounterSignWorkflow fp = new CounterSignWorkflow(userContext, mockTaskService,
                 mockHistoryService, mockRuntimeService, mockMultiInstanceDetector, mockNodeFinder,
-                Collections.singletonList(failingCb), null, mockProcessEndDetector);
+                Collections.singletonList(failingCb), null, mockProcessEndDetector,
+                mockPreviousNodeAuthorizer);
 
         // 不应抛异常，应继续完成
         fp.counterSign("task-001", true, null, "同意");
@@ -863,7 +804,8 @@ public class CounterSignWorkflowTest {
         ProcessEndDetector ped = new ProcessEndDetector(mockRuntimeService, mockHistoryService, ep);
         return new CounterSignWorkflow(userContext, mockTaskService,
                 mockHistoryService, mockRuntimeService, mockMultiInstanceDetector, mockNodeFinder,
-                Collections.emptyList(), ep, ped);
+                Collections.emptyList(), ep, ped,
+                mockPreviousNodeAuthorizer);
     }
 
     @Test

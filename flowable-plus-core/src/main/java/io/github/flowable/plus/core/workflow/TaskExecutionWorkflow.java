@@ -16,6 +16,7 @@ import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.model.NodeFinder;
 import io.github.flowable.plus.core.spi.ExecutionTreeHelper;
 import io.github.flowable.plus.core.spi.UserContext;
+import io.github.flowable.plus.core.support.PreviousNodeAuthorizer;
 import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.support.TaskValidation;
 import io.github.flowable.plus.core.vo.JumpableNodeVO;
@@ -48,13 +49,15 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
     private final ExecutionTreeHelper executionTreeHelper;
     private final EventPublisher eventPublisher;
     private final ProcessEndDetector processEndDetector;
+    private final PreviousNodeAuthorizer previousNodeAuthorizer;
 
     public TaskExecutionWorkflow(UserContext userContext, TaskService taskService,
                                   HistoryService historyService, RuntimeService runtimeService,
                                   NodeFinder nodeFinder, MultiInstanceDetector multiInstanceDetector,
                                   ExecutionTreeHelper executionTreeHelper,
                                   EventPublisher eventPublisher,
-                                  ProcessEndDetector processEndDetector) {
+                                  ProcessEndDetector processEndDetector,
+                                  PreviousNodeAuthorizer previousNodeAuthorizer) {
         this.userContext = userContext;
         this.taskService = taskService;
         this.historyService = historyService;
@@ -64,6 +67,7 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
         this.executionTreeHelper = executionTreeHelper;
         this.eventPublisher = eventPublisher;
         this.processEndDetector = processEndDetector;
+        this.previousNodeAuthorizer = previousNodeAuthorizer;
     }
 
     @Override
@@ -181,15 +185,7 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
 
         String prevNodeId = prevNodes.get(0);
 
-        List<HistoricTaskInstance> prevTasks = historyService.createHistoricTaskInstanceQuery()
-                .processInstanceId(processInstanceId)
-                .taskDefinitionKey(prevNodeId)
-                .finished()
-                .orderByHistoricTaskInstanceEndTime().desc()
-                .listPage(0, 1);
-        PlusHistoricTask prevTask = !prevTasks.isEmpty() ? PlusHistoricTask.from(prevTasks.get(0)) : null;
-
-        if (prevTask == null || !currentUserId.equals(prevTask.getAssignee())) {
+        if (!previousNodeAuthorizer.isAuthorized(currentUserId, taskId)) {
             throw new PermissionDeniedException(
                     "用户 " + currentUserId + " 不是上一节点审批人，无权撤回任务 " + taskId);
         }

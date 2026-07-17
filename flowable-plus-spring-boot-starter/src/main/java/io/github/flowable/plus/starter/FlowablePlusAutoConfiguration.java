@@ -1,6 +1,7 @@
 package io.github.flowable.plus.starter;
 
 import io.github.flowable.plus.core.support.BpmnFormDataHelper;
+import io.github.flowable.plus.core.support.PreviousNodeAuthorizer;
 import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.model.BpmnModelCache;
 import io.github.flowable.plus.core.workflow.CounterSignWorkflow;
@@ -181,6 +182,26 @@ public class FlowablePlusAutoConfiguration {
     }
 
     /**
+     * 注册 PreviousNodeAuthorizer Bean。
+     *
+     * <p>封装"上一节点审批人身份校验"的流水线查询逻辑，
+     * 供 TaskExecutionWorkflow 和 CounterSignWorkflow
+     * 复用，消除内联权限代码重复。</p>
+     *
+     * @param taskService    Flowable 任务服务
+     * @param historyService Flowable 历史服务
+     * @param nodeFinder      BPMN 节点遍历器
+     * @return PreviousNodeAuthorizer 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public PreviousNodeAuthorizer previousNodeAuthorizer(TaskService taskService,
+                                                           HistoryService historyService,
+                                                           NodeFinder nodeFinder) {
+        return new PreviousNodeAuthorizer(taskService, historyService, nodeFinder);
+    }
+
+    /**
      * 注册 ProcessLifecycleWorkflow Bean。
      *
      * <p>封装流程发起与撤销逻辑，包含自动提交能力。
@@ -230,10 +251,11 @@ public class FlowablePlusAutoConfiguration {
                                                         ProcessEngine processEngine,
                                                         ExecutionTreeHelper executionTreeHelper,
                                                         @Autowired(required = false) EventPublisher eventPublisher,
-                                                        ProcessEndDetector processEndDetector) {
+                                                        ProcessEndDetector processEndDetector,
+                                                        PreviousNodeAuthorizer previousNodeAuthorizer) {
         return new TaskExecutionWorkflow(userContext, taskService, historyService,
                 processEngine.getRuntimeService(), nodeFinder, multiInstanceDetector,
-                executionTreeHelper, eventPublisher, processEndDetector);
+                executionTreeHelper, eventPublisher, processEndDetector, previousNodeAuthorizer);
     }
 
     /**
@@ -262,12 +284,13 @@ public class FlowablePlusAutoConfiguration {
                                                    @Autowired(required = false) List<CounterSignCallback> counterSignCallbacks,
                                                    FlowablePlusCounterSignProperties counterSignProps,
                                                    @Autowired(required = false) EventPublisher eventPublisher,
-                                                   ProcessEndDetector processEndDetector) {
+                                                   ProcessEndDetector processEndDetector,
+                                                   PreviousNodeAuthorizer previousNodeAuthorizer) {
         List<CounterSignCallback> callbacks = counterSignProps.isEnabled() && counterSignCallbacks != null
                 ? counterSignCallbacks : Collections.emptyList();
         return new CounterSignWorkflow(userContext, taskService, historyService,
                 processEngine.getRuntimeService(), multiInstanceDetector, nodeFinder, callbacks,
-                eventPublisher, processEndDetector);
+                eventPublisher, processEndDetector, previousNodeAuthorizer);
     }
 
     /**

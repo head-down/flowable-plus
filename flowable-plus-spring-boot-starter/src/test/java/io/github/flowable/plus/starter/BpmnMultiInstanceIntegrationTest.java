@@ -6,6 +6,7 @@ import io.github.flowable.plus.core.model.DefaultBpmnModelCache;
 import io.github.flowable.plus.core.model.DefaultNodeFinder;
 import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.model.NodeFinder;
+import io.github.flowable.plus.core.support.PreviousNodeAuthorizer;
 import io.github.flowable.plus.core.domain.PlusHistoricProcessInstance;
 import io.github.flowable.plus.core.domain.PlusHistoricTask;
 import io.github.flowable.plus.core.domain.PlusTask;
@@ -65,6 +66,7 @@ class BpmnMultiInstanceIntegrationTest {
     private CounterSignWorkflow counterSignWorkflow;
     private TaskExecutionWorkflow taskExecutionWorkflow;
     private NodeFinder mockNodeFinder;
+    private PreviousNodeAuthorizer mockPreviousNodeAuthorizer;
 
     private final AtomicInteger onStartCount = new AtomicInteger();
     private final AtomicInteger onVoteCount = new AtomicInteger();
@@ -81,6 +83,8 @@ class BpmnMultiInstanceIntegrationTest {
         multiInstanceDetector = new MultiInstanceDetector(bpmnModelCache);
         UserContext userContext = () -> USER_ID;
         mockNodeFinder = mock(NodeFinder.class);
+        mockPreviousNodeAuthorizer = mock(PreviousNodeAuthorizer.class);
+        when(mockPreviousNodeAuthorizer.isAuthorized(anyString(), anyString())).thenReturn(true);
 
         onStartCount.set(0);
         onVoteCount.set(0);
@@ -104,12 +108,14 @@ class BpmnMultiInstanceIntegrationTest {
         counterSignWorkflow = new CounterSignWorkflow(userContext, mockTaskService,
                 mockHistoryService, mockRuntimeService, multiInstanceDetector, mockNodeFinder,
                 Collections.singletonList(trackingCallback), null,
-                mock(io.github.flowable.plus.core.support.ProcessEndDetector.class));
+                mock(io.github.flowable.plus.core.support.ProcessEndDetector.class),
+                mockPreviousNodeAuthorizer);
 
         taskExecutionWorkflow = new TaskExecutionWorkflow(userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockNodeFinder, multiInstanceDetector,
                 mock(io.github.flowable.plus.core.spi.ExecutionTreeHelper.class), null,
-                mock(io.github.flowable.plus.core.support.ProcessEndDetector.class));
+                mock(io.github.flowable.plus.core.support.ProcessEndDetector.class),
+                mockPreviousNodeAuthorizer);
     }
 
     // ======================== 会签：全票通过后推进 ========================
@@ -283,39 +289,15 @@ class BpmnMultiInstanceIntegrationTest {
 
         when(mockTaskService.createTaskQuery()).thenReturn(q1, q2, q3);
 
-        // HQ1: validateCounterSignPermission → findLatestFinishedTask for prevTask
-        HistoricTaskInstance prevTask = mock(HistoricTaskInstance.class);
-        when(prevTask.getAssignee()).thenReturn(USER_ID);
-        HistoricTaskInstanceQuery permQ = mock(HistoricTaskInstanceQuery.class);
-        when(permQ.processInstanceId(anyString())).thenReturn(permQ);
-        when(permQ.taskDefinitionKey(anyString())).thenReturn(permQ);
-        when(permQ.finished()).thenReturn(permQ);
-        when(permQ.orderByHistoricTaskInstanceEndTime()).thenReturn(permQ);
-        when(permQ.desc()).thenReturn(permQ);
-        when(permQ.listPage(0, 1)).thenReturn(Collections.singletonList(prevTask));
-
-        // HQ2: hasVoted → count=0 for all
+        // hasVoted calls: called twice (user2 + user1 for unvoted count), both return 0
         HistoricTaskInstanceQuery histQ = mock(HistoricTaskInstanceQuery.class);
         when(histQ.processInstanceId(anyString())).thenReturn(histQ);
         when(histQ.taskDefinitionKey(anyString())).thenReturn(histQ);
         when(histQ.taskAssignee(anyString())).thenReturn(histQ);
         when(histQ.finished()).thenReturn(histQ);
         when(histQ.count()).thenReturn(0L);
-
         when(mockHistoryService.createHistoricTaskInstanceQuery())
-                .thenReturn(permQ).thenReturn(histQ);
-
-        // validateCounterSignPermission needs findPreviousNodes → ["prevTask"]
-        when(mockNodeFinder.findPreviousNodes(anyString(), anyString(), anyString()))
-                .thenReturn(Collections.singletonList("prevTask"));
-
-        // findProcessInstance fallback (not needed if prevNodes non-empty, but safe)
-        HistoricProcessInstance mockHpi = mock(HistoricProcessInstance.class);
-        when(mockHpi.getStartUserId()).thenReturn(USER_ID);
-        HistoricProcessInstanceQuery histPiQuery = mock(HistoricProcessInstanceQuery.class);
-        when(histPiQuery.processInstanceId(anyString())).thenReturn(histPiQuery);
-        when(histPiQuery.singleResult()).thenReturn(mockHpi);
-        when(mockHistoryService.createHistoricProcessInstanceQuery()).thenReturn(histPiQuery);
+                .thenReturn(histQ, histQ);
 
         counterSignWorkflow.removeCounterSigner("task-001", "user2");
 
@@ -377,7 +359,8 @@ class BpmnMultiInstanceIntegrationTest {
         CounterSignWorkflow fp = new CounterSignWorkflow(userCtx, mockTaskService,
                 mockHistoryService, mockRuntimeService, multiInstanceDetector, mockNodeFinder,
                 Collections.singletonList(failingCb), null,
-                mock(io.github.flowable.plus.core.support.ProcessEndDetector.class));
+                mock(io.github.flowable.plus.core.support.ProcessEndDetector.class),
+                mockPreviousNodeAuthorizer);
 
         PlusTask task = createPlusTask("task-001", "pi-001", "proc-cs", "csTask", USER_ID);
         stubCounterSignMocks(task, createActiveAssignees(USER_ID), 0L, 0L);
