@@ -1,5 +1,13 @@
 package io.github.flowable.plus.core.workflow;
 
+import io.github.flowable.plus.core.event.EventPublisher;
+import io.github.flowable.plus.core.event.ProcessEndedEvent;
+import io.github.flowable.plus.core.event.ProcessRevokedEvent;
+import io.github.flowable.plus.core.event.ProcessStartedEvent;
+import io.github.flowable.plus.core.event.TaskCompletedEvent;
+import io.github.flowable.plus.core.event.TaskRejectedEvent;
+import io.github.flowable.plus.core.event.TaskTransferredEvent;
+import io.github.flowable.plus.core.event.TaskWithdrawnEvent;
 import io.github.flowable.plus.core.exception.InvalidTargetNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
@@ -58,13 +66,15 @@ public class TaskWorkflow implements ApprovalOperations {
     private final MultiInstanceDetector multiInstanceDetector;
     private final List<AutoApprovalRule> autoApprovalRules;
     private final ExecutionTreeHelper executionTreeHelper;
+    private final EventPublisher eventPublisher;
 
-public TaskWorkflow(UserContext userContext, TaskService taskService,
-             HistoryService historyService, RuntimeService runtimeService,
-             IdentityService identityService, NodeFinder nodeFinder,
-             MultiInstanceDetector multiInstanceDetector,
-             List<AutoApprovalRule> autoApprovalRules,
-             ExecutionTreeHelper executionTreeHelper) {
+    public TaskWorkflow(UserContext userContext, TaskService taskService,
+                 HistoryService historyService, RuntimeService runtimeService,
+                 IdentityService identityService, NodeFinder nodeFinder,
+                 MultiInstanceDetector multiInstanceDetector,
+                 List<AutoApprovalRule> autoApprovalRules,
+                 ExecutionTreeHelper executionTreeHelper,
+                 EventPublisher eventPublisher) {
         this.userContext = userContext;
         this.taskService = taskService;
         this.historyService = historyService;
@@ -74,6 +84,7 @@ public TaskWorkflow(UserContext userContext, TaskService taskService,
         this.multiInstanceDetector = multiInstanceDetector;
         this.autoApprovalRules = autoApprovalRules != null ? autoApprovalRules : Collections.emptyList();
         this.executionTreeHelper = executionTreeHelper;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -88,6 +99,11 @@ public TaskWorkflow(UserContext userContext, TaskService taskService,
         try {
             ProcessInstance pi = runtimeService.startProcessInstanceByKey(processDefinitionKey, businessKey, variables);
             PlusProcessInstance result = PlusProcessInstance.from(pi);
+
+            if (eventPublisher != null) {
+                eventPublisher.publish(ProcessStartedEvent.of(processDefinitionKey, businessKey,
+                        result.getProcessInstanceId(), userId, new java.util.Date()));
+            }
 
             // 自动提交：发起人身份下执行，仅一层。采用快速失败模式，异常正常传播
             if (!autoApprovalRules.isEmpty()) {
@@ -114,6 +130,12 @@ public TaskWorkflow(UserContext userContext, TaskService taskService,
         }
 
         taskService.complete(taskId, variables);
+
+        if (eventPublisher != null) {
+            eventPublisher.publish(TaskCompletedEvent.of(task.getId(), task.getProcessInstanceId(),
+                    task.getName(), task.getTaskDefinitionKey(), userId, comment, new java.util.Date()));
+            tryPublishProcessEnded(task.getProcessInstanceId());
+        }
     }
 
     @Override
@@ -146,6 +168,12 @@ public TaskWorkflow(UserContext userContext, TaskService taskService,
 
         String targetNode = prevNodes.get(0);
         executeRollback(task, targetNode, reason, CommentType.REJECT.name());
+
+        if (eventPublisher != null) {
+            eventPublisher.publish(TaskRejectedEvent.of(task.getId(), task.getProcessInstanceId(),
+                    task.getName(), task.getTaskDefinitionKey(), task.getAssignee(),
+                    reason, new java.util.Date()));
+        }
     }
 
     @Override
@@ -172,6 +200,12 @@ public TaskWorkflow(UserContext userContext, TaskService taskService,
                 .processInstanceId(task.getProcessInstanceId())
                 .moveActivityIdTo(task.getTaskDefinitionKey(), initiatorNode)
                 .changeState();
+
+        if (eventPublisher != null) {
+            eventPublisher.publish(TaskRejectedEvent.of(task.getId(), task.getProcessInstanceId(),
+                    task.getName(), task.getTaskDefinitionKey(), task.getAssignee(),
+                    reason, new java.util.Date()));
+        }
     }
 
     @Override
@@ -211,6 +245,12 @@ public TaskWorkflow(UserContext userContext, TaskService taskService,
         }
 
         executeRollback(task, prevNodeId, reason, CommentType.WITHDRAW.name());
+
+        if (eventPublisher != null) {
+            eventPublisher.publish(TaskWithdrawnEvent.of(task.getId(), task.getProcessInstanceId(),
+                    task.getName(), task.getTaskDefinitionKey(), task.getAssignee(),
+                    currentUserId, reason, new java.util.Date()));
+        }
     }
 
     @Override
@@ -253,6 +293,16 @@ public TaskWorkflow(UserContext userContext, TaskService taskService,
         taskService.addComment(activeTask.getId(), processInstanceId, CommentType.REVOKE.name(), commentText);
 
         runtimeService.deleteProcessInstance(processInstanceId, reason);
+
+        if (eventPublisher != null) {
+            eventPublisher.publish(ProcessRevokedEvent.of(processInstanceId,
+                    historicPi.getProcessDefinitionKey(), historicPi.getBusinessKey(),
+                    currentUserId, reason, new java.util.Date()));
+            // 撤销后流程已确定结束
+            eventPublisher.publish(ProcessEndedEvent.of(processInstanceId,
+                    historicPi.getProcessDefinitionKey(), historicPi.getBusinessKey(),
+                    new java.util.Date()));
+        }
     }
 
     // ======================== 任意跳转 ========================
@@ -362,6 +412,12 @@ public TaskWorkflow(UserContext userContext, TaskService taskService,
 
         taskService.setAssignee(taskId, transferUserId);
 
+        if (eventPublisher != null) {
+            eventPublisher.publish(TaskTransferredEvent.of(task.getId(), task.getProcessInstanceId(),
+                    task.getName(), task.getTaskDefinitionKey(),
+                    currentUserId, transferUserId, reason, new java.util.Date()));
+        }
+
         String comment = "转办给 " + transferUserId;
         if (StrUtil.isNotBlank(reason)) {
             comment += "（" + reason + "）";
@@ -452,6 +508,24 @@ public TaskWorkflow(UserContext userContext, TaskService taskService,
                             task.getId(), userId, evalResult);
                     break; // 当前任务已被处理，跳出规则循环
                 }
+            }
+        }
+    }
+
+    /**
+     * 检测流程实例是否已结束并发布 ProcessEndedEvent。
+     * 通过 RuntimeService 查询活跃实例，若返回 null 则流程已结束。
+     */
+    private void tryPublishProcessEnded(String processInstanceId) {
+        ProcessInstance runtimePi = runtimeService.createProcessInstanceQuery()
+                .processInstanceId(processInstanceId).singleResult();
+        if (runtimePi == null) {
+            HistoricProcessInstance hpi = historyService.createHistoricProcessInstanceQuery()
+                    .processInstanceId(processInstanceId).singleResult();
+            if (hpi != null) {
+                eventPublisher.publish(ProcessEndedEvent.of(processInstanceId,
+                        hpi.getProcessDefinitionKey(), hpi.getBusinessKey(),
+                        hpi.getEndTime()));
             }
         }
     }

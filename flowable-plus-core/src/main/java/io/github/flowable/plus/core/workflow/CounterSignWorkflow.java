@@ -1,5 +1,10 @@
 package io.github.flowable.plus.core.workflow;
 
+import io.github.flowable.plus.core.event.EventPublisher;
+import io.github.flowable.plus.core.event.ProcessEndedEvent;
+import io.github.flowable.plus.core.event.TaskCompletedEvent;
+import io.github.flowable.plus.core.event.TaskDelegatedEvent;
+import io.github.flowable.plus.core.event.TaskRejectedEvent;
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
@@ -16,6 +21,7 @@ import org.flowable.engine.HistoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
 import org.flowable.engine.history.HistoricProcessInstance;
+import org.flowable.engine.runtime.ProcessInstance;
 import org.flowable.task.api.history.HistoricTaskInstance;
 import org.flowable.task.api.Task;
 import org.slf4j.Logger;
@@ -45,11 +51,13 @@ public class CounterSignWorkflow implements CounterSignOperations {
     private final MultiInstanceDetector multiInstanceDetector;
     private final NodeFinder nodeFinder;
     private final List<CounterSignCallback> counterSignCallbacks;
+    private final EventPublisher eventPublisher;
 
     public CounterSignWorkflow(UserContext userContext, TaskService taskService,
                         HistoryService historyService, RuntimeService runtimeService,
                         MultiInstanceDetector multiInstanceDetector, NodeFinder nodeFinder,
-                        List<CounterSignCallback> counterSignCallbacks) {
+                        List<CounterSignCallback> counterSignCallbacks,
+                        EventPublisher eventPublisher) {
         this.userContext = userContext;
         this.taskService = taskService;
         this.historyService = historyService;
@@ -57,6 +65,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
         this.multiInstanceDetector = multiInstanceDetector;
         this.nodeFinder = nodeFinder;
         this.counterSignCallbacks = counterSignCallbacks;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -83,6 +92,18 @@ public class CounterSignWorkflow implements CounterSignOperations {
         invokeCallbacks(cb -> cb.onVote(processInstanceId, taskId, userId, approved, comment));
 
         taskService.complete(taskId, variables);
+
+        if (eventPublisher != null) {
+            if (approved) {
+                eventPublisher.publish(TaskCompletedEvent.of(task.getId(), task.getProcessInstanceId(),
+                        task.getName(), task.getTaskDefinitionKey(), userId, comment, new java.util.Date()));
+            } else {
+                eventPublisher.publish(TaskRejectedEvent.of(task.getId(), task.getProcessInstanceId(),
+                        task.getName(), task.getTaskDefinitionKey(), task.getAssignee(),
+                        comment, new java.util.Date()));
+            }
+            tryPublishProcessEnded(task.getProcessInstanceId());
+        }
 
         if (isMultiInstanceFinished(task)) {
             invokeCallbacks(cb -> cb.onFinish(processInstanceId, taskId, "finished"));
@@ -212,6 +233,12 @@ public class CounterSignWorkflow implements CounterSignOperations {
 
         taskService.delegateTask(taskId, delegateUserId);
 
+        if (eventPublisher != null) {
+            eventPublisher.publish(TaskDelegatedEvent.of(task.getId(), task.getProcessInstanceId(),
+                    task.getName(), task.getTaskDefinitionKey(),
+                    currentUserId, delegateUserId, reason, new java.util.Date()));
+        }
+
         String comment = "委派给 " + delegateUserId;
         if (StrUtil.isNotBlank(reason)) {
             comment += "（" + reason + "）";
@@ -279,6 +306,23 @@ public class CounterSignWorkflow implements CounterSignOperations {
                 action.accept(cb);
             } catch (Exception e) {
                 log.warn("CounterSignCallback 回调异常: {}", cb.getClass().getName(), e);
+            }
+        }
+    }
+
+    /**
+     * 检测流程实例是否已结束并发布 ProcessEndedEvent。
+     */
+    private void tryPublishProcessEnded(String processInstanceId) {
+        ProcessInstance runtimePi = runtimeService.createProcessInstanceQuery()
+                .processInstanceId(processInstanceId).singleResult();
+        if (runtimePi == null) {
+            HistoricProcessInstance hpi = historyService.createHistoricProcessInstanceQuery()
+                    .processInstanceId(processInstanceId).singleResult();
+            if (hpi != null) {
+                eventPublisher.publish(ProcessEndedEvent.of(processInstanceId,
+                        hpi.getProcessDefinitionKey(), hpi.getBusinessKey(),
+                        hpi.getEndTime()));
             }
         }
     }

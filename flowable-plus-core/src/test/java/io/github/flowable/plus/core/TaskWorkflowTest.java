@@ -1,5 +1,6 @@
 package io.github.flowable.plus.core;
 
+import io.github.flowable.plus.core.event.EventPublisher;
 import io.github.flowable.plus.core.exception.InvalidTargetNodeException;
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;
@@ -87,7 +88,7 @@ public class TaskWorkflowTest {
 
         taskWorkflow = new TaskWorkflow(userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockIdentityService, mockNodeFinder, mockMultiInstanceDetector, null,
-                mockExecutionTreeHelper);
+                mockExecutionTreeHelper, null);
     }
 
     // ======================== 发起 ========================
@@ -168,7 +169,7 @@ public class TaskWorkflowTest {
 
         taskWorkflow = new TaskWorkflow(userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockIdentityService, mockNodeFinder, mockMultiInstanceDetector,
-                Collections.singletonList(failingRule), mockExecutionTreeHelper);
+                Collections.singletonList(failingRule), mockExecutionTreeHelper, null);
 
         ProcessInstance mockPi = mock(ProcessInstance.class);
         when(mockPi.getProcessInstanceId()).thenReturn("pi-003");
@@ -1010,5 +1011,138 @@ public class TaskWorkflowTest {
         when(histTaskQuery.orderByHistoricTaskInstanceEndTime()).thenReturn(histTaskQuery);
         when(histTaskQuery.desc()).thenReturn(histTaskQuery);
         when(histTaskQuery.listPage(0, 1)).thenReturn(Collections.emptyList());
+    }
+
+    // ======================== 事件发布 ========================
+
+    private TaskWorkflow createWorkflowWithEventPublisher(EventPublisher ep) {
+        return new TaskWorkflow(userContext, mockTaskService, mockHistoryService,
+                mockRuntimeService, mockIdentityService, mockNodeFinder, mockMultiInstanceDetector, null,
+                mockExecutionTreeHelper, ep);
+    }
+
+    @Test
+    void startProcessShouldPublishProcessStartedEvent() {
+        EventPublisher mockEp = mock(EventPublisher.class);
+        TaskWorkflow wf = createWorkflowWithEventPublisher(mockEp);
+
+        ProcessInstance mockPi = mock(ProcessInstance.class);
+        when(mockPi.getProcessInstanceId()).thenReturn("pi-001");
+        when(mockPi.getBusinessKey()).thenReturn("biz-001");
+        when(mockPi.getProcessDefinitionId()).thenReturn("leave:1:1234");
+        when(mockRuntimeService.startProcessInstanceByKey(eq("leave"), eq("biz-001"), any()))
+                .thenReturn(mockPi);
+
+        wf.startProcess("leave", "biz-001", null);
+
+        verify(mockEp).publish(any(io.github.flowable.plus.core.event.ProcessStartedEvent.class));
+    }
+
+    @Test
+    void completeTaskShouldPublishTaskCompletedEvent() {
+        EventPublisher mockEp = mock(EventPublisher.class);
+        TaskWorkflow wf = createWorkflowWithEventPublisher(mockEp);
+
+        PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", USER_ID);
+        stubTaskExists(task);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
+        // 让 tryPublishProcessEnded 认为流程还在运行，不进入历史查询
+        ProcessInstance pi = mock(ProcessInstance.class);
+        ProcessInstanceQuery piQuery = mock(ProcessInstanceQuery.class);
+        when(piQuery.processInstanceId("pi-001")).thenReturn(piQuery);
+        when(piQuery.singleResult()).thenReturn(pi);
+        when(mockRuntimeService.createProcessInstanceQuery()).thenReturn(piQuery);
+
+        wf.completeTask("task-001", null, "同意");
+
+        verify(mockEp).publish(any(io.github.flowable.plus.core.event.TaskCompletedEvent.class));
+    }
+
+    @Test
+    void rejectTaskShouldPublishTaskRejectedEvent() {
+        EventPublisher mockEp = mock(EventPublisher.class);
+        TaskWorkflow wf = createWorkflowWithEventPublisher(mockEp);
+
+        PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
+        stubNoParallelBranch();
+        when(mockNodeFinder.findPreviousNodes(anyString(), anyString(), anyString()))
+                .thenReturn(Collections.singletonList("node-prev"));
+        stubRollback();
+
+        wf.rejectTask("task-001", "不同意");
+
+        verify(mockEp).publish(any(io.github.flowable.plus.core.event.TaskRejectedEvent.class));
+    }
+
+    @Test
+    void withdrawTaskShouldPublishTaskWithdrawnEvent() {
+        EventPublisher mockEp = mock(EventPublisher.class);
+        TaskWorkflow wf = createWorkflowWithEventPublisher(mockEp);
+
+        PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", "user2");
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
+        stubNoParallelBranch();
+        when(mockNodeFinder.findPreviousNodes(anyString(), anyString(), anyString()))
+                .thenReturn(Collections.singletonList("node-prev"));
+        HistoricTaskInstance prevTask = createMockHistoricTask("ht-prev", "leave:1:abc", "node-prev",
+                "pi-001", USER_ID, "审批", new Date(), new Date(), null);
+        stubHistoricTaskLookup("pi-001", "node-prev", prevTask);
+        stubRollback();
+
+        wf.withdrawTask("task-001", "撤回原因");
+
+        verify(mockEp).publish(any(io.github.flowable.plus.core.event.TaskWithdrawnEvent.class));
+    }
+
+    @Test
+    void revokeProcessShouldPublishProcessRevokedAndEndedEvents() {
+        EventPublisher mockEp = mock(EventPublisher.class);
+        TaskWorkflow wf = createWorkflowWithEventPublisher(mockEp);
+
+        HistoricProcessInstance mockHpi = createMockHistoricPi("pi-001", "biz-001", "leave:1:1234",
+                "leave", "请假流程", USER_ID, new Date(), new Date(), null);
+        HistoricProcessInstanceQuery hpiQuery = mock(HistoricProcessInstanceQuery.class);
+        when(hpiQuery.processInstanceId("pi-001")).thenReturn(hpiQuery);
+        when(hpiQuery.singleResult()).thenReturn(mockHpi);
+        when(mockHistoryService.createHistoricProcessInstanceQuery()).thenReturn(hpiQuery);
+
+        ProcessInstance pi = mock(ProcessInstance.class);
+        ProcessInstanceQuery piQuery = mock(ProcessInstanceQuery.class);
+        when(piQuery.processInstanceId("pi-001")).thenReturn(piQuery);
+        when(piQuery.singleResult()).thenReturn(pi);
+        when(mockRuntimeService.createProcessInstanceQuery()).thenReturn(piQuery);
+
+        when(mockNodeFinder.findInitiatorNode("leave:1:1234")).thenReturn("initNode");
+
+        Task mockTask = mock(Task.class);
+        when(mockTask.getProcessInstanceId()).thenReturn("pi-001");
+        when(mockTask.getId()).thenReturn("task-001");
+        TaskQuery taskQuery = mock(TaskQuery.class);
+        when(taskQuery.processInstanceId("pi-001")).thenReturn(taskQuery);
+        when(taskQuery.active()).thenReturn(taskQuery);
+        when(taskQuery.singleResult()).thenReturn(mockTask);
+        when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
+        when(mockTask.getTaskDefinitionKey()).thenReturn("initNode");
+
+        wf.revokeProcess("pi-001", "撤销原因");
+
+        verify(mockEp).publish(any(io.github.flowable.plus.core.event.ProcessRevokedEvent.class));
+        verify(mockEp).publish(any(io.github.flowable.plus.core.event.ProcessEndedEvent.class));
+    }
+
+    @Test
+    void transferTaskShouldPublishTaskTransferredEvent() {
+        EventPublisher mockEp = mock(EventPublisher.class);
+        TaskWorkflow wf = createWorkflowWithEventPublisher(mockEp);
+
+        PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+
+        wf.transferTask("task-001", "userB", "转办原因");
+
+        verify(mockEp).publish(any(io.github.flowable.plus.core.event.TaskTransferredEvent.class));
     }
 }

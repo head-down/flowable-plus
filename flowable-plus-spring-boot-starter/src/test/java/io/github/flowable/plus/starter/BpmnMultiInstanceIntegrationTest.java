@@ -103,12 +103,12 @@ class BpmnMultiInstanceIntegrationTest {
 
         counterSignWorkflow = new CounterSignWorkflow(userContext, mockTaskService,
                 mockHistoryService, mockRuntimeService, multiInstanceDetector, mockNodeFinder,
-                Collections.singletonList(trackingCallback));
+                Collections.singletonList(trackingCallback), null);
 
         taskWorkflow = new TaskWorkflow(userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mock(org.flowable.engine.IdentityService.class),
                 mockNodeFinder, multiInstanceDetector, null,
-                mock(io.github.flowable.plus.core.spi.ExecutionTreeHelper.class));
+                mock(io.github.flowable.plus.core.spi.ExecutionTreeHelper.class), null);
     }
 
     // ======================== 会签：全票通过后推进 ========================
@@ -375,7 +375,7 @@ class BpmnMultiInstanceIntegrationTest {
 
         CounterSignWorkflow fp = new CounterSignWorkflow(userCtx, mockTaskService,
                 mockHistoryService, mockRuntimeService, multiInstanceDetector, mockNodeFinder,
-                Collections.singletonList(failingCb));
+                Collections.singletonList(failingCb), null);
 
         PlusTask task = createPlusTask("task-001", "pi-001", "proc-cs", "csTask", USER_ID);
         stubCounterSignMocks(task, createActiveAssignees(USER_ID), 0L, 0L);

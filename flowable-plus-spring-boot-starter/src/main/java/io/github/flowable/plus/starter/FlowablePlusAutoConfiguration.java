@@ -18,11 +18,14 @@ import io.github.flowable.plus.core.workflow.TaskWorkflow;
 import io.github.flowable.plus.core.support.UserTaskApproverResolver;
 import io.github.flowable.plus.core.support.VOAssembler;
 import io.github.flowable.plus.core.spi.ApproverResolver;
+import io.github.flowable.plus.core.event.DefaultEventPublisher;
+import io.github.flowable.plus.core.event.EventPublisher;
 import io.github.flowable.plus.core.spi.AutoApprovalRule;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
 import io.github.flowable.plus.core.spi.ExecutionTreeHelper;
 import io.github.flowable.plus.core.spi.GroupResolver;
 import io.github.flowable.plus.core.spi.IdentityResolver;
+import io.github.flowable.plus.core.spi.ProcessEventListener;
 
 import io.github.flowable.plus.core.spi.UserContext;
 import org.flowable.common.engine.impl.el.ExpressionManager;
@@ -42,6 +45,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import javax.annotation.PostConstruct;
 import java.util.Collections;
@@ -59,7 +63,7 @@ import java.util.List;
  */
 @Configuration
 @ConditionalOnClass(name = "org.flowable.engine.ProcessEngine")
-@EnableConfigurationProperties(FlowablePlusCounterSignProperties.class)
+@EnableConfigurationProperties({FlowablePlusCounterSignProperties.class, FlowablePlusEventProperties.class})
 public class FlowablePlusAutoConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(FlowablePlusAutoConfiguration.class);
@@ -122,6 +126,51 @@ public class FlowablePlusAutoConfiguration {
     }
 
     /**
+     * 事件发布线程池 Bean。
+     *
+     * <p>仅在异步事件发布特性开启时注册（默认开启）。
+     * 线程命名前缀为 flowable-plus-event-，便于排查。
+     * 使用 {@link java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy} 防止事件丢失。</p>
+     */
+    @Bean
+    @ConditionalOnProperty(name = "flowable.plus.event.async", havingValue = "true", matchIfMissing = true)
+    public ThreadPoolTaskExecutor eventExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(100);
+        executor.setThreadNamePrefix("flowable-plus-event-");
+        executor.setRejectedExecutionHandler(
+                new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        return executor;
+    }
+
+    /**
+     * 注册 EventPublisher Bean。
+     *
+     * <p>当 {@code flowable.plus.event.enabled=true}（默认）时生效，
+     * 收集所有 {@link ProcessEventListener} Bean，构建同步发布器。
+     * 当 {@code flowable.plus.event.async=true} 时以 AsyncEventPublisher 装饰。</p>
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "flowable.plus.event.enabled", havingValue = "true", matchIfMissing = true)
+    public EventPublisher eventPublisher(
+            @Autowired(required = false) List<ProcessEventListener> eventListeners,
+            @Autowired(required = false) ThreadPoolTaskExecutor eventExecutor,
+            FlowablePlusEventProperties eventProperties) {
+
+        List<ProcessEventListener> listeners = eventListeners != null ? eventListeners : Collections.emptyList();
+        DefaultEventPublisher syncPublisher = new DefaultEventPublisher(listeners);
+
+        if (eventProperties.isAsync() && eventExecutor != null) {
+            return new AsyncEventPublisher(syncPublisher, eventExecutor);
+        }
+        return syncPublisher;
+    }
+
+    /**
      * 注册 TaskWorkflow Bean。
      *
      * <p>封装常规审批任务的推进、驳回、撤回、撤销逻辑。
@@ -144,11 +193,12 @@ public class FlowablePlusAutoConfiguration {
                                      HistoryService historyService, NodeFinder nodeFinder,
                                      MultiInstanceDetector multiInstanceDetector, ProcessEngine processEngine,
                                      @Autowired(required = false) List<AutoApprovalRule> autoApprovalRules,
-                                     ExecutionTreeHelper executionTreeHelper) {
+                                     ExecutionTreeHelper executionTreeHelper,
+                                     @Autowired(required = false) EventPublisher eventPublisher) {
         return new TaskWorkflow(userContext, taskService, historyService,
                 processEngine.getRuntimeService(), processEngine.getIdentityService(),
                 nodeFinder, multiInstanceDetector, autoApprovalRules,
-                executionTreeHelper);
+                executionTreeHelper, eventPublisher);
     }
 
     /**
@@ -175,11 +225,13 @@ public class FlowablePlusAutoConfiguration {
                                                    MultiInstanceDetector multiInstanceDetector,
                                                    ProcessEngine processEngine,
                                                    @Autowired(required = false) List<CounterSignCallback> counterSignCallbacks,
-                                                   FlowablePlusCounterSignProperties counterSignProps) {
+                                                   FlowablePlusCounterSignProperties counterSignProps,
+                                                   @Autowired(required = false) EventPublisher eventPublisher) {
         List<CounterSignCallback> callbacks = counterSignProps.isEnabled() && counterSignCallbacks != null
                 ? counterSignCallbacks : Collections.emptyList();
         return new CounterSignWorkflow(userContext, taskService, historyService,
-                processEngine.getRuntimeService(), multiInstanceDetector, nodeFinder, callbacks);
+                processEngine.getRuntimeService(), multiInstanceDetector, nodeFinder, callbacks,
+                eventPublisher);
     }
 
     /**

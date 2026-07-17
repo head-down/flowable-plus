@@ -1,5 +1,6 @@
 package io.github.flowable.plus.core;
 
+import io.github.flowable.plus.core.event.EventPublisher;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.exception.TaskAlreadyCompletedException;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
@@ -15,6 +16,8 @@ import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
 import org.flowable.engine.history.HistoricProcessInstance;
 import org.flowable.engine.history.HistoricProcessInstanceQuery;
+import org.flowable.engine.runtime.ProcessInstance;
+import org.flowable.engine.runtime.ProcessInstanceQuery;
 import org.flowable.task.api.history.HistoricTaskInstance;
 import org.flowable.task.api.history.HistoricTaskInstanceQuery;
 import org.flowable.task.api.Task;
@@ -92,7 +95,7 @@ public class CounterSignWorkflowTest {
 
         counterSignWorkflow = new CounterSignWorkflow(userContext, mockTaskService,
                 mockHistoryService, mockRuntimeService, mockMultiInstanceDetector, mockNodeFinder,
-                Collections.singletonList(trackingCallback));
+                Collections.singletonList(trackingCallback), null);
     }
 
     // ======================== 会签：首次投票 ========================
@@ -578,7 +581,7 @@ public class CounterSignWorkflowTest {
         };
         CounterSignWorkflow fp = new CounterSignWorkflow(userContext, mockTaskService,
                 mockHistoryService, mockRuntimeService, mockMultiInstanceDetector, mockNodeFinder,
-                Collections.singletonList(failingCb));
+                Collections.singletonList(failingCb), null);
 
         // 不应抛异常，应继续完成
         fp.counterSign("task-001", true, null, "同意");
@@ -848,5 +851,106 @@ public class CounterSignWorkflowTest {
         when(histTaskQuery.orderByHistoricTaskInstanceEndTime()).thenReturn(histTaskQuery);
         when(histTaskQuery.desc()).thenReturn(histTaskQuery);
         when(histTaskQuery.listPage(0, 1)).thenReturn(Collections.singletonList(prevTask));
+    }
+
+    // ======================== 事件发布 ========================
+
+    private CounterSignWorkflow createWorkflowWithEventPublisher(EventPublisher ep) {
+        return new CounterSignWorkflow(userContext, mockTaskService,
+                mockHistoryService, mockRuntimeService, mockMultiInstanceDetector, mockNodeFinder,
+                Collections.emptyList(), ep);
+    }
+
+    @Test
+    void counterSignApprovedShouldPublishTaskCompletedEvent() {
+        EventPublisher mockEp = mock(EventPublisher.class);
+        CounterSignWorkflow wf = createWorkflowWithEventPublisher(mockEp);
+
+        PlusTask task = createTask("task-001", "leave:1:abc", "csTask", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
+
+        Task mockTaskObj = createMockTask("task-001", "leave:1:abc", "csTask", "pi-001", USER_ID);
+        Task assignee = createMockTask("sub-1", "leave:1:abc", "csTask", "pi-001", USER_ID);
+        stubCounterSignFull(task, mockTaskObj, Collections.singletonList(assignee), 1L, 0L);
+
+        ProcessInstanceQuery piQuery = mock(ProcessInstanceQuery.class);
+        when(piQuery.processInstanceId("pi-001")).thenReturn(piQuery);
+        when(piQuery.singleResult()).thenReturn(mock(ProcessInstance.class));
+        when(mockRuntimeService.createProcessInstanceQuery()).thenReturn(piQuery);
+
+        wf.counterSign("task-001", true, null, "同意");
+
+        verify(mockEp).publish(any(io.github.flowable.plus.core.event.TaskCompletedEvent.class));
+    }
+
+    @Test
+    void counterSignRejectedShouldPublishTaskRejectedEvent() {
+        EventPublisher mockEp = mock(EventPublisher.class);
+        CounterSignWorkflow wf = createWorkflowWithEventPublisher(mockEp);
+
+        PlusTask task = createTask("task-001", "leave:1:abc", "csTask", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
+
+        Task mockTaskObj = createMockTask("task-001", "leave:1:abc", "csTask", "pi-001", USER_ID);
+        Task assignee = createMockTask("sub-1", "leave:1:abc", "csTask", "pi-001", USER_ID);
+        stubCounterSignFull(task, mockTaskObj, Collections.singletonList(assignee), 1L, 0L);
+
+        ProcessInstanceQuery piQuery = mock(ProcessInstanceQuery.class);
+        when(piQuery.processInstanceId("pi-001")).thenReturn(piQuery);
+        when(piQuery.singleResult()).thenReturn(mock(ProcessInstance.class));
+        when(mockRuntimeService.createProcessInstanceQuery()).thenReturn(piQuery);
+
+        wf.counterSign("task-001", false, null, "不同意");
+
+        verify(mockEp).publish(any(io.github.flowable.plus.core.event.TaskRejectedEvent.class));
+    }
+
+    @Test
+    void delegateTaskShouldPublishTaskDelegatedEvent() {
+        EventPublisher mockEp = mock(EventPublisher.class);
+        CounterSignWorkflow wf = createWorkflowWithEventPublisher(mockEp);
+
+        PlusTask task = createTask("task-001", "leave:1:abc", "csTask", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
+
+        wf.delegateTask("task-001", "userB", "委派原因");
+
+        verify(mockEp).publish(any(io.github.flowable.plus.core.event.TaskDelegatedEvent.class));
+    }
+
+    @Test
+    void counterSignShouldPublishProcessEndedWhenProcessFinished() {
+        EventPublisher mockEp = mock(EventPublisher.class);
+        CounterSignWorkflow wf = createWorkflowWithEventPublisher(mockEp);
+
+        PlusTask task = createTask("task-001", "leave:1:abc", "csTask", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
+
+        Task mockTaskObj = createMockTask("task-001", "leave:1:abc", "csTask", "pi-001", USER_ID);
+        Task assignee = createMockTask("sub-1", "leave:1:abc", "csTask", "pi-001", USER_ID);
+        stubCounterSignFull(task, mockTaskObj, Collections.singletonList(assignee), 1L, 0L);
+
+        // Mock ProcessInstance query to return null (流程已结束)
+        ProcessInstanceQuery piQuery = mock(ProcessInstanceQuery.class);
+        when(piQuery.processInstanceId(anyString())).thenReturn(piQuery);
+        when(piQuery.singleResult()).thenReturn(null);
+        when(mockRuntimeService.createProcessInstanceQuery()).thenReturn(piQuery);
+
+        HistoricProcessInstance mockHpi = mock(HistoricProcessInstance.class);
+        when(mockHpi.getProcessDefinitionKey()).thenReturn("leave");
+        when(mockHpi.getBusinessKey()).thenReturn("biz-001");
+        when(mockHpi.getEndTime()).thenReturn(new Date());
+        HistoricProcessInstanceQuery hpiQuery = mock(HistoricProcessInstanceQuery.class);
+        when(hpiQuery.processInstanceId(anyString())).thenReturn(hpiQuery);
+        when(hpiQuery.singleResult()).thenReturn(mockHpi);
+        when(mockHistoryService.createHistoricProcessInstanceQuery()).thenReturn(hpiQuery);
+
+        wf.counterSign("task-001", true, null, "同意");
+
+        verify(mockEp).publish(any(io.github.flowable.plus.core.event.ProcessEndedEvent.class));
     }
 }
