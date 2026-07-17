@@ -85,6 +85,8 @@ public class HistoryWorkflow {
      *
      * @param processInstanceId 流程实例 ID
      * @return 审批历史记录列表，按活动开始时间升序排列
+     * @throws IllegalArgumentException 如果 processInstanceId 为 null 或空字符串
+     * @throws NotFoundException 如果指定的流程实例不存在
      */
     public List<ApprovalRecordVO> getApprovalHistory(String processInstanceId) {
         if (processInstanceId == null || processInstanceId.isEmpty()) {
@@ -243,6 +245,29 @@ public class HistoryWorkflow {
     // ======================== Comment → ApprovalAction 三级推断 (ADR-0009) ========================
 
     /**
+     * 查找任务关联的第一个业务 Comment（按时间倒序）。
+     * 跳过非业务类型（如普通留言 comment 类型）。
+     *
+     * @return 第一个匹配的业务 Comment，如果没有则返回 null
+     */
+    private Comment findFirstBusinessComment(HistoricTaskInstance task,
+                                              Map<String, List<Comment>> commentsByTaskId) {
+        List<Comment> taskComments = commentsByTaskId.getOrDefault(task.getId(), Collections.emptyList());
+        for (Comment comment : taskComments) {
+            String typeStr = comment.getType();
+            if (typeStr != null) {
+                try {
+                    CommentType.valueOf(typeStr);
+                    return comment;
+                } catch (IllegalArgumentException ignored) {
+                    // 非业务类型，跳过
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
      * 三级 Comment→Action 推断策略（ADR-0009）：
      * 1. 特征提取：按 Comment 时间倒序扫描，取第一个匹配 CommentType 的值
      * 2. DeleteReason 兜底：无匹配 Comment 时，读取 HistoricTaskInstance.deleteReason
@@ -251,16 +276,13 @@ public class HistoryWorkflow {
     private ApprovalAction inferAction(HistoricTaskInstance task,
                                         Map<String, List<Comment>> commentsByTaskId) {
         // 一级：特征提取（时间倒序扫描 Comment）
-        List<Comment> taskComments = commentsByTaskId.getOrDefault(task.getId(), Collections.emptyList());
-        for (Comment comment : taskComments) {
-            String typeStr = comment.getType();
-            if (typeStr != null) {
-                try {
-                    CommentType ct = CommentType.valueOf(typeStr);
-                    return CommentTypeConverter.toApprovalAction(ct);
-                } catch (IllegalArgumentException ignored) {
-                    // 非业务类型 Comment（如普通留言），跳过继续尝试
-                }
+        Comment businessComment = findFirstBusinessComment(task, commentsByTaskId);
+        if (businessComment != null) {
+            try {
+                CommentType ct = CommentType.valueOf(businessComment.getType());
+                return CommentTypeConverter.toApprovalAction(ct);
+            } catch (IllegalArgumentException ignored) {
+                // 不会被触发（findFirstBusinessComment 已验证），仅为防御
             }
         }
 
@@ -270,9 +292,9 @@ public class HistoryWorkflow {
             return ApprovalAction.AGREE;
         }
         if ("deleted".equals(deleteReason)) {
-            // deleted 场景：需结合上下文判断（撤回/撤销/驳回）
-            // 这里做简单判断：若 task 已被 delete，优先返回 REJECT
-            return ApprovalAction.REJECT;
+            // "deleted" 含义太宽泛（驳回/撤回/撤销/转办均删除任务），
+            // 无法在无 Comment 时精确推断，返回 null 表示未知
+            return null;
         }
         if (deleteReason != null && !deleteReason.isEmpty()) {
             // 其他非标准 deleteReason（如管理员强杀），标记为终止
@@ -290,19 +312,8 @@ public class HistoryWorkflow {
      */
     private String extractCommentText(HistoricTaskInstance task,
                                        Map<String, List<Comment>> commentsByTaskId) {
-        List<Comment> taskComments = commentsByTaskId.getOrDefault(task.getId(), Collections.emptyList());
-        for (Comment comment : taskComments) {
-            String typeStr = comment.getType();
-            if (typeStr != null) {
-                try {
-                    CommentType.valueOf(typeStr);
-                    return comment.getFullMessage();
-                } catch (IllegalArgumentException ignored) {
-                    // 非业务类型，跳过
-                }
-            }
-        }
-        return null;
+        Comment businessComment = findFirstBusinessComment(task, commentsByTaskId);
+        return businessComment != null ? businessComment.getFullMessage() : null;
     }
 
     // ======================== 记录构建 ========================

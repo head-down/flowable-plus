@@ -365,7 +365,7 @@ public class HistoryWorkflowTest {
         Date task2Start = new Date(4000);
         Date task2End = new Date(5000);
 
-        // 任务1: completed → AGREE；任务2: deleted → REJECT
+        // 任务1: completed → AGREE；任务2: deleted（无 Comment 无法确定具体操作）
         List<HistoricActivityInstance> activities = Arrays.asList(
                 createActivity("start", "startEvent", "开始", startEventTime, startEventTime, null),
                 createActivity("task1", "userTask", "部门审批", task1Start, task1Start, "ht-1"),
@@ -385,7 +385,7 @@ public class HistoryWorkflowTest {
 
         assertThat(result).hasSize(3);
         assertThat(result.get(1).getAction()).isEqualTo(ApprovalAction.AGREE);
-        assertThat(result.get(2).getAction()).isEqualTo(ApprovalAction.REJECT);
+        assertThat(result.get(2).getAction()).isNull();
     }
 
     // ======================== 非标准 deleteReason ========================
