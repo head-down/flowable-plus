@@ -19,6 +19,7 @@ import org.flowable.bpmn.model.Process;
 import org.flowable.bpmn.model.SequenceFlow;
 import org.flowable.bpmn.model.StartEvent;
 import org.flowable.bpmn.model.UserTask;
+import org.flowable.engine.IdentityService;
 import org.flowable.engine.ProcessEngine;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
@@ -72,6 +73,9 @@ class BpmnQueryIntegrationTest {
 
     @Autowired
     private TaskService taskService;
+
+    @Autowired
+    private IdentityService identityService;
 
     @Autowired
     private FlowablePlus flowablePlus;
@@ -172,12 +176,17 @@ class BpmnQueryIntegrationTest {
 
     @Test
     void testQueryDoneTasks() {
+        // 必须通过 IdentityService 设置认证用户，
+        // 否则 Flowable 引擎不会写入 ACT_HI_IDENTITYLINK 中的 participant 记录
+        identityService.setAuthenticatedUserId(INITIATOR);
         DynamicUserContext.set(INITIATOR);
         ProcessInstance pi = runtimeService.startProcessInstanceByKey(PROCESS_KEY, "biz-002",
                 Collections.singletonMap("initiator", (Object) INITIATOR));
         processInstanceIds.add(pi.getId());
 
+        // 完成发起 + 审批，使流程结束（确保 identity link 写入历史表）
         completeInitiateTask(pi.getId());
+        completeApproveTask(pi.getId());
 
         TaskQueryDTO query = new TaskQueryDTO();
         query.setPageNum(1);
@@ -186,6 +195,18 @@ class BpmnQueryIntegrationTest {
         PageResult<DoneTaskVO> result = flowablePlus.queryDoneTasks(INITIATOR, query);
         assertThat(result.getTotal()).isGreaterThanOrEqualTo(1);
         assertThat(result.getRecords()).isNotEmpty();
+    }
+
+    private void completeApproveTask(String processInstanceId) {
+        Task approveTask = taskService.createTaskQuery()
+                .processInstanceId(processInstanceId)
+                .taskDefinitionKey("approveTask")
+                .singleResult();
+        if (approveTask != null) {
+            DynamicUserContext.set(APPROVER_1);
+            taskService.claim(approveTask.getId(), APPROVER_1);
+            taskService.complete(approveTask.getId());
+        }
     }
 
     // ======================== TaskQueryEnhancer 回调 ========================

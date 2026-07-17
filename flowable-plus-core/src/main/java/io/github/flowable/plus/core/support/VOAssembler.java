@@ -12,7 +12,6 @@ import org.flowable.task.api.history.HistoricTaskInstance;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -102,25 +101,48 @@ public class VOAssembler {
     }
 
     /**
-     * 对已办列表按节点去重（多实例节点只保留一条）。
+     * 将 HistoricTaskInstance 列表转换为 DoneTaskVO 列表，
+     * 使用已获取的 HistoricProcessInstance 避免重复 DB 查询。
      *
-     * <p>去重键为 (processInstanceId + taskDefinitionKey)，保留 endTime 最新的记录。</p>
-     *
-     * @param tasks 历史任务列表
-     * @return 去重后的任务列表
+     * @param historicTasks 历史任务列表
+     * @param procInsts     对应的流程实例列表（key 为 processInstanceId）
+     * @return DoneTaskVO 列表
      */
-    public List<HistoricTaskInstance> dedupByNode(List<HistoricTaskInstance> tasks) {
-        Map<String, HistoricTaskInstance> map = new LinkedHashMap<>();
-        for (HistoricTaskInstance hti : tasks) {
-            String key = hti.getProcessInstanceId() + "|" + hti.getTaskDefinitionKey();
-            HistoricTaskInstance existing = map.get(key);
-            if (existing == null
-                    || (hti.getEndTime() != null
-                    && (existing.getEndTime() == null || hti.getEndTime().after(existing.getEndTime())))) {
-                map.put(key, hti);
-            }
+    public List<DoneTaskVO> toDoneVOs(List<HistoricTaskInstance> historicTasks,
+                                       Map<String, HistoricProcessInstance> procInsts) {
+        if (historicTasks.isEmpty()) {
+            return Collections.emptyList();
         }
-        return new ArrayList<>(map.values());
+
+        Map<String, ProcessDefinition> pdCache = new HashMap<>();
+
+        List<DoneTaskVO> vos = new ArrayList<>(historicTasks.size());
+        for (HistoricTaskInstance hti : historicTasks) {
+            String defId = hti.getProcessDefinitionId();
+            ProcessDefinition pd = null;
+            if (defId != null) {
+                pd = pdCache.computeIfAbsent(defId, id ->
+                        repositoryService.createProcessDefinitionQuery()
+                                .processDefinitionId(id).singleResult());
+            }
+
+            HistoricProcessInstance hpi = procInsts.get(hti.getProcessInstanceId());
+
+            vos.add(DoneTaskVO.builder()
+                    .taskId(hti.getId())
+                    .taskName(hti.getName())
+                    .processInstanceId(hti.getProcessInstanceId())
+                    .processDefinitionKey(pd != null ? pd.getKey() : null)
+                    .processDefinitionName(pd != null ? pd.getName() : null)
+                    .businessKey(hpi != null ? hpi.getBusinessKey() : null)
+                    .startUserId(hpi != null ? hpi.getStartUserId() : null)
+                    .createTime(hti.getCreateTime())
+                    .endTime(hti.getEndTime())
+                    .assignee(hti.getAssignee())
+                    .deleteReason(hti.getDeleteReason())
+                    .build());
+        }
+        return vos;
     }
 
     // ======================== 内部补全缓存 ========================

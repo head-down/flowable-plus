@@ -20,8 +20,8 @@ import io.github.flowable.plus.core.workflow.ProcessQueryWorkflow;
 import io.github.flowable.plus.core.workflow.TaskQueryModule;
 import io.github.flowable.plus.core.workflow.NodePreviewWorkflow;
 import lombok.extern.slf4j.Slf4j;
+import org.flowable.engine.history.HistoricProcessInstanceQuery;
 import org.flowable.task.api.TaskQuery;
-import org.flowable.task.api.history.HistoricTaskInstanceQuery;
 
 import java.util.List;
 import java.util.Map;
@@ -102,7 +102,7 @@ public class FlowablePlus implements QueryOperations, DiagramOperations, History
 
     @Override
     public PageResult<DoneTaskVO> queryDoneTasks(String userId, TaskQueryDTO query,
-                                                  Consumer<HistoricTaskInstanceQuery> enhancer) {
+                                                  Consumer<HistoricProcessInstanceQuery> enhancer) {
         return taskQueryModule.queryDoneTasks(userId, query, enhancer);
     }
 

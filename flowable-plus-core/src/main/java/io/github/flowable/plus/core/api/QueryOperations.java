@@ -10,8 +10,8 @@ import io.github.flowable.plus.core.vo.ProcessSummaryVO;
 import io.github.flowable.plus.core.vo.TodoTaskVO;
 import io.github.flowable.plus.core.domain.PageResult;
 import io.github.flowable.plus.core.dto.TaskQueryDTO;
+import org.flowable.engine.history.HistoricProcessInstanceQuery;
 import org.flowable.task.api.TaskQuery;
-import org.flowable.task.api.history.HistoricTaskInstanceQuery;
 
 import java.util.List;
 import java.util.Map;
@@ -75,7 +75,7 @@ public interface QueryOperations {
      * @return 分页已办列表
      */
     PageResult<DoneTaskVO> queryDoneTasks(String userId, TaskQueryDTO query,
-                                          Consumer<HistoricTaskInstanceQuery> enhancer);
+                                          Consumer<HistoricProcessInstanceQuery> enhancer);
 
     // ======================== 节点预览 ========================
 

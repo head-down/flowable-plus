@@ -8,6 +8,8 @@ import io.github.flowable.plus.core.support.VOAssembler;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.IdentityService;
 import org.flowable.engine.TaskService;
+import org.flowable.engine.history.HistoricProcessInstance;
+import org.flowable.engine.history.HistoricProcessInstanceQuery;
 import org.flowable.idm.api.Group;
 import org.flowable.task.api.Task;
 import org.flowable.task.api.TaskQuery;
@@ -16,7 +18,9 @@ import org.flowable.task.api.history.HistoricTaskInstanceQuery;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -24,7 +28,7 @@ import java.util.stream.Collectors;
  * 待办/已办查询模块，封装 Flowable TaskService/HistoryService 的查询逻辑。
  *
  * <p>通过 {@link VOAssembler} 接缝完成 VO 转换和流程信息补全。
- * 分页、过滤、去重逻辑均内聚于此模块。</p>
+ * 分页、过滤逻辑均内聚于此模块。</p>
  *
  * @author flowable-plus
  */
@@ -109,7 +113,10 @@ public class TaskQueryModule {
     }
 
     /**
-     * 查询指定用户的已办任务列表。
+     * 查询指定用户的已办任务列表（每流程实例 1 条记录）。
+     *
+     * <p>采用两阶段查询：Phase 1 按流程实例分页，Phase 2 批量取任务详情。
+     * 使用 Flowable 公开 API，不直查内部表。</p>
      */
     public PageResult<DoneTaskVO> queryDoneTasks(String userId, TaskQueryDTO query) {
         return queryDoneTasks(userId, query, null);
@@ -117,9 +124,17 @@ public class TaskQueryModule {
 
     /**
      * 查询指定用户的已办任务列表，支持自定义过滤条件。
+     *
+     * <p>两阶段查询：</p>
+     * <ol>
+     *   <li>{@code HistoricProcessInstanceQuery.involvedUser(userId).or().startedBy(userId)}
+     *       按流程实例分页</li>
+     *   <li>{@code HistoricTaskInstanceQuery.processInstanceIdIn(ids).taskAssignee(userId)}
+     *       批量取任务，每流程实例取 endTime 最新的那条</li>
+     * </ol>
      */
     public PageResult<DoneTaskVO> queryDoneTasks(String userId, TaskQueryDTO query,
-                                                  Consumer<HistoricTaskInstanceQuery> enhancer) {
+                                                  Consumer<HistoricProcessInstanceQuery> enhancer) {
         if (userId == null || userId.isEmpty()) {
             throw new IllegalArgumentException("userId 不可为 null 或空");
         }
@@ -127,49 +142,65 @@ public class TaskQueryModule {
             query = new TaskQueryDTO();
         }
 
-        HistoricTaskInstanceQuery historicQuery = historyService.createHistoricTaskInstanceQuery()
-                .taskAssignee(userId)
-                .finished();
+        // Phase 1: 流程维度分页（involvedUser 不指定 TYPE，匹配所有身份链接）
+        HistoricProcessInstanceQuery procQuery = historyService.createHistoricProcessInstanceQuery()
+                .involvedUser(userId)
+                .or()
+                    .startedBy(userId)
+                .endOr();
 
         if (query.getProcessDefinitionKey() != null && !query.getProcessDefinitionKey().isEmpty()) {
-            historicQuery.processDefinitionKey(query.getProcessDefinitionKey());
-        }
-        if (query.getTaskName() != null && !query.getTaskName().isEmpty()) {
-            historicQuery.taskName(query.getTaskName());
+            procQuery.processDefinitionKey(query.getProcessDefinitionKey());
         }
         if (query.getKeyword() != null && !query.getKeyword().isEmpty()) {
-            historicQuery.processInstanceBusinessKeyLike("%" + query.getKeyword() + "%");
+            procQuery.processInstanceBusinessKeyLike("%" + query.getKeyword() + "%");
         }
         if (query.getBeginDate() != null) {
-            historicQuery.taskCompletedAfter(query.getBeginDate());
+            procQuery.finishedAfter(query.getBeginDate());
         }
         if (query.getEndDate() != null) {
-            historicQuery.taskCompletedBefore(query.getEndDate());
+            procQuery.finishedBefore(query.getEndDate());
         }
 
         if (enhancer != null) {
-            enhancer.accept(historicQuery);
+            enhancer.accept(procQuery);
         }
 
-        // 查询全部（多实例去重必须在内存中完成，不能依赖数据库分页）
-        List<HistoricTaskInstance> allHistoricTasks = historicQuery
+        long total = procQuery.count();
+
+        int firstResult = (query.getPageNum() - 1) * query.getPageSize();
+        List<HistoricProcessInstance> processes = procQuery
+                .orderByProcessInstanceEndTime().desc()
+                .listPage(firstResult, query.getPageSize());
+
+        if (processes.isEmpty()) {
+            return new PageResult<>(total, query.getPageNum(), query.getPageSize(), Collections.emptyList());
+        }
+
+        // Phase 2: 批量取任务详情
+        List<String> procInstIds = processes.stream()
+                .map(HistoricProcessInstance::getId)
+                .collect(Collectors.toList());
+
+        List<HistoricTaskInstance> allTasks = historyService.createHistoricTaskInstanceQuery()
+                .processInstanceIdIn(procInstIds)
+                .taskAssignee(userId)
+                .finished()
                 .orderByHistoricTaskInstanceEndTime().desc()
                 .list();
 
-        List<HistoricTaskInstance> deduped = voAssembler.dedupByNode(allHistoricTasks);
-
-        long total = deduped.size();
-
-        int fromIndex = (query.getPageNum() - 1) * query.getPageSize();
-        int toIndex = Math.min(fromIndex + query.getPageSize(), deduped.size());
-        List<HistoricTaskInstance> pageTasks;
-        if (fromIndex >= deduped.size()) {
-            pageTasks = Collections.emptyList();
-        } else {
-            pageTasks = new ArrayList<>(deduped.subList(fromIndex, toIndex));
+        // 每个流程实例取 endTime 最新的那条任务
+        Map<String, HistoricTaskInstance> latestPerProcInst = new LinkedHashMap<>();
+        for (HistoricTaskInstance task : allTasks) {
+            latestPerProcInst.putIfAbsent(task.getProcessInstanceId(), task);
         }
 
-        List<DoneTaskVO> vos = voAssembler.toDoneVOs(pageTasks);
+        List<HistoricTaskInstance> orderedTasks = new ArrayList<>(latestPerProcInst.values());
+
+        Map<String, HistoricProcessInstance> procInstMap = processes.stream()
+                .collect(Collectors.toMap(HistoricProcessInstance::getId, p -> p, (a, b) -> a));
+
+        List<DoneTaskVO> vos = voAssembler.toDoneVOs(orderedTasks, procInstMap);
 
         return new PageResult<>(total, query.getPageNum(), query.getPageSize(), vos);
     }

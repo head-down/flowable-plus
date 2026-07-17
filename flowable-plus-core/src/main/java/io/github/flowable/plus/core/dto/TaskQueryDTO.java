@@ -23,15 +23,15 @@ public class TaskQueryDTO {
     /** 流程定义 Key（精确匹配） */
     private String processDefinitionKey;
 
-    /** 节点名称（精确匹配） */
+    /** 节点名称（精确匹配，仅待办查询生效） */
     private String taskName;
 
     /** 模糊搜索（businessKey + 流程定义名称） */
     private String keyword;
 
-    /** 创建时间起 */
+    /** 时间范围起（待办：createdAfter，已办：finishedAfter） */
     private Date beginDate;
 
-    /** 创建时间止 */
+    /** 时间范围止（待办：createdBefore，已办：finishedBefore） */
     private Date endDate;
 }

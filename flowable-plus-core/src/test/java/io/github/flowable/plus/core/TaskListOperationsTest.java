@@ -27,6 +27,7 @@ import io.github.flowable.plus.core.workflow.TaskQueryModule;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -47,7 +48,8 @@ public class TaskListOperationsTest {
     private RepositoryService mockRepoService;
     private IdentityService mockIdentityService;
     private TaskQuery mockTaskQuery;
-    private HistoricTaskInstanceQuery mockHistoricQuery;
+    private HistoricTaskInstanceQuery mockHistoricTaskQuery;
+    private HistoricProcessInstanceQuery mockHistoricProcQuery;
     private FlowablePlus flowablePlus;
 
     @BeforeEach
@@ -57,10 +59,12 @@ public class TaskListOperationsTest {
         mockRepoService = mock(RepositoryService.class);
         mockIdentityService = mock(IdentityService.class);
         mockTaskQuery = mock(TaskQuery.class);
-        mockHistoricQuery = mock(HistoricTaskInstanceQuery.class);
+        mockHistoricTaskQuery = mock(HistoricTaskInstanceQuery.class);
+        mockHistoricProcQuery = mock(HistoricProcessInstanceQuery.class);
 
         when(mockTaskService.createTaskQuery()).thenReturn(mockTaskQuery);
-        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(mockHistoricQuery);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(mockHistoricTaskQuery);
+        when(mockHistoryService.createHistoricProcessInstanceQuery()).thenReturn(mockHistoricProcQuery);
 
         // Group query: 默认返回空组
         GroupQuery mockGroupQuery = mock(GroupQuery.class);
@@ -226,11 +230,11 @@ public class TaskListOperationsTest {
 
     @Test
     public void testDoneBasicQuery() {
-        stubDoneBaseQuery();
-        when(mockHistoricQuery.count()).thenReturn(0L);
-        when(mockHistoricQuery.orderByHistoricTaskInstanceEndTime()).thenReturn(mockHistoricQuery);
-        when(mockHistoricQuery.desc()).thenReturn(mockHistoricQuery);
-        when(mockHistoricQuery.list()).thenReturn(Collections.emptyList());
+        stubDoneProcQuery();
+        when(mockHistoricProcQuery.count()).thenReturn(0L);
+        when(mockHistoricProcQuery.orderByProcessInstanceEndTime()).thenReturn(mockHistoricProcQuery);
+        when(mockHistoricProcQuery.desc()).thenReturn(mockHistoricProcQuery);
+        when(mockHistoricProcQuery.listPage(0, 20)).thenReturn(Collections.emptyList());
 
         PageResult<DoneTaskVO> result = flowablePlus.queryDoneTasks("user1", new TaskQueryDTO());
 
@@ -240,17 +244,29 @@ public class TaskListOperationsTest {
 
     @Test
     public void testDoneWithSingleTask() {
-        stubDoneBaseQuery();
+        stubDoneProcQuery();
+
+        HistoricProcessInstance hpi = createMockHistoricProcInst("pi-1", "leave:1:abc",
+                "biz-001", "initiator");
+        when(mockHistoricProcQuery.count()).thenReturn(1L);
+        when(mockHistoricProcQuery.orderByProcessInstanceEndTime()).thenReturn(mockHistoricProcQuery);
+        when(mockHistoricProcQuery.desc()).thenReturn(mockHistoricProcQuery);
+        when(mockHistoricProcQuery.listPage(0, 20))
+                .thenReturn(Collections.singletonList(hpi));
 
         Date endTime = new Date();
-        HistoricTaskInstance hti = createMockHistoricTask("ht-1", "pi-1", "deptApprove", "部门审批",
-                "user1", endTime);
-        when(mockHistoricQuery.orderByHistoricTaskInstanceEndTime()).thenReturn(mockHistoricQuery);
-        when(mockHistoricQuery.desc()).thenReturn(mockHistoricQuery);
-        when(mockHistoricQuery.list()).thenReturn(Collections.singletonList(hti));
+        HistoricTaskInstance hti = createMockHistoricTask("ht-1", "pi-1", "deptApprove",
+                "部门审批", "user1", endTime);
+        when(mockHistoricTaskQuery.processInstanceIdIn(anyCollection()))
+                .thenReturn(mockHistoricTaskQuery);
+        when(mockHistoricTaskQuery.taskAssignee("user1")).thenReturn(mockHistoricTaskQuery);
+        when(mockHistoricTaskQuery.finished()).thenReturn(mockHistoricTaskQuery);
+        when(mockHistoricTaskQuery.orderByHistoricTaskInstanceEndTime())
+                .thenReturn(mockHistoricTaskQuery);
+        when(mockHistoricTaskQuery.desc()).thenReturn(mockHistoricTaskQuery);
+        when(mockHistoricTaskQuery.list()).thenReturn(Collections.singletonList(hti));
 
         stubProcessDefinition("leave:1:abc", "leave", "请假审批");
-        stubHistoricProcessInstance("pi-1", "biz-001", "initiator");
 
         PageResult<DoneTaskVO> result = flowablePlus.queryDoneTasks("user1", new TaskQueryDTO());
 
@@ -268,71 +284,56 @@ public class TaskListOperationsTest {
     }
 
     @Test
-    public void testDoneMultiInstanceDedup() {
-        stubDoneBaseQuery();
+    public void testDoneOnePerProcessInstance() {
+        stubDoneProcQuery();
 
-        Date earlyEnd = new Date(100000);
+        HistoricProcessInstance hpi = createMockHistoricProcInst("pi-1", "leave:1:abc",
+                "biz-001", "initiator");
+        when(mockHistoricProcQuery.count()).thenReturn(1L);
+        when(mockHistoricProcQuery.orderByProcessInstanceEndTime()).thenReturn(mockHistoricProcQuery);
+        when(mockHistoricProcQuery.desc()).thenReturn(mockHistoricProcQuery);
+        when(mockHistoricProcQuery.listPage(0, 20))
+                .thenReturn(Collections.singletonList(hpi));
+
         Date lateEnd = new Date(200000);
+        Date earlyEnd = new Date(100000);
+        HistoricTaskInstance hti1 = createMockHistoricTask("ht-1", "pi-1", "deptApprove",
+                "部门审批", "user1", earlyEnd);
+        HistoricTaskInstance hti2 = createMockHistoricTask("ht-2", "pi-1", "hrApprove",
+                "HR审批", "user1", lateEnd);
 
-        // 两个会签子任务，同节点
-        HistoricTaskInstance hti1 = createMockHistoricTask("ht-1", "pi-1", "counterSign",
-                "会签审批", "user1", earlyEnd);
-        HistoricTaskInstance hti2 = createMockHistoricTask("ht-2", "pi-1", "counterSign",
-                "会签审批", "user2", lateEnd);
-
-        when(mockHistoricQuery.orderByHistoricTaskInstanceEndTime()).thenReturn(mockHistoricQuery);
-        when(mockHistoricQuery.desc()).thenReturn(mockHistoricQuery);
-        when(mockHistoricQuery.list()).thenReturn(Arrays.asList(hti2, hti1));
+        when(mockHistoricTaskQuery.processInstanceIdIn(anyCollection()))
+                .thenReturn(mockHistoricTaskQuery);
+        when(mockHistoricTaskQuery.taskAssignee("user1")).thenReturn(mockHistoricTaskQuery);
+        when(mockHistoricTaskQuery.finished()).thenReturn(mockHistoricTaskQuery);
+        when(mockHistoricTaskQuery.orderByHistoricTaskInstanceEndTime())
+                .thenReturn(mockHistoricTaskQuery);
+        when(mockHistoricTaskQuery.desc()).thenReturn(mockHistoricTaskQuery);
+        when(mockHistoricTaskQuery.list()).thenReturn(Arrays.asList(hti2, hti1));
 
         stubProcessDefinition("leave:1:abc", "leave", "请假审批");
-        stubHistoricProcessInstance("pi-1", "biz-001", "initiator");
 
         PageResult<DoneTaskVO> result = flowablePlus.queryDoneTasks("user1", new TaskQueryDTO());
 
-        // 去重后只有 1 条
+        // 每流程实例 1 条，取 endTime 最新的
         assertThat(result.getTotal()).isEqualTo(1);
         assertThat(result.getRecords()).hasSize(1);
-        // 保留 endTime 最新的
         assertThat(result.getRecords().get(0).getEndTime()).isEqualTo(lateEnd);
     }
 
     @Test
-    public void testDoneMultiInstanceDifferentNodes() {
-        stubDoneBaseQuery();
-
-        Date endTime = new Date();
-        HistoricTaskInstance hti1 = createMockHistoricTask("ht-1", "pi-1", "deptApprove",
-                "部门审批", "user1", endTime);
-        HistoricTaskInstance hti2 = createMockHistoricTask("ht-2", "pi-1", "hrApprove",
-                "HR审批", "user1", endTime);
-
-        when(mockHistoricQuery.orderByHistoricTaskInstanceEndTime()).thenReturn(mockHistoricQuery);
-        when(mockHistoricQuery.desc()).thenReturn(mockHistoricQuery);
-        when(mockHistoricQuery.list()).thenReturn(Arrays.asList(hti2, hti1));
-
-        stubProcessDefinition("leave:1:abc", "leave", "请假审批");
-        stubHistoricProcessInstance("pi-1", "biz-001", "initiator");
-
-        PageResult<DoneTaskVO> result = flowablePlus.queryDoneTasks("user1", new TaskQueryDTO());
-
-        // 不同节点不应去重
-        assertThat(result.getTotal()).isEqualTo(2);
-        assertThat(result.getRecords()).hasSize(2);
-    }
-
-    @Test
     public void testDoneWithFilters() {
-        stubDoneBaseQuery();
-        when(mockHistoricQuery.processDefinitionKey("leave")).thenReturn(mockHistoricQuery);
-        when(mockHistoricQuery.taskName("部门审批")).thenReturn(mockHistoricQuery);
-        when(mockHistoricQuery.processInstanceBusinessKeyLike("%借款%")).thenReturn(mockHistoricQuery);
-        when(mockHistoricQuery.orderByHistoricTaskInstanceEndTime()).thenReturn(mockHistoricQuery);
-        when(mockHistoricQuery.desc()).thenReturn(mockHistoricQuery);
-        when(mockHistoricQuery.list()).thenReturn(Collections.emptyList());
+        stubDoneProcQuery();
+        when(mockHistoricProcQuery.processDefinitionKey("leave")).thenReturn(mockHistoricProcQuery);
+        when(mockHistoricProcQuery.processInstanceBusinessKeyLike("%借款%"))
+                .thenReturn(mockHistoricProcQuery);
+        when(mockHistoricProcQuery.count()).thenReturn(0L);
+        when(mockHistoricProcQuery.orderByProcessInstanceEndTime()).thenReturn(mockHistoricProcQuery);
+        when(mockHistoricProcQuery.desc()).thenReturn(mockHistoricProcQuery);
+        when(mockHistoricProcQuery.listPage(0, 20)).thenReturn(Collections.emptyList());
 
         TaskQueryDTO query = new TaskQueryDTO();
         query.setProcessDefinitionKey("leave");
-        query.setTaskName("部门审批");
         query.setKeyword("借款");
 
         PageResult<DoneTaskVO> result = flowablePlus.queryDoneTasks("user1", query);
@@ -342,19 +343,22 @@ public class TaskListOperationsTest {
 
     @Test
     public void testDoneWithEnhancer() {
-        stubDoneBaseQuery();
-        when(mockHistoricQuery.orderByHistoricTaskInstanceEndTime()).thenReturn(mockHistoricQuery);
-        when(mockHistoricQuery.desc()).thenReturn(mockHistoricQuery);
-        when(mockHistoricQuery.list()).thenReturn(Collections.emptyList());
+        stubDoneProcQuery();
+        when(mockHistoricProcQuery.count()).thenReturn(0L);
+        when(mockHistoricProcQuery.orderByProcessInstanceEndTime()).thenReturn(mockHistoricProcQuery);
+        when(mockHistoricProcQuery.desc()).thenReturn(mockHistoricProcQuery);
+        when(mockHistoricProcQuery.listPage(0, 20)).thenReturn(Collections.emptyList());
 
-        Consumer<HistoricTaskInstanceQuery> enhancer = q ->
-                q.processVariableValueEquals("amount", 1000);
-        when(mockHistoricQuery.processVariableValueEquals("amount", 1000)).thenReturn(mockHistoricQuery);
+        Consumer<HistoricProcessInstanceQuery> enhancer = q ->
+                q.variableValueEquals("amount", 1000);
+        when(mockHistoricProcQuery.variableValueEquals("amount", 1000))
+                .thenReturn(mockHistoricProcQuery);
 
-        PageResult<DoneTaskVO> result = flowablePlus.queryDoneTasks("user1", new TaskQueryDTO(), enhancer);
+        PageResult<DoneTaskVO> result = flowablePlus.queryDoneTasks("user1",
+                new TaskQueryDTO(), enhancer);
 
         assertThat(result.getTotal()).isEqualTo(0);
-        verify(mockHistoricQuery).processVariableValueEquals("amount", 1000);
+        verify(mockHistoricProcQuery).variableValueEquals("amount", 1000);
     }
 
     // ======================== 分页验证 ========================
@@ -397,9 +401,13 @@ public class TaskListOperationsTest {
         when(mockOrQuery.endOr()).thenReturn(mockTaskQuery);
     }
 
-    private void stubDoneBaseQuery() {
-        when(mockHistoricQuery.taskAssignee(anyString())).thenReturn(mockHistoricQuery);
-        when(mockHistoricQuery.finished()).thenReturn(mockHistoricQuery);
+    private void stubDoneProcQuery() {
+        when(mockHistoricProcQuery.involvedUser(anyString()))
+                .thenReturn(mockHistoricProcQuery);
+        HistoricProcessInstanceQuery mockOrQuery = mock(HistoricProcessInstanceQuery.class);
+        when(mockHistoricProcQuery.or()).thenReturn(mockOrQuery);
+        when(mockOrQuery.startedBy(anyString())).thenReturn(mockOrQuery);
+        when(mockOrQuery.endOr()).thenReturn(mockHistoricProcQuery);
     }
 
     private void stubProcessDefinition(String defId, String key, String name) {
@@ -450,5 +458,15 @@ public class TaskListOperationsTest {
         when(hti.getEndTime()).thenReturn(endTime);
         when(hti.getDeleteReason()).thenReturn(null);
         return hti;
+    }
+
+    private HistoricProcessInstance createMockHistoricProcInst(String instanceId,
+            String definitionId, String businessKey, String startUserId) {
+        HistoricProcessInstance hpi = mock(HistoricProcessInstance.class);
+        when(hpi.getId()).thenReturn(instanceId);
+        when(hpi.getProcessDefinitionId()).thenReturn(definitionId);
+        when(hpi.getBusinessKey()).thenReturn(businessKey);
+        when(hpi.getStartUserId()).thenReturn(startUserId);
+        return hpi;
     }
 }
