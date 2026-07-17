@@ -6,35 +6,17 @@ import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.exception.TaskAlreadyCompletedException;
 import io.github.flowable.plus.core.vo.JumpableNodeVO;
-import io.github.flowable.plus.core.domain.PlusProcessInstance;
 import io.github.flowable.plus.core.enums.CommentType;
 
 import java.util.List;
 import java.util.Map;
 
 /**
- * 审批操作接口，统一定义流程发起、同意、驳回、撤回和撤销操作。
- *
- * <p>合并了原 TaskOperations、RejectionOperations 和 ProcessLifecycle
- * 三个接口，对调用方提供一个统一的审批生命周期入口。</p>
+ * 任务执行操作接口，定义审批任务的推进、驳回、撤回、跳转、转办和认领操作。
  *
  * @author flowable-plus
- * @see TaskWorkflow
  */
-public interface ApprovalOperations {
-
-    // ======================== 发起与同意 ========================
-
-    /**
-     * 启动流程实例。
-     *
-     * @param processDefinitionKey 流程定义 KEY，不可为 null
-     * @param businessKey          业务主键，可为 null
-     * @param variables            流程变量，可为 null
-     * @return 流程实例领域对象
-     * @throws NotFoundException 流程定义不存在时抛出
-     */
-    PlusProcessInstance startProcess(String processDefinitionKey, String businessKey, Map<String, Object> variables);
+public interface TaskExecutionOperations {
 
     /**
      * 完成任务审批。
@@ -58,8 +40,6 @@ public interface ApprovalOperations {
      * @throws NotFoundException 任务不存在时抛出
      */
     void claimTask(String taskId);
-
-    // ======================== 驳回 ========================
 
     /**
      * 驳回至上一审批节点。
@@ -90,8 +70,6 @@ public interface ApprovalOperations {
      */
     void rejectTaskToInitiator(String taskId, String reason);
 
-    // ======================== 撤回与撤销 ========================
-
     /**
      * 撤回已提交的任务。
      *
@@ -107,20 +85,19 @@ public interface ApprovalOperations {
     void withdrawTask(String taskId, String reason);
 
     /**
-     * 撤销整个流程实例。
+     * 转办：将单实例审批任务彻底转移给他人。
      *
-     * <p>流程发起人撤销运行中的流程实例，采用软删除策略——
-     * 删除运行时实例但保留历史记录供审计。</p>
+     * <p>任务所有权完全转移，不可收回。仅当前 assignee 可操作。</p>
      *
-     * @param processInstanceId 流程实例 ID，不可为 null
-     * @param reason            撤销原因，可为 null
-     * @throws NotFoundException            流程实例不存在时抛出
-     * @throws TaskAlreadyCompletedException 流程已结束或已推进后续节点时抛出
-     * @throws PermissionDeniedException     调用者不是流程发起人时抛出
+     * @param taskId          任务 ID，不可为 null
+     * @param transferUserId  接收人 ID，不可为 null
+     * @param reason          转办原因，可为 null
+     * @throws NotFoundException            任务不存在时抛出
+     * @throws TaskAlreadyCompletedException 任务已完成时抛出
+     * @throws PermissionDeniedException     调用者不是当前任务审批人时抛出
+     * @throws IllegalArgumentException     转办目标为当前审批人时抛出
      */
-    void revokeProcess(String processInstanceId, String reason);
-
-    // ======================== 任意跳转 ========================
+    void transferTask(String taskId, String transferUserId, String reason);
 
     /**
      * 将当前任务跳转至任意历史审批节点。
@@ -156,21 +133,4 @@ public interface ApprovalOperations {
      * @throws PermissionDeniedException     调用者不是当前任务审批人时抛出
      */
     List<JumpableNodeVO> getJumpableNodes(String taskId);
-
-    // ======================== 转办 ========================
-
-    /**
-     * 转办：将单实例审批任务彻底转移给他人。
-     *
-     * <p>任务所有权完全转移，不可收回。仅当前 assignee 可操作。</p>
-     *
-     * @param taskId          任务 ID，不可为 null
-     * @param transferUserId  接收人 ID，不可为 null
-     * @param reason          转办原因，可为 null
-     * @throws NotFoundException            任务不存在时抛出
-     * @throws TaskAlreadyCompletedException 任务已完成时抛出
-     * @throws PermissionDeniedException     调用者不是当前任务审批人时抛出
-     * @throws IllegalArgumentException     转办目标为当前审批人时抛出
-     */
-    void transferTask(String taskId, String transferUserId, String reason);
 }

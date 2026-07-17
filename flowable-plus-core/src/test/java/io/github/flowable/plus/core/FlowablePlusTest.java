@@ -1,15 +1,11 @@
 package io.github.flowable.plus.core;
 
-import io.github.flowable.plus.core.api.ApprovalOperations;
-import io.github.flowable.plus.core.api.CounterSignOperations;
 import io.github.flowable.plus.core.api.HistoryOperations;
-import io.github.flowable.plus.core.workflow.CounterSignWorkflow;
 import io.github.flowable.plus.core.workflow.DiagramWorkflow;
 import io.github.flowable.plus.core.workflow.HistoryWorkflow;
 import io.github.flowable.plus.core.workflow.NodePreviewWorkflow;
 import io.github.flowable.plus.core.workflow.ProcessQueryWorkflow;
 import io.github.flowable.plus.core.workflow.TaskQueryModule;
-import io.github.flowable.plus.core.workflow.TaskWorkflow;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -19,8 +15,7 @@ import static org.mockito.Mockito.mock;
 /**
  * FlowablePlus 构造注入测试：验证构造参数校验。
  *
- * <p>常规任务推进与驳回操作已下沉至 {@link TaskWorkflow}（{@link ApprovalOperations}），
- * 会签操作下沉至 {@link CounterSignWorkflow}（{@link CounterSignOperations}），
+ * <p>常规任务操作下沉至 ProcessLifecycleWorkflow 和 TaskExecutionWorkflow，
  * 待办/已办查询委托给 {@link TaskQueryModule}，
  * 节点预览委托给 {@link NodePreviewWorkflow}，
  * 流程追踪委托给 {@link ProcessQueryWorkflow}，

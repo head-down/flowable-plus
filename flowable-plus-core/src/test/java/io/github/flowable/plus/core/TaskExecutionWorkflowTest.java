@@ -1,24 +1,23 @@
 package io.github.flowable.plus.core;
 
+import io.github.flowable.plus.core.domain.PlusTask;
+import io.github.flowable.plus.core.enums.CommentType;
 import io.github.flowable.plus.core.event.EventPublisher;
-import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.exception.InvalidTargetNodeException;
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.exception.TaskAlreadyCompletedException;
-import io.github.flowable.plus.core.spi.AutoApprovalRule;
+import io.github.flowable.plus.core.model.MultiInstanceDetector;
+import io.github.flowable.plus.core.model.NodeFinder;
 import io.github.flowable.plus.core.spi.ExecutionTreeHelper;
 import io.github.flowable.plus.core.spi.UserContext;
+import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.vo.JumpableNodeVO;
+import io.github.flowable.plus.core.workflow.TaskExecutionWorkflow;
 import org.flowable.engine.HistoryService;
-import org.flowable.engine.IdentityService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
-import org.flowable.engine.history.HistoricProcessInstance;
-import org.flowable.engine.history.HistoricProcessInstanceQuery;
-import org.flowable.task.api.history.HistoricTaskInstance;
-import org.flowable.task.api.history.HistoricTaskInstanceQuery;
 import org.flowable.engine.runtime.ChangeActivityStateBuilder;
 import org.flowable.engine.runtime.Execution;
 import org.flowable.engine.runtime.ExecutionQuery;
@@ -26,15 +25,10 @@ import org.flowable.engine.runtime.ProcessInstance;
 import org.flowable.engine.runtime.ProcessInstanceQuery;
 import org.flowable.task.api.Task;
 import org.flowable.task.api.TaskQuery;
+import org.flowable.task.api.history.HistoricTaskInstance;
+import org.flowable.task.api.history.HistoricTaskInstanceQuery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import io.github.flowable.plus.core.domain.PlusTask;
-import io.github.flowable.plus.core.model.BpmnModelCache;
-import io.github.flowable.plus.core.model.MultiInstanceDetector;
-import io.github.flowable.plus.core.model.NodeFinder;
-import io.github.flowable.plus.core.workflow.TaskWorkflow;
-import io.github.flowable.plus.core.domain.PlusProcessInstance;
-import io.github.flowable.plus.core.enums.CommentType;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -54,10 +48,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * TaskWorkflow 单元测试：覆盖发起、同意、驳回、撤回、撤销的
- * 正常路径��所有异常路径。
+ * TaskExecutionWorkflow 单元测试：覆盖同意、驳回、撤回、跳转、转办、认领的
+ * 正常路径和所有异常路径。
  */
-public class TaskWorkflowTest {
+public class TaskExecutionWorkflowTest {
 
     private static final String USER_ID = "user1";
 
@@ -65,13 +59,11 @@ public class TaskWorkflowTest {
     private TaskService mockTaskService;
     private HistoryService mockHistoryService;
     private RuntimeService mockRuntimeService;
-    private IdentityService mockIdentityService;
     private NodeFinder mockNodeFinder;
-    private BpmnModelCache mockBpmnModelCache;
     private MultiInstanceDetector mockMultiInstanceDetector;
     private ExecutionTreeHelper mockExecutionTreeHelper;
     private ProcessEndDetector mockProcessEndDetector;
-    private TaskWorkflow taskWorkflow;
+    private TaskExecutionWorkflow workflow;
 
     @BeforeEach
     void setUp() {
@@ -79,9 +71,7 @@ public class TaskWorkflowTest {
         mockTaskService = mock(TaskService.class);
         mockHistoryService = mock(HistoryService.class);
         mockRuntimeService = mock(RuntimeService.class);
-        mockIdentityService = mock(IdentityService.class);
         mockNodeFinder = mock(NodeFinder.class);
-        mockBpmnModelCache = mock(BpmnModelCache.class);
         mockMultiInstanceDetector = mock(MultiInstanceDetector.class);
         mockExecutionTreeHelper = mock(ExecutionTreeHelper.class);
         mockProcessEndDetector = mock(ProcessEndDetector.class);
@@ -89,108 +79,9 @@ public class TaskWorkflowTest {
         // 默认 stub：createExecutionQuery 返回空执行对象（非并行分支场景）
         stubNoParallelBranch();
 
-        taskWorkflow = new TaskWorkflow(userContext, mockTaskService, mockHistoryService,
-                mockRuntimeService, mockIdentityService, mockNodeFinder, mockMultiInstanceDetector, null,
+        workflow = new TaskExecutionWorkflow(userContext, mockTaskService, mockHistoryService,
+                mockRuntimeService, mockNodeFinder, mockMultiInstanceDetector,
                 mockExecutionTreeHelper, null, mockProcessEndDetector);
-    }
-
-    // ======================== 发起 ========================
-
-    @Test
-    void testStartProcess() {
-        ProcessInstance mockPi = mock(ProcessInstance.class);
-        when(mockPi.getProcessInstanceId()).thenReturn("pi-001");
-        when(mockPi.getBusinessKey()).thenReturn("biz-001");
-        when(mockPi.getProcessDefinitionId()).thenReturn("leave:1:abc");
-        when(mockRuntimeService.startProcessInstanceByKey("leave", "biz-001", null))
-                .thenReturn(mockPi);
-
-        PlusProcessInstance result = taskWorkflow.startProcess("leave", "biz-001", null);
-
-        assertThat(result.getProcessInstanceId()).isEqualTo("pi-001");
-        assertThat(result.getBusinessKey()).isEqualTo("biz-001");
-        assertThat(result.getProcessDefinitionId()).isEqualTo("leave:1:abc");
-        verify(mockIdentityService).setAuthenticatedUserId(USER_ID);
-        verify(mockIdentityService).setAuthenticatedUserId(null);
-    }
-
-    @Test
-    void testStartProcessRejectsNullKey() {
-        assertThatThrownBy(() -> taskWorkflow.startProcess(null, null, null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("processDefinitionKey");
-    }
-
-    @Test
-    void testStartProcessClearsAuthOnException() {
-        when(mockRuntimeService.startProcessInstanceByKey("leave", null, null))
-                .thenThrow(new RuntimeException("引擎异常"));
-
-        assertThatThrownBy(() -> taskWorkflow.startProcess("leave", null, null))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("引擎异常");
-        verify(mockIdentityService).setAuthenticatedUserId(USER_ID);
-        verify(mockIdentityService).setAuthenticatedUserId(null);
-    }
-
-    @Test
-    void testStartProcessWithVariables() {
-        Map<String, Object> variables = new HashMap<>();
-        variables.put("amount", 5000);
-
-        ProcessInstance mockPi = mock(ProcessInstance.class);
-        when(mockPi.getProcessInstanceId()).thenReturn("pi-002");
-        when(mockPi.getBusinessKey()).thenReturn("biz-002");
-        when(mockPi.getProcessDefinitionId()).thenReturn("leave:1:abc");
-        when(mockRuntimeService.startProcessInstanceByKey("leave", "biz-002", variables))
-                .thenReturn(mockPi);
-
-        PlusProcessInstance result = taskWorkflow.startProcess("leave", "biz-002", variables);
-
-        assertThat(result.getProcessInstanceId()).isEqualTo("pi-002");
-    }
-
-    @Test
-    void testStartProcessPropagatesAutoCompleteException() {
-        // 注册一个会抛异常的 AutoApprovalRule
-        AutoApprovalRule failingRule = (task, vars) -> {
-            throw new RuntimeException("自动提交规则异常");
-        };
-
-        // stub 自动提交内部的 historyService 查询
-        HistoricTaskInstanceQuery historicTaskQuery = mock(HistoricTaskInstanceQuery.class);
-        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(historicTaskQuery);
-        when(historicTaskQuery.processInstanceId(anyString())).thenReturn(historicTaskQuery);
-        when(historicTaskQuery.count()).thenReturn(0L);
-
-        // stub 自动提交内部的 taskService 查询
-        TaskQuery taskQuery = mock(TaskQuery.class);
-        when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
-        when(taskQuery.processInstanceId(anyString())).thenReturn(taskQuery);
-        when(taskQuery.active()).thenReturn(taskQuery);
-        when(taskQuery.list()).thenReturn(Collections.singletonList(mock(Task.class)));
-
-        taskWorkflow = new TaskWorkflow(userContext, mockTaskService, mockHistoryService,
-                mockRuntimeService, mockIdentityService, mockNodeFinder, mockMultiInstanceDetector,
-                Collections.singletonList(failingRule), mockExecutionTreeHelper, null, mockProcessEndDetector);
-
-        ProcessInstance mockPi = mock(ProcessInstance.class);
-        when(mockPi.getProcessInstanceId()).thenReturn("pi-003");
-        when(mockPi.getBusinessKey()).thenReturn("biz-003");
-        when(mockPi.getProcessDefinitionId()).thenReturn("leave:1:abc");
-
-        Map<String, Object> variables = new HashMap<>();
-        variables.put("amount", 1000);
-        when(mockRuntimeService.startProcessInstanceByKey("leave", "biz-003", variables))
-                .thenReturn(mockPi);
-
-        // 快速失败：异常应向上传播，不被吞没
-        assertThatThrownBy(() -> taskWorkflow.startProcess("leave", "biz-003", variables))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("自动提交规则异常");
-        // 身份清理仍应在 finally 中执行
-        verify(mockIdentityService).setAuthenticatedUserId(USER_ID);
-        verify(mockIdentityService).setAuthenticatedUserId(null);
     }
 
     // ======================== 同意 ========================
@@ -201,7 +92,7 @@ public class TaskWorkflowTest {
         stubTaskExists(task);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
 
-        taskWorkflow.completeTask("task-001", null, null);
+        workflow.completeTask("task-001", null, null);
 
         verify(mockTaskService).claim("task-001", USER_ID);
         verify(mockTaskService).complete("task-001", null);
@@ -214,7 +105,7 @@ public class TaskWorkflowTest {
         stubTaskExists(task);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
 
-        taskWorkflow.completeTask("task-001", null, "同意");
+        workflow.completeTask("task-001", null, "同意");
 
         verify(mockTaskService).addComment("task-001", "pi-001", CommentType.AGREE.name(), "同意");
         verify(mockTaskService).complete("task-001", null);
@@ -228,7 +119,7 @@ public class TaskWorkflowTest {
 
         Map<String, Object> vars = new HashMap<>();
         vars.put("approved", true);
-        taskWorkflow.completeTask("task-001", vars, null);
+        workflow.completeTask("task-001", vars, null);
 
         verify(mockTaskService).complete("task-001", vars);
     }
@@ -239,7 +130,7 @@ public class TaskWorkflowTest {
         stubTaskExists(task);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
 
-        assertThatThrownBy(() -> taskWorkflow.completeTask("task-001", null, null))
+        assertThatThrownBy(() -> workflow.completeTask("task-001", null, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("多实例子任务");
     }
@@ -248,7 +139,7 @@ public class TaskWorkflowTest {
     void testCompleteTaskRejectsCompletedTask() {
         stubCompletedTask("task-001");
 
-        assertThatThrownBy(() -> taskWorkflow.completeTask("task-001", null, null))
+        assertThatThrownBy(() -> workflow.completeTask("task-001", null, null))
                 .isInstanceOf(TaskAlreadyCompletedException.class)
                 .hasMessageContaining("已完成");
     }
@@ -257,7 +148,7 @@ public class TaskWorkflowTest {
     void testCompleteTaskRejectsNonexistentTask() {
         stubNonexistentTask("task-nope");
 
-        assertThatThrownBy(() -> taskWorkflow.completeTask("task-nope", null, null))
+        assertThatThrownBy(() -> workflow.completeTask("task-nope", null, null))
                 .isInstanceOf(NotFoundException.class)
                 .hasMessageContaining("不存在");
     }
@@ -266,13 +157,13 @@ public class TaskWorkflowTest {
 
     @Test
     void testClaimTask() {
-        taskWorkflow.claimTask("task-001");
+        workflow.claimTask("task-001");
         verify(mockTaskService).claim("task-001", USER_ID);
     }
 
     @Test
     void testClaimTaskRejectsNullTaskId() {
-        assertThatThrownBy(() -> taskWorkflow.claimTask(null))
+        assertThatThrownBy(() -> workflow.claimTask(null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("taskId");
     }
@@ -289,7 +180,7 @@ public class TaskWorkflowTest {
 
         stubRollback();
 
-        taskWorkflow.rejectTask("task-001", "不同意");
+        workflow.rejectTask("task-001", "不同意");
 
         verify(mockTaskService).addComment("task-001", "pi-001", "REJECT", "不同意");
         verify(mockRuntimeService).createChangeActivityStateBuilder();
@@ -301,7 +192,7 @@ public class TaskWorkflowTest {
         stubTaskExists(task);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
 
-        assertThatThrownBy(() -> taskWorkflow.rejectTask("task-001", "不同意"))
+        assertThatThrownBy(() -> workflow.rejectTask("task-001", "不同意"))
                 .isInstanceOf(PermissionDeniedException.class)
                 .hasMessageContaining("审批人");
     }
@@ -314,7 +205,7 @@ public class TaskWorkflowTest {
         when(mockNodeFinder.findPreviousNodes("leave:1:abc", "task2", "pi-001"))
                 .thenReturn(Arrays.asList("task1a", "task1b"));
 
-        assertThatThrownBy(() -> taskWorkflow.rejectTask("task-001", "不同意"))
+        assertThatThrownBy(() -> workflow.rejectTask("task-001", "不同意"))
                 .isInstanceOf(NoPreviousNodeException.class)
                 .hasMessageContaining("并行网关");
     }
@@ -330,7 +221,7 @@ public class TaskWorkflowTest {
 
         stubRollback();
 
-        taskWorkflow.rejectTaskToInitiator("task-001", "退回发起人");
+        workflow.rejectTaskToInitiator("task-001", "退回发起人");
 
         // cleanup 已委托给 ExecutionTreeHelper，回退逻辑独立执行
         verify(mockExecutionTreeHelper).detachFromParallelGateway(eq("exec-task-001"), anyString());
@@ -343,7 +234,7 @@ public class TaskWorkflowTest {
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
         when(mockNodeFinder.findInitiatorNode("leave:1:abc")).thenReturn("startTask");
 
-        assertThatThrownBy(() -> taskWorkflow.rejectTaskToInitiator("task-001", "退回"))
+        assertThatThrownBy(() -> workflow.rejectTaskToInitiator("task-001", "退回"))
                 .isInstanceOf(NoPreviousNodeException.class)
                 .hasMessageContaining("已是发起人节点");
     }
@@ -372,7 +263,7 @@ public class TaskWorkflowTest {
 
         stubRollback();
 
-        taskWorkflow.withdrawTask("task-001", "撤回测试");
+        workflow.withdrawTask("task-001", "撤回测试");
 
         verify(mockTaskService).addComment("task-001", "pi-001", CommentType.WITHDRAW.name(), "撤回测试");
     }
@@ -383,7 +274,7 @@ public class TaskWorkflowTest {
         stubTaskExists(task);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
 
-        assertThatThrownBy(() -> taskWorkflow.withdrawTask("task-001", "撤回"))
+        assertThatThrownBy(() -> workflow.withdrawTask("task-001", "撤回"))
                 .isInstanceOf(PermissionDeniedException.class)
                 .hasMessageContaining("无法撤回自己当前处理的任务");
     }
@@ -408,122 +299,9 @@ public class TaskWorkflowTest {
         when(histTaskQuery.desc()).thenReturn(histTaskQuery);
         when(histTaskQuery.listPage(0, 1)).thenReturn(Collections.singletonList(prevTask));
 
-        assertThatThrownBy(() -> taskWorkflow.withdrawTask("task-001", "撤回"))
+        assertThatThrownBy(() -> workflow.withdrawTask("task-001", "撤回"))
                 .isInstanceOf(PermissionDeniedException.class)
                 .hasMessageContaining("不是上一节点审批人");
-    }
-
-    // ======================== 撤销 ========================
-
-    @Test
-    void testRevokeProcess() {
-        HistoricProcessInstance hpi = createMockHistoricPi(
-                "pi-001", "biz-001", "leave:1:abc", "leave", "请假审批", USER_ID, new Date(), null, null);
-        HistoricProcessInstanceQuery histPiQuery = mock(HistoricProcessInstanceQuery.class);
-        when(mockHistoryService.createHistoricProcessInstanceQuery()).thenReturn(histPiQuery);
-        when(histPiQuery.processInstanceId("pi-001")).thenReturn(histPiQuery);
-        when(histPiQuery.singleResult()).thenReturn(hpi);
-
-        ProcessInstance mockPi = mock(ProcessInstance.class);
-        ProcessInstanceQuery mockPiQuery = mock(ProcessInstanceQuery.class);
-        when(mockRuntimeService.createProcessInstanceQuery()).thenReturn(mockPiQuery);
-        when(mockPiQuery.processInstanceId("pi-001")).thenReturn(mockPiQuery);
-        when(mockPiQuery.singleResult()).thenReturn(mockPi);
-
-        when(mockNodeFinder.findInitiatorNode("leave:1:abc")).thenReturn("startTask");
-
-        Task activeTask = createMockTask("task-001", "leave:1:abc", "startTask", "pi-001", "user2");
-        TaskQuery taskQuery = mock(TaskQuery.class);
-        when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
-        when(taskQuery.processInstanceId("pi-001")).thenReturn(taskQuery);
-        when(taskQuery.active()).thenReturn(taskQuery);
-        when(taskQuery.singleResult()).thenReturn(activeTask);
-
-        taskWorkflow.revokeProcess("pi-001", "发起人撤销");
-
-        verify(mockRuntimeService).deleteProcessInstance("pi-001", "发起人撤销");
-        verify(mockTaskService).addComment("task-001", "pi-001", CommentType.REVOKE.name(), "发起人撤销");
-    }
-
-    @Test
-    void testRevokeProcessRejectsNullProcessInstanceId() {
-        assertThatThrownBy(() -> taskWorkflow.revokeProcess(null, "撤销"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("processInstanceId");
-    }
-
-    @Test
-    void testRevokeProcessRejectsNonExistent() {
-        HistoricProcessInstanceQuery histPiQuery = mock(HistoricProcessInstanceQuery.class);
-        when(mockHistoryService.createHistoricProcessInstanceQuery()).thenReturn(histPiQuery);
-        when(histPiQuery.processInstanceId("pi-nope")).thenReturn(histPiQuery);
-        when(histPiQuery.singleResult()).thenReturn(null);
-
-        assertThatThrownBy(() -> taskWorkflow.revokeProcess("pi-nope", "撤销"))
-                .isInstanceOf(NotFoundException.class)
-                .hasMessageContaining("不存在");
-    }
-
-    @Test
-    void testRevokeProcessRejectsNonInitiator() {
-        HistoricProcessInstance hpi = createMockHistoricPi(
-                "pi-001", "biz-001", "leave:1:abc", "leave", "请假审批", "anotherUser", new Date(), null, null);
-        HistoricProcessInstanceQuery histPiQuery = mock(HistoricProcessInstanceQuery.class);
-        when(mockHistoryService.createHistoricProcessInstanceQuery()).thenReturn(histPiQuery);
-        when(histPiQuery.processInstanceId("pi-001")).thenReturn(histPiQuery);
-        when(histPiQuery.singleResult()).thenReturn(hpi);
-
-        assertThatThrownBy(() -> taskWorkflow.revokeProcess("pi-001", "撤销"))
-                .isInstanceOf(PermissionDeniedException.class)
-                .hasMessageContaining("无权撤销");
-    }
-
-    @Test
-    void testRevokeProcessRejectsAlreadyEnded() {
-        HistoricProcessInstance hpi = createMockHistoricPi(
-                "pi-001", "biz-001", "leave:1:abc", "leave", "请假审批", USER_ID, new Date(), null, null);
-        HistoricProcessInstanceQuery histPiQuery = mock(HistoricProcessInstanceQuery.class);
-        when(mockHistoryService.createHistoricProcessInstanceQuery()).thenReturn(histPiQuery);
-        when(histPiQuery.processInstanceId("pi-001")).thenReturn(histPiQuery);
-        when(histPiQuery.singleResult()).thenReturn(hpi);
-
-        ProcessInstanceQuery mockPiQuery = mock(ProcessInstanceQuery.class);
-        when(mockRuntimeService.createProcessInstanceQuery()).thenReturn(mockPiQuery);
-        when(mockPiQuery.processInstanceId("pi-001")).thenReturn(mockPiQuery);
-        when(mockPiQuery.singleResult()).thenReturn(null);
-
-        assertThatThrownBy(() -> taskWorkflow.revokeProcess("pi-001", "撤销"))
-                .isInstanceOf(TaskAlreadyCompletedException.class)
-                .hasMessageContaining("已结束");
-    }
-
-    @Test
-    void testRevokeProcessRejectsAdvancedBeyondInitiator() {
-        HistoricProcessInstance hpi = createMockHistoricPi(
-                "pi-001", "biz-001", "leave:1:abc", "leave", "请假审批", USER_ID, new Date(), null, null);
-        HistoricProcessInstanceQuery histPiQuery = mock(HistoricProcessInstanceQuery.class);
-        when(mockHistoryService.createHistoricProcessInstanceQuery()).thenReturn(histPiQuery);
-        when(histPiQuery.processInstanceId("pi-001")).thenReturn(histPiQuery);
-        when(histPiQuery.singleResult()).thenReturn(hpi);
-
-        ProcessInstance mockPi = mock(ProcessInstance.class);
-        ProcessInstanceQuery mockPiQuery = mock(ProcessInstanceQuery.class);
-        when(mockRuntimeService.createProcessInstanceQuery()).thenReturn(mockPiQuery);
-        when(mockPiQuery.processInstanceId("pi-001")).thenReturn(mockPiQuery);
-        when(mockPiQuery.singleResult()).thenReturn(mockPi);
-
-        when(mockNodeFinder.findInitiatorNode("leave:1:abc")).thenReturn("startTask");
-
-        Task activeTask = createMockTask("task-001", "leave:1:abc", "task2", "pi-001", "user2");
-        TaskQuery taskQuery = mock(TaskQuery.class);
-        when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
-        when(taskQuery.processInstanceId("pi-001")).thenReturn(taskQuery);
-        when(taskQuery.active()).thenReturn(taskQuery);
-        when(taskQuery.singleResult()).thenReturn(activeTask);
-
-        assertThatThrownBy(() -> taskWorkflow.revokeProcess("pi-001", "撤销"))
-                .isInstanceOf(TaskAlreadyCompletedException.class)
-                .hasMessageContaining("已推进后续节点");
     }
 
     // ======================== 驳回无 reason ========================
@@ -538,13 +316,13 @@ public class TaskWorkflowTest {
 
         stubRollback();
 
-        taskWorkflow.rejectTask("task-001", null);
+        workflow.rejectTask("task-001", null);
 
         verify(mockTaskService, never()).addComment(anyString(), anyString(), anyString(), anyString());
         verify(mockRuntimeService).createChangeActivityStateBuilder();
     }
 
-    // ======================== 任意跳转 — jumpToNode ========================
+    // ======================== 任意跳转 - jumpToNode ========================
 
     @Test
     void testJumpToNodeReject() {
@@ -556,7 +334,7 @@ public class TaskWorkflowTest {
 
         stubRollback();
 
-        taskWorkflow.jumpToNode("task-001", "task1", "不同意", CommentType.REJECT);
+        workflow.jumpToNode("task-001", "task1", "不同意", CommentType.REJECT);
 
         verify(mockTaskService).addComment("task-001", "pi-001", CommentType.REJECT.name(), "不同意");
         verify(mockRuntimeService).createChangeActivityStateBuilder();
@@ -572,7 +350,7 @@ public class TaskWorkflowTest {
 
         stubRollback();
 
-        taskWorkflow.jumpToNode("task-001", "task2", "退回重审", CommentType.RETURN);
+        workflow.jumpToNode("task-001", "task2", "退回重审", CommentType.RETURN);
 
         verify(mockTaskService).addComment("task-001", "pi-001", CommentType.RETURN.name(), "退回重审");
     }
@@ -587,7 +365,7 @@ public class TaskWorkflowTest {
 
         stubRollback();
 
-        taskWorkflow.jumpToNode("task-001", "task1", null, CommentType.REJECT);
+        workflow.jumpToNode("task-001", "task1", null, CommentType.REJECT);
 
         verify(mockTaskService, never()).addComment(anyString(), anyString(), anyString(), anyString());
     }
@@ -598,7 +376,7 @@ public class TaskWorkflowTest {
         stubTaskExists(task);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
 
-        assertThatThrownBy(() -> taskWorkflow.jumpToNode("task-001", "task1", "不同意", CommentType.REJECT))
+        assertThatThrownBy(() -> workflow.jumpToNode("task-001", "task1", "不同意", CommentType.REJECT))
                 .isInstanceOf(PermissionDeniedException.class)
                 .hasMessageContaining("审批人");
     }
@@ -611,7 +389,7 @@ public class TaskWorkflowTest {
         when(mockNodeFinder.findCompletedUserTasks("leave:1:abc", "task3", "pi-001"))
                 .thenReturn(Arrays.asList("task1", "task2"));
 
-        assertThatThrownBy(() -> taskWorkflow.jumpToNode("task-001", "task5", "不同意", CommentType.REJECT))
+        assertThatThrownBy(() -> workflow.jumpToNode("task-001", "task5", "不同意", CommentType.REJECT))
                 .isInstanceOf(InvalidTargetNodeException.class)
                 .hasMessageContaining("不在可跳转的历史节点列表中");
     }
@@ -622,7 +400,7 @@ public class TaskWorkflowTest {
         stubTaskExistsWithAssignee(task);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
 
-        assertThatThrownBy(() -> taskWorkflow.jumpToNode("task-001", "task3", "不同意", CommentType.REJECT))
+        assertThatThrownBy(() -> workflow.jumpToNode("task-001", "task3", "不同意", CommentType.REJECT))
                 .isInstanceOf(InvalidTargetNodeException.class)
                 .hasMessageContaining("自跳转");
     }
@@ -633,7 +411,7 @@ public class TaskWorkflowTest {
         stubTaskExistsWithAssignee(task);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
 
-        assertThatThrownBy(() -> taskWorkflow.jumpToNode("task-001", null, "不同意", CommentType.REJECT))
+        assertThatThrownBy(() -> workflow.jumpToNode("task-001", null, "不同意", CommentType.REJECT))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("targetNodeId");
     }
@@ -644,7 +422,7 @@ public class TaskWorkflowTest {
         stubTaskExistsWithAssignee(task);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
 
-        assertThatThrownBy(() -> taskWorkflow.jumpToNode("task-001", "task1", "不同意", null))
+        assertThatThrownBy(() -> workflow.jumpToNode("task-001", "task1", "不同意", null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("commentType");
     }
@@ -655,12 +433,12 @@ public class TaskWorkflowTest {
         stubTaskExistsWithAssignee(task);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
 
-        assertThatThrownBy(() -> taskWorkflow.jumpToNode("task-001", "task1", "不同意", CommentType.REJECT))
+        assertThatThrownBy(() -> workflow.jumpToNode("task-001", "task1", "不同意", CommentType.REJECT))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("多实例");
     }
 
-    // ======================== 任意跳转 — getJumpableNodes ========================
+    // ======================== 任意跳转 - getJumpableNodes ========================
 
     @Test
     void testGetJumpableNodes() {
@@ -699,7 +477,7 @@ public class TaskWorkflowTest {
         // findCompletedUserTasks returns ["task2", "task1"], so first query is for task2, then task1
         when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(q2).thenReturn(q1);
 
-        List<JumpableNodeVO> result = taskWorkflow.getJumpableNodes("task-001");
+        List<JumpableNodeVO> result = workflow.getJumpableNodes("task-001");
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).getNodeId()).isEqualTo("task1");
@@ -718,7 +496,7 @@ public class TaskWorkflowTest {
         when(mockNodeFinder.findCompletedUserTasks("leave:1:abc", "task1", "pi-001"))
                 .thenReturn(Collections.emptyList());
 
-        List<JumpableNodeVO> result = taskWorkflow.getJumpableNodes("task-001");
+        List<JumpableNodeVO> result = workflow.getJumpableNodes("task-001");
 
         assertThat(result).isEmpty();
     }
@@ -734,7 +512,7 @@ public class TaskWorkflowTest {
 
         stubHistoricTaskLookupEmpty("pi-001", "task2");
 
-        List<JumpableNodeVO> result = taskWorkflow.getJumpableNodes("task-001");
+        List<JumpableNodeVO> result = workflow.getJumpableNodes("task-001");
 
         assertThat(result).isEmpty();
     }
@@ -744,7 +522,7 @@ public class TaskWorkflowTest {
         PlusTask task = createTask("task-001", "leave:1:abc", "task3", "pi-001", "user2");
         stubTaskExists(task);
 
-        assertThatThrownBy(() -> taskWorkflow.getJumpableNodes("task-001"))
+        assertThatThrownBy(() -> workflow.getJumpableNodes("task-001"))
                 .isInstanceOf(PermissionDeniedException.class)
                 .hasMessageContaining("审批人");
     }
@@ -756,7 +534,7 @@ public class TaskWorkflowTest {
         PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", USER_ID);
         stubTaskExistsWithAssignee(task);
 
-        taskWorkflow.transferTask("task-001", "transferUser", "工作交接");
+        workflow.transferTask("task-001", "transferUser", "工作交接");
 
         verify(mockTaskService).setAssignee("task-001", "transferUser");
         verify(mockTaskService).addComment(eq("task-001"), eq("pi-001"),
@@ -768,7 +546,7 @@ public class TaskWorkflowTest {
         PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", USER_ID);
         stubTaskExistsWithAssignee(task);
 
-        taskWorkflow.transferTask("task-001", "transferUser", null);
+        workflow.transferTask("task-001", "transferUser", null);
 
         verify(mockTaskService).addComment(eq("task-001"), eq("pi-001"),
                 eq(CommentType.TRANSFER.name()), eq("转办给 transferUser"));
@@ -779,7 +557,7 @@ public class TaskWorkflowTest {
         PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", "user2");
         stubTaskExists(task);
 
-        assertThatThrownBy(() -> taskWorkflow.transferTask("task-001", "transferUser", null))
+        assertThatThrownBy(() -> workflow.transferTask("task-001", "transferUser", null))
                 .isInstanceOf(PermissionDeniedException.class)
                 .hasMessageContaining("审批人");
     }
@@ -789,21 +567,21 @@ public class TaskWorkflowTest {
         PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", USER_ID);
         stubTaskExistsWithAssignee(task);
 
-        assertThatThrownBy(() -> taskWorkflow.transferTask("task-001", USER_ID, null))
+        assertThatThrownBy(() -> workflow.transferTask("task-001", USER_ID, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("转办目标不可为当前审批人");
     }
 
     @Test
     void testTransferTaskRejectsNullTaskId() {
-        assertThatThrownBy(() -> taskWorkflow.transferTask(null, "transferUser", null))
+        assertThatThrownBy(() -> workflow.transferTask(null, "transferUser", null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("taskId");
     }
 
     @Test
     void testTransferTaskRejectsBlankTransferUserId() {
-        assertThatThrownBy(() -> taskWorkflow.transferTask("task-001", "", null))
+        assertThatThrownBy(() -> workflow.transferTask("task-001", "", null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("transferUserId");
     }
@@ -817,7 +595,7 @@ public class TaskWorkflowTest {
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
         stubForkBranchExecution("exec-task-001", "scope-exec", 2L);
 
-        assertThatThrownBy(() -> taskWorkflow.rejectTask("task-001", "不同意"))
+        assertThatThrownBy(() -> workflow.rejectTask("task-001", "不同意"))
                 .isInstanceOf(NoPreviousNodeException.class)
                 .hasMessageContaining("并行分支");
     }
@@ -829,7 +607,7 @@ public class TaskWorkflowTest {
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
         stubForkBranchExecution("exec-task-001", "scope-exec", 2L);
 
-        assertThatThrownBy(() -> taskWorkflow.withdrawTask("task-001", "撤回"))
+        assertThatThrownBy(() -> workflow.withdrawTask("task-001", "撤回"))
                 .isInstanceOf(NoPreviousNodeException.class)
                 .hasMessageContaining("并行分支");
     }
@@ -841,7 +619,7 @@ public class TaskWorkflowTest {
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
         stubForkBranchExecution("exec-task-001", "scope-exec", 2L);
 
-        assertThatThrownBy(() -> taskWorkflow.jumpToNode("task-001", "task1", "不同意", CommentType.REJECT))
+        assertThatThrownBy(() -> workflow.jumpToNode("task-001", "task1", "不同意", CommentType.REJECT))
                 .isInstanceOf(NoPreviousNodeException.class)
                 .hasMessageContaining("并行分支");
     }
@@ -855,18 +633,95 @@ public class TaskWorkflowTest {
 
         stubRollback();
 
-        taskWorkflow.rejectTaskToInitiator("task-001", "退回发起人");
+        workflow.rejectTaskToInitiator("task-001", "退回发起人");
 
         // cleanup 委托给 ExecutionTreeHelper，回退逻辑独立执行
         verify(mockExecutionTreeHelper).detachFromParallelGateway(eq("exec-task-001"), anyString());
     }
 
+    // ======================== 事件发布 ========================
+
+    private TaskExecutionWorkflow createWorkflowWithEventPublisher(EventPublisher ep) {
+        ProcessEndDetector ped = new ProcessEndDetector(mockRuntimeService, mockHistoryService, ep);
+        return new TaskExecutionWorkflow(userContext, mockTaskService, mockHistoryService,
+                mockRuntimeService, mockNodeFinder, mockMultiInstanceDetector,
+                mockExecutionTreeHelper, ep, ped);
+    }
+
+    @Test
+    void completeTaskShouldPublishTaskCompletedEvent() {
+        EventPublisher mockEp = mock(EventPublisher.class);
+        TaskExecutionWorkflow wf = createWorkflowWithEventPublisher(mockEp);
+
+        PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", USER_ID);
+        stubTaskExists(task);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
+        // 让 tryPublishProcessEnded 认为流程还在运行，不进入历史查询
+        ProcessInstance pi = mock(ProcessInstance.class);
+        ProcessInstanceQuery piQuery = mock(ProcessInstanceQuery.class);
+        when(piQuery.processInstanceId("pi-001")).thenReturn(piQuery);
+        when(piQuery.singleResult()).thenReturn(pi);
+        when(mockRuntimeService.createProcessInstanceQuery()).thenReturn(piQuery);
+
+        wf.completeTask("task-001", null, "同意");
+
+        verify(mockEp).publish(any(io.github.flowable.plus.core.event.TaskCompletedEvent.class));
+    }
+
+    @Test
+    void rejectTaskShouldPublishTaskRejectedEvent() {
+        EventPublisher mockEp = mock(EventPublisher.class);
+        TaskExecutionWorkflow wf = createWorkflowWithEventPublisher(mockEp);
+
+        PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
+        stubNoParallelBranch();
+        when(mockNodeFinder.findPreviousNodes(anyString(), anyString(), anyString()))
+                .thenReturn(Collections.singletonList("node-prev"));
+        stubRollback();
+
+        wf.rejectTask("task-001", "不同意");
+
+        verify(mockEp).publish(any(io.github.flowable.plus.core.event.TaskRejectedEvent.class));
+    }
+
+    @Test
+    void withdrawTaskShouldPublishTaskWithdrawnEvent() {
+        EventPublisher mockEp = mock(EventPublisher.class);
+        TaskExecutionWorkflow wf = createWorkflowWithEventPublisher(mockEp);
+
+        PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", "user2");
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
+        stubNoParallelBranch();
+        when(mockNodeFinder.findPreviousNodes(anyString(), anyString(), anyString()))
+                .thenReturn(Collections.singletonList("node-prev"));
+        HistoricTaskInstance prevTask = createMockHistoricTask("ht-prev", "leave:1:abc", "node-prev",
+                "pi-001", USER_ID, "审批", new Date(), new Date(), null);
+        stubHistoricTaskLookup("pi-001", "node-prev", prevTask);
+        stubRollback();
+
+        wf.withdrawTask("task-001", "撤回原因");
+
+        verify(mockEp).publish(any(io.github.flowable.plus.core.event.TaskWithdrawnEvent.class));
+    }
+
+    @Test
+    void transferTaskShouldPublishTaskTransferredEvent() {
+        EventPublisher mockEp = mock(EventPublisher.class);
+        TaskExecutionWorkflow wf = createWorkflowWithEventPublisher(mockEp);
+
+        PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+
+        wf.transferTask("task-001", "userB", "转办原因");
+
+        verify(mockEp).publish(any(io.github.flowable.plus.core.event.TaskTransferredEvent.class));
+    }
+
     // ======================== Test Helpers ========================
 
-    /**
-     * 默认 stub：模拟非并行分支场景，查询结果为空执行对象。
-     * 这样 checkActiveParallelBranch 会直接 return，不抛异常。
-     */
     private void stubNoParallelBranch() {
         ExecutionQuery execQuery = mock(ExecutionQuery.class);
         when(execQuery.executionId(anyString())).thenReturn(execQuery);
@@ -874,10 +729,6 @@ public class TaskWorkflowTest {
         when(mockRuntimeService.createExecutionQuery()).thenReturn(execQuery);
     }
 
-    /**
-     * Stub RuntimeService 使其模拟一个处于并行分支上的执行对象。
-     * 当前执行的 parentId 不为 null，且同级活跃执行数为 siblingCount。
-     */
     private void stubForkBranchExecution(String executionId, String parentExecutionId, long siblingCount) {
         Execution mockExec = mock(Execution.class);
         when(mockExec.getId()).thenReturn(executionId);
@@ -929,22 +780,6 @@ public class TaskWorkflowTest {
         when(mockTask.getEndTime()).thenReturn(endTime);
         when(mockTask.getDeleteReason()).thenReturn(deleteReason);
         return mockTask;
-    }
-
-    private HistoricProcessInstance createMockHistoricPi(String id, String businessKey, String definitionId,
-            String definitionKey, String definitionName, String startUserId,
-            Date startTime, Date endTime, String deleteReason) {
-        HistoricProcessInstance mockHpi = mock(HistoricProcessInstance.class);
-        when(mockHpi.getId()).thenReturn(id);
-        when(mockHpi.getBusinessKey()).thenReturn(businessKey);
-        when(mockHpi.getProcessDefinitionId()).thenReturn(definitionId);
-        when(mockHpi.getProcessDefinitionKey()).thenReturn(definitionKey);
-        when(mockHpi.getProcessDefinitionName()).thenReturn(definitionName);
-        when(mockHpi.getStartUserId()).thenReturn(startUserId);
-        when(mockHpi.getStartTime()).thenReturn(startTime);
-        when(mockHpi.getEndTime()).thenReturn(endTime);
-        when(mockHpi.getDeleteReason()).thenReturn(deleteReason);
-        return mockHpi;
     }
 
     private void stubTaskExists(PlusTask task) {
@@ -1014,139 +849,5 @@ public class TaskWorkflowTest {
         when(histTaskQuery.orderByHistoricTaskInstanceEndTime()).thenReturn(histTaskQuery);
         when(histTaskQuery.desc()).thenReturn(histTaskQuery);
         when(histTaskQuery.listPage(0, 1)).thenReturn(Collections.emptyList());
-    }
-
-    // ======================== 事件发布 ========================
-
-    private TaskWorkflow createWorkflowWithEventPublisher(EventPublisher ep) {
-        ProcessEndDetector ped = new ProcessEndDetector(mockRuntimeService, mockHistoryService, ep);
-        return new TaskWorkflow(userContext, mockTaskService, mockHistoryService,
-                mockRuntimeService, mockIdentityService, mockNodeFinder, mockMultiInstanceDetector, null,
-                mockExecutionTreeHelper, ep, ped);
-    }
-
-    @Test
-    void startProcessShouldPublishProcessStartedEvent() {
-        EventPublisher mockEp = mock(EventPublisher.class);
-        TaskWorkflow wf = createWorkflowWithEventPublisher(mockEp);
-
-        ProcessInstance mockPi = mock(ProcessInstance.class);
-        when(mockPi.getProcessInstanceId()).thenReturn("pi-001");
-        when(mockPi.getBusinessKey()).thenReturn("biz-001");
-        when(mockPi.getProcessDefinitionId()).thenReturn("leave:1:1234");
-        when(mockRuntimeService.startProcessInstanceByKey(eq("leave"), eq("biz-001"), any()))
-                .thenReturn(mockPi);
-
-        wf.startProcess("leave", "biz-001", null);
-
-        verify(mockEp).publish(any(io.github.flowable.plus.core.event.ProcessStartedEvent.class));
-    }
-
-    @Test
-    void completeTaskShouldPublishTaskCompletedEvent() {
-        EventPublisher mockEp = mock(EventPublisher.class);
-        TaskWorkflow wf = createWorkflowWithEventPublisher(mockEp);
-
-        PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", USER_ID);
-        stubTaskExists(task);
-        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
-        // 让 tryPublishProcessEnded 认为流程还在运行，不进入历史查询
-        ProcessInstance pi = mock(ProcessInstance.class);
-        ProcessInstanceQuery piQuery = mock(ProcessInstanceQuery.class);
-        when(piQuery.processInstanceId("pi-001")).thenReturn(piQuery);
-        when(piQuery.singleResult()).thenReturn(pi);
-        when(mockRuntimeService.createProcessInstanceQuery()).thenReturn(piQuery);
-
-        wf.completeTask("task-001", null, "同意");
-
-        verify(mockEp).publish(any(io.github.flowable.plus.core.event.TaskCompletedEvent.class));
-    }
-
-    @Test
-    void rejectTaskShouldPublishTaskRejectedEvent() {
-        EventPublisher mockEp = mock(EventPublisher.class);
-        TaskWorkflow wf = createWorkflowWithEventPublisher(mockEp);
-
-        PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", USER_ID);
-        stubTaskExistsWithAssignee(task);
-        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
-        stubNoParallelBranch();
-        when(mockNodeFinder.findPreviousNodes(anyString(), anyString(), anyString()))
-                .thenReturn(Collections.singletonList("node-prev"));
-        stubRollback();
-
-        wf.rejectTask("task-001", "不同意");
-
-        verify(mockEp).publish(any(io.github.flowable.plus.core.event.TaskRejectedEvent.class));
-    }
-
-    @Test
-    void withdrawTaskShouldPublishTaskWithdrawnEvent() {
-        EventPublisher mockEp = mock(EventPublisher.class);
-        TaskWorkflow wf = createWorkflowWithEventPublisher(mockEp);
-
-        PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", "user2");
-        stubTaskExistsWithAssignee(task);
-        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
-        stubNoParallelBranch();
-        when(mockNodeFinder.findPreviousNodes(anyString(), anyString(), anyString()))
-                .thenReturn(Collections.singletonList("node-prev"));
-        HistoricTaskInstance prevTask = createMockHistoricTask("ht-prev", "leave:1:abc", "node-prev",
-                "pi-001", USER_ID, "审批", new Date(), new Date(), null);
-        stubHistoricTaskLookup("pi-001", "node-prev", prevTask);
-        stubRollback();
-
-        wf.withdrawTask("task-001", "撤回原因");
-
-        verify(mockEp).publish(any(io.github.flowable.plus.core.event.TaskWithdrawnEvent.class));
-    }
-
-    @Test
-    void revokeProcessShouldPublishProcessRevokedAndEndedEvents() {
-        EventPublisher mockEp = mock(EventPublisher.class);
-        TaskWorkflow wf = createWorkflowWithEventPublisher(mockEp);
-
-        HistoricProcessInstance mockHpi = createMockHistoricPi("pi-001", "biz-001", "leave:1:1234",
-                "leave", "请假流程", USER_ID, new Date(), new Date(), null);
-        HistoricProcessInstanceQuery hpiQuery = mock(HistoricProcessInstanceQuery.class);
-        when(hpiQuery.processInstanceId("pi-001")).thenReturn(hpiQuery);
-        when(hpiQuery.singleResult()).thenReturn(mockHpi);
-        when(mockHistoryService.createHistoricProcessInstanceQuery()).thenReturn(hpiQuery);
-
-        ProcessInstance pi = mock(ProcessInstance.class);
-        ProcessInstanceQuery piQuery = mock(ProcessInstanceQuery.class);
-        when(piQuery.processInstanceId("pi-001")).thenReturn(piQuery);
-        when(piQuery.singleResult()).thenReturn(pi);
-        when(mockRuntimeService.createProcessInstanceQuery()).thenReturn(piQuery);
-
-        when(mockNodeFinder.findInitiatorNode("leave:1:1234")).thenReturn("initNode");
-
-        Task mockTask = mock(Task.class);
-        when(mockTask.getProcessInstanceId()).thenReturn("pi-001");
-        when(mockTask.getId()).thenReturn("task-001");
-        TaskQuery taskQuery = mock(TaskQuery.class);
-        when(taskQuery.processInstanceId("pi-001")).thenReturn(taskQuery);
-        when(taskQuery.active()).thenReturn(taskQuery);
-        when(taskQuery.singleResult()).thenReturn(mockTask);
-        when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
-        when(mockTask.getTaskDefinitionKey()).thenReturn("initNode");
-
-        wf.revokeProcess("pi-001", "撤销原因");
-
-        verify(mockEp).publish(any(io.github.flowable.plus.core.event.ProcessRevokedEvent.class));
-        verify(mockEp).publish(any(io.github.flowable.plus.core.event.ProcessEndedEvent.class));
-    }
-
-    @Test
-    void transferTaskShouldPublishTaskTransferredEvent() {
-        EventPublisher mockEp = mock(EventPublisher.class);
-        TaskWorkflow wf = createWorkflowWithEventPublisher(mockEp);
-
-        PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", USER_ID);
-        stubTaskExistsWithAssignee(task);
-
-        wf.transferTask("task-001", "userB", "转办原因");
-
-        verify(mockEp).publish(any(io.github.flowable.plus.core.event.TaskTransferredEvent.class));
     }
 }

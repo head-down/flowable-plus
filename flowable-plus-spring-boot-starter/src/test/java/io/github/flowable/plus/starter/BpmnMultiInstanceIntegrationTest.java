@@ -9,7 +9,7 @@ import io.github.flowable.plus.core.model.NodeFinder;
 import io.github.flowable.plus.core.domain.PlusHistoricProcessInstance;
 import io.github.flowable.plus.core.domain.PlusHistoricTask;
 import io.github.flowable.plus.core.domain.PlusTask;
-import io.github.flowable.plus.core.workflow.TaskWorkflow;
+import io.github.flowable.plus.core.workflow.TaskExecutionWorkflow;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
 import io.github.flowable.plus.core.spi.UserContext;
 import org.flowable.bpmn.model.BpmnModel;
@@ -63,7 +63,7 @@ class BpmnMultiInstanceIntegrationTest {
     private BpmnModelCache bpmnModelCache;
     private MultiInstanceDetector multiInstanceDetector;
     private CounterSignWorkflow counterSignWorkflow;
-    private TaskWorkflow taskWorkflow;
+    private TaskExecutionWorkflow taskExecutionWorkflow;
     private NodeFinder mockNodeFinder;
 
     private final AtomicInteger onStartCount = new AtomicInteger();
@@ -106,9 +106,8 @@ class BpmnMultiInstanceIntegrationTest {
                 Collections.singletonList(trackingCallback), null,
                 mock(io.github.flowable.plus.core.support.ProcessEndDetector.class));
 
-        taskWorkflow = new TaskWorkflow(userContext, mockTaskService, mockHistoryService,
-                mockRuntimeService, mock(org.flowable.engine.IdentityService.class),
-                mockNodeFinder, multiInstanceDetector, null,
+        taskExecutionWorkflow = new TaskExecutionWorkflow(userContext, mockTaskService, mockHistoryService,
+                mockRuntimeService, mockNodeFinder, multiInstanceDetector,
                 mock(io.github.flowable.plus.core.spi.ExecutionTreeHelper.class), null,
                 mock(io.github.flowable.plus.core.support.ProcessEndDetector.class));
     }
@@ -355,7 +354,7 @@ class BpmnMultiInstanceIntegrationTest {
         when(taskQuery.taskId("task-001")).thenReturn(taskQuery);
         when(taskQuery.singleResult()).thenReturn(mockTask);
 
-        assertThatThrownBy(() -> taskWorkflow.completeTask("task-001", null, "同意"))
+        assertThatThrownBy(() -> taskExecutionWorkflow.completeTask("task-001", null, "同意"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("多实例子任务");
     }
