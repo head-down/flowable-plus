@@ -115,6 +115,10 @@ Core 模块已实现审批核心操作（发起、同意、驳回、撤回、撤
 
 单一上下文布局：`CONTEXT.md` + `docs/adr/` 在仓库根目录。详见 `docs/agents/domain.md`。
 
+### 实现流程规范
+
+- `/implement` 完成后必须执行 `/code-review` 双轴审查（Standards + Spec），审查通过后方可提交，不得跳过
+
 ### 架构决策记录 (ADR)
 
 | 编号 | 标题 | 日期 |
