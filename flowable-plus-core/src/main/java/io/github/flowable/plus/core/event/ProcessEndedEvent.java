@@ -1,5 +1,7 @@
 package io.github.flowable.plus.core.event;
 
+import io.github.flowable.plus.core.spi.ProcessEventListener;
+
 import java.util.Date;
 
 /**
@@ -7,7 +9,7 @@ import java.util.Date;
  *
  * @author flowable-plus
  */
-public class ProcessEndedEvent implements ProcessEvent {
+public class ProcessEndedEvent implements DispatchableEvent {
 
     private final String processInstanceId;
     private final String processDefinitionKey;
@@ -48,6 +50,11 @@ public class ProcessEndedEvent implements ProcessEvent {
 
     public Date getEndTime() {
         return endTime;
+    }
+
+    @Override
+    public void accept(ProcessEventListener listener) {
+        listener.onProcessEnded(this);
     }
 
     @Override

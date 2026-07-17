@@ -1,5 +1,7 @@
 package io.github.flowable.plus.core.event;
 
+import io.github.flowable.plus.core.spi.ProcessEventListener;
+
 import java.util.Date;
 
 /**
@@ -7,7 +9,7 @@ import java.util.Date;
  *
  * @author flowable-plus
  */
-public class ProcessStartedEvent implements ProcessEvent {
+public class ProcessStartedEvent implements DispatchableEvent {
 
     private final String processInstanceId;
     private final String processDefinitionKey;
@@ -55,6 +57,11 @@ public class ProcessStartedEvent implements ProcessEvent {
 
     public Date getStartTime() {
         return startTime;
+    }
+
+    @Override
+    public void accept(ProcessEventListener listener) {
+        listener.onProcessStarted(this);
     }
 
     @Override

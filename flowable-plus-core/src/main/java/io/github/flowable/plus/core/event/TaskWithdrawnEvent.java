@@ -1,5 +1,7 @@
 package io.github.flowable.plus.core.event;
 
+import io.github.flowable.plus.core.spi.ProcessEventListener;
+
 import java.util.Date;
 
 /**
@@ -8,7 +10,7 @@ import java.util.Date;
  *
  * @author flowable-plus
  */
-public class TaskWithdrawnEvent implements ProcessEvent {
+public class TaskWithdrawnEvent implements DispatchableEvent {
 
     private final String taskId;
     private final String processInstanceId;
@@ -75,6 +77,11 @@ public class TaskWithdrawnEvent implements ProcessEvent {
 
     public Date getWithdrawTime() {
         return withdrawTime;
+    }
+
+    @Override
+    public void accept(ProcessEventListener listener) {
+        listener.onTaskWithdrawn(this);
     }
 
     @Override

@@ -1,5 +1,7 @@
 package io.github.flowable.plus.core.event;
 
+import io.github.flowable.plus.core.spi.ProcessEventListener;
+
 import java.util.Date;
 
 /**
@@ -7,7 +9,7 @@ import java.util.Date;
  *
  * @author flowable-plus
  */
-public class TaskTransferredEvent implements ProcessEvent {
+public class TaskTransferredEvent implements DispatchableEvent {
 
     private final String taskId;
     private final String processInstanceId;
@@ -74,6 +76,11 @@ public class TaskTransferredEvent implements ProcessEvent {
 
     public Date getTransferTime() {
         return transferTime;
+    }
+
+    @Override
+    public void accept(ProcessEventListener listener) {
+        listener.onTaskTransferred(this);
     }
 
     @Override

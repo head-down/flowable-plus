@@ -1,5 +1,7 @@
 package io.github.flowable.plus.core.event;
 
+import io.github.flowable.plus.core.spi.ProcessEventListener;
+
 import java.util.Date;
 
 /**
@@ -7,7 +9,7 @@ import java.util.Date;
  *
  * @author flowable-plus
  */
-public class TaskRejectedEvent implements ProcessEvent {
+public class TaskRejectedEvent implements DispatchableEvent {
 
     private final String taskId;
     private final String processInstanceId;
@@ -67,6 +69,11 @@ public class TaskRejectedEvent implements ProcessEvent {
 
     public Date getRejectTime() {
         return rejectTime;
+    }
+
+    @Override
+    public void accept(ProcessEventListener listener) {
+        listener.onTaskRejected(this);
     }
 
     @Override

@@ -1,5 +1,7 @@
 package io.github.flowable.plus.core.event;
 
+import io.github.flowable.plus.core.spi.ProcessEventListener;
+
 import java.util.Date;
 
 /**
@@ -7,7 +9,7 @@ import java.util.Date;
  *
  * @author flowable-plus
  */
-public class ProcessRevokedEvent implements ProcessEvent {
+public class ProcessRevokedEvent implements DispatchableEvent {
 
     private final String processInstanceId;
     private final String processDefinitionKey;
@@ -62,6 +64,11 @@ public class ProcessRevokedEvent implements ProcessEvent {
 
     public Date getRevokeTime() {
         return revokeTime;
+    }
+
+    @Override
+    public void accept(ProcessEventListener listener) {
+        listener.onProcessRevoked(this);
     }
 
     @Override

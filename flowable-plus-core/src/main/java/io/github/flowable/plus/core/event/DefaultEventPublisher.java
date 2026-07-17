@@ -39,22 +39,8 @@ public class DefaultEventPublisher implements EventPublisher {
     }
 
     private void dispatch(ProcessEventListener listener, ProcessEvent event) {
-        if (event instanceof ProcessStartedEvent) {
-            listener.onProcessStarted((ProcessStartedEvent) event);
-        } else if (event instanceof TaskCompletedEvent) {
-            listener.onTaskCompleted((TaskCompletedEvent) event);
-        } else if (event instanceof TaskRejectedEvent) {
-            listener.onTaskRejected((TaskRejectedEvent) event);
-        } else if (event instanceof TaskWithdrawnEvent) {
-            listener.onTaskWithdrawn((TaskWithdrawnEvent) event);
-        } else if (event instanceof ProcessRevokedEvent) {
-            listener.onProcessRevoked((ProcessRevokedEvent) event);
-        } else if (event instanceof TaskDelegatedEvent) {
-            listener.onTaskDelegated((TaskDelegatedEvent) event);
-        } else if (event instanceof TaskTransferredEvent) {
-            listener.onTaskTransferred((TaskTransferredEvent) event);
-        } else if (event instanceof ProcessEndedEvent) {
-            listener.onProcessEnded((ProcessEndedEvent) event);
+        if (event instanceof DispatchableEvent) {
+            ((DispatchableEvent) event).accept(listener);
         }
     }
 }
