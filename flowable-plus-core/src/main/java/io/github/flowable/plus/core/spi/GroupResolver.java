@@ -9,6 +9,7 @@ import java.util.List;
  *
  * @author flowable-plus
  */
+@FunctionalInterface
 public interface GroupResolver {
 
     /**

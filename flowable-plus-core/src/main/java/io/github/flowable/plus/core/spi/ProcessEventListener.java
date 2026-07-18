@@ -15,6 +15,13 @@ import io.github.flowable.plus.core.event.TaskWithdrawnEvent;
  *
  * <p>回调异常被 try-catch 隔离，不会影响主业务流程。</p>
  *
+ * <p><b>进阶用法 — CQRS 审批宽表：</b>当待办/已办列表需要 JOIN 业务表
+ * 做条件过滤，或面临大数据量精确分页时，可实现此接口，在
+ * {@link #onTaskCompleted(TaskCompletedEvent)} 中将审批记录异步写入
+ * 业务侧审批宽表（含流程摘要 + 业务字段），查询"待办/已办"直接走业务表，
+ * 彻底解耦 Flowable 引擎表。参见
+ * {@link io.github.flowable.plus.core.api.QueryOperations}。</p>
+ *
  * @author flowable-plus
  */
 public interface ProcessEventListener {

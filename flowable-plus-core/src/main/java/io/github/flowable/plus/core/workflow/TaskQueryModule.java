@@ -117,6 +117,12 @@ public class TaskQueryModule {
      *
      * <p>采用两阶段查询：Phase 1 按流程实例分页，Phase 2 批量取任务详情。
      * 使用 Flowable 公开 API，不直查内部表。</p>
+     *
+     * @apiNote {@link PageResult#getTotal()} 为近似值，来源于 Phase 1 的流程实例计数
+     *          ({@code involvedUser} + {@code startedBy})，可能大于实际有已办任务的流程数。
+     *          前端建议用"加载更多"模式或通过 {@code records.size() < pageSize} 判断
+     *          是否有下一页。如需精确分页，参见
+     *          {@link #queryDoneTasks(String, TaskQueryDTO, Consumer)} 的 apiNote。
      */
     public PageResult<DoneTaskVO> queryDoneTasks(String userId, TaskQueryDTO query) {
         return queryDoneTasks(userId, query, null);
@@ -132,6 +138,20 @@ public class TaskQueryModule {
      *   <li>{@code HistoricTaskInstanceQuery.processInstanceIdIn(ids).taskAssignee(userId)}
      *       批量取任务，每流程实例取 endTime 最新的那条</li>
      * </ol>
+     *
+     * @apiNote <b>关于分页 total：</b>Phase 1 使用 {@code involvedUser}（不指定 TYPE）
+     *          作为候选流程集，范围比 Phase 2 的 {@code taskAssignee} 更宽。
+     *          因此 {@link PageResult#getTotal()} 是近似值，实际展示的记录数可能少于 total。
+     *          <p><b>替代方案：</b>如果您的业务需要精确分页（total 必须等于实际记录数），
+     *          推荐以下方案之一：</p>
+     *          <ol>
+     *            <li><b>前端方案（推荐）</b> — 使用"加载更多"模式，不暴露精确总页数。
+     *                通过 {@code records.size() < pageSize} 判断是否还有下一页。</li>
+     *            <li><b>自定义查询</b> — 编写 MyBatis Mapper XML 直查 Flowable 内部表
+     *                ({@code ACT_HI_TASKINST} JOIN {@code ACT_HI_PROCINST})，
+     *                在 SQL 层实现精确的 task-count 精确分页。
+     *                注意：此方案依赖 Flowable 内部表结构，版本升级时需验证兼容性。</li>
+     *          </ol>
      */
     public PageResult<DoneTaskVO> queryDoneTasks(String userId, TaskQueryDTO query,
                                                   Consumer<HistoricProcessInstanceQuery> enhancer) {
