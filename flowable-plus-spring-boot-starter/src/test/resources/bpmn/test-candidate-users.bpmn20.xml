@@ -1,0 +1,15 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:activiti="http://activiti.org/bpmn"
+             targetNamespace="http://flowable.plus/test">
+  <process id="testCandidateUsers" name="候选用户（集成测试）" isExecutable="true">
+    <documentation>用于 DoneTaskPreciseIntegrationTest 场景 B：候选人身份链接但无已办</documentation>
+    <startEvent id="start"/>
+    <userTask id="draft" name="发起" activiti:assignee="${initiator}"/>
+    <userTask id="approve" name="审批" activiti:candidateUsers="candidate_a,candidate_b"/>
+    <endEvent id="end"/>
+    <sequenceFlow id="f1" sourceRef="start" targetRef="draft"/>
+    <sequenceFlow id="f2" sourceRef="draft" targetRef="approve"/>
+    <sequenceFlow id="f3" sourceRef="approve" targetRef="end"/>
+  </process>
+</definitions>
