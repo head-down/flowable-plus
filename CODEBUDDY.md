@@ -77,6 +77,16 @@ mvn clean package -Dmaven.source.skip=false
 | Hutool | 5.8.28 | core、extension |
 | MapStruct | 1.5.5.Final | 通过父 BOM 可用 |
 
+## CI / CD
+
+**.github/workflows/ci.yml** 在 push/PR 到 `master` 时触发：
+
+- **矩阵**: ubuntu-latest + windows-latest, JDK 8 (Temurin)
+- **命令**: `mvn clean verify --batch-mode --no-transfer-progress`
+- **报告**: ubuntu 构建上传 surefire-reports/failsafe-reports，保留 7 天
+
+所有测试（~338 个，含 49 个 H2 集成测试）作为 PR 合并的必需门禁。若新增测试，CI 矩阵两端必须全部通过。
+
 ## 注解处理
 
 项目使用 Lombok、MapStruct 和 Spring Boot Configuration Processor 作为注解处理器。父 POM 中的 `maven-compiler-plugin` 已通过 `annotationProcessorPaths` 统一配置。新增 MapStruct mapper 时无需额外配置 — 处理器已在父级配置好。

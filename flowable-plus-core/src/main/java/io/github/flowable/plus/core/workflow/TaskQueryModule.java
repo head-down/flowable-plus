@@ -5,6 +5,7 @@ import io.github.flowable.plus.core.vo.TodoTaskVO;
 import io.github.flowable.plus.core.domain.PageResult;
 import io.github.flowable.plus.core.dto.TaskQueryDTO;
 import io.github.flowable.plus.core.support.VOAssembler;
+import lombok.extern.slf4j.Slf4j;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.IdentityService;
 import org.flowable.engine.TaskService;
@@ -35,6 +36,7 @@ import java.util.stream.Collectors;
  *
  * @author flowable-plus
  */
+@Slf4j
 public class TaskQueryModule {
 
     private final TaskService taskService;
@@ -244,6 +246,8 @@ public class TaskQueryModule {
      * @return 分页已办列表，total 精确
      */
     public PageResult<DoneTaskVO> queryDoneTasksPrecise(String userId, TaskQueryDTO query) {
+        long start = System.currentTimeMillis();
+
         if (userId == null || userId.isEmpty()) {
             throw new IllegalArgumentException("userId 不可为 null 或空");
         }
@@ -293,6 +297,7 @@ public class TaskQueryModule {
         List<HistoricProcessInstance> processes = nativeQuery.listPage(firstResult, query.getPageSize());
 
         if (processes.isEmpty()) {
+            log.debug("queryDoneTasksPrecise: total={}, cost={}ms", total, System.currentTimeMillis() - start);
             return new PageResult<>(total, query.getPageNum(), query.getPageSize(), Collections.emptyList());
         }
 
@@ -321,6 +326,8 @@ public class TaskQueryModule {
 
         List<DoneTaskVO> vos = voAssembler.toDoneVOs(orderedTasks, procInstMap);
 
+        log.debug("queryDoneTasksPrecise: total={}, records={}, cost={}ms",
+                total, vos.size(), System.currentTimeMillis() - start);
         return new PageResult<>(total, query.getPageNum(), query.getPageSize(), vos);
     }
 
