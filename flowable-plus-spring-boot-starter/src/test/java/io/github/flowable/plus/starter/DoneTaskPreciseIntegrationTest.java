@@ -118,6 +118,35 @@ class DoneTaskPreciseIntegrationTest {
         assertThat(result.getTotal()).isGreaterThanOrEqualTo(1);
     }
 
+    // ======================== 发起人无已办（场景 A） ========================
+
+    @Test
+    void testInitiatorWithoutDoneTask() {
+        Map<String, Object> variables = new HashMap<>();
+        variables.put("initiator", INITIATOR);
+        variables.put("approver", APPROVER);
+
+        identityService.setAuthenticatedUserId(INITIATOR);
+        DynamicUserContext.set(INITIATOR);
+        ProcessInstance pi = runtimeService.startProcessInstanceByKey(
+                "testSimpleLinear", "biz-dirty-a", variables);
+        processInstanceIds.add(pi.getId());
+
+        // APPROVER 完成全部任务，INITIATOR 只发起了流程未完成任何节点
+        completeTask(pi.getId(), "draft", APPROVER);
+        completeTask(pi.getId(), "deptApprove", APPROVER);
+
+        TaskQueryDTO query = new TaskQueryDTO();
+        query.setPageNum(1);
+        query.setPageSize(10);
+
+        // INITIATOR 只是 starter（involvedUser 命中），但无已办（taskAssignee 无匹配）
+        // 注意：queryDoneTasks 的 getTotal() 为近似值（来自 Phase 1 流程实例计数），
+        // 这里应验证实际记录为空
+        PageResult<DoneTaskVO> result = flowablePlus.queryDoneTasks(INITIATOR, query);
+        assertThat(result.getRecords()).isEmpty();
+    }
+
     // ======================== 活跃任务不计入（场景 C） ========================
 
     @Test
@@ -191,6 +220,10 @@ class DoneTaskPreciseIntegrationTest {
                 .active()
                 .singleResult();
         if (task != null) {
+            // 若任务已分配给其他人，先重新分配
+            if (task.getAssignee() != null && !task.getAssignee().equals(userId)) {
+                taskService.setAssignee(task.getId(), userId);
+            }
             taskExecutionWorkflow.completeTask(task.getId(), null, "test");
         }
     }
