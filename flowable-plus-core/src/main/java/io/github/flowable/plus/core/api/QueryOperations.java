@@ -113,6 +113,24 @@ public interface QueryOperations {
     PageResult<DoneTaskVO> queryDoneTasks(String userId, TaskQueryDTO query,
                                           Consumer<HistoricProcessInstanceQuery> enhancer);
 
+    /**
+     * 查询指定用户的已办任务列表（精确分页）。
+     *
+     * <p>与 {@link #queryDoneTasks(String, TaskQueryDTO)} 不同，此方法 Phase 1
+     * 使用 {@code NativeHistoricProcessInstanceQuery} 直接查询只有已完成任务的
+     * 流程实例，从而获得精确的 {@code total}。</p>
+     *
+     * <p><b>限制：</b>Native SQL 无法使用 enhancer 进行链式扩展。
+     * 需要自定义过滤的场景请使用原有的
+     * {@link #queryDoneTasks(String, TaskQueryDTO, Consumer)} 方法。</p>
+     *
+     * @param userId 用户 ID，不可为 null
+     * @param query  查询条件
+     * @return 分页已办列表，total 精确
+     * @see #queryDoneTasks(String, TaskQueryDTO)
+     */
+    PageResult<DoneTaskVO> queryDoneTasksPrecise(String userId, TaskQueryDTO query);
+
     // ======================== 节点预览 ========================
 
     /**

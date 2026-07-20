@@ -10,14 +10,17 @@ import org.flowable.engine.IdentityService;
 import org.flowable.engine.TaskService;
 import org.flowable.engine.history.HistoricProcessInstance;
 import org.flowable.engine.history.HistoricProcessInstanceQuery;
+import org.flowable.engine.history.NativeHistoricProcessInstanceQuery;
 import org.flowable.idm.api.Group;
 import org.flowable.task.api.Task;
 import org.flowable.task.api.TaskQuery;
 import org.flowable.task.api.history.HistoricTaskInstance;
 import org.flowable.task.api.history.HistoricTaskInstanceQuery;
 
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -225,6 +228,102 @@ public class TaskQueryModule {
         return new PageResult<>(total, query.getPageNum(), query.getPageSize(), vos);
     }
 
+    /**
+     * 查询指定用户的已办任务列表（精确分页）。
+     *
+     * <p>Phase 1 使用 {@link NativeHistoricProcessInstanceQuery} 写精确 SQL
+     * 直接查出有已完成任务的流程实例，获取精确的 total 和当前页流程列表。
+     * Phase 2 复用现有批量取任务 + 去重逻辑。</p>
+     *
+     * <p>SQL 使用 Java String 拼接构造完整查询，参数值在拼接前经
+     * {@link #escapeSql(String)} 转义，避免 SQL 注入。日期格式化为
+     * {@code yyyy-MM-dd HH:mm:ss}。</p>
+     *
+     * @param userId 用户 ID，不可为 null 或空
+     * @param query  查询条件，不可为 null
+     * @return 分页已办列表，total 精确
+     */
+    public PageResult<DoneTaskVO> queryDoneTasksPrecise(String userId, TaskQueryDTO query) {
+        if (userId == null || userId.isEmpty()) {
+            throw new IllegalArgumentException("userId 不可为 null 或空");
+        }
+        if (query == null) {
+            query = new TaskQueryDTO();
+        }
+
+        // Phase 1: Native SQL 精确查询流程实例
+        StringBuilder sql = new StringBuilder(512);
+        sql.append("SELECT RES.* FROM ACT_HI_PROCINST RES WHERE EXISTS (")
+           .append("SELECT 1 FROM ACT_HI_TASKINST T WHERE ")
+           .append("T.PROC_INST_ID_ = RES.ID_ AND T.ASSIGNEE_ = '")
+           .append(escapeSql(userId))
+           .append("' AND T.END_TIME_ IS NOT NULL)");
+
+        // 动态过滤条件
+        if (query.getProcessDefinitionKey() != null && !query.getProcessDefinitionKey().isEmpty()) {
+            sql.append(" AND RES.PROC_DEF_ID_ LIKE '")
+               .append(escapeSql(query.getProcessDefinitionKey()))
+               .append(":%'");
+        }
+        if (query.getKeyword() != null && !query.getKeyword().isEmpty()) {
+            sql.append(" AND RES.BUSINESS_KEY_ LIKE '%")
+               .append(escapeLike(query.getKeyword()))
+               .append("%' ESCAPE '\\'");
+        }
+        if (query.getBeginDate() != null) {
+            sql.append(" AND RES.END_TIME_ >= '")
+               .append(formatDate(query.getBeginDate()))
+               .append("'");
+        }
+        if (query.getEndDate() != null) {
+            sql.append(" AND RES.END_TIME_ <= '")
+               .append(formatDate(query.getEndDate()))
+               .append("'");
+        }
+
+        sql.append(" ORDER BY RES.END_TIME_ DESC");
+
+        NativeHistoricProcessInstanceQuery nativeQuery = historyService
+                .createNativeHistoricProcessInstanceQuery()
+                .sql(sql.toString());
+
+        long total = nativeQuery.count();
+
+        int firstResult = (query.getPageNum() - 1) * query.getPageSize();
+        List<HistoricProcessInstance> processes = nativeQuery.listPage(firstResult, query.getPageSize());
+
+        if (processes.isEmpty()) {
+            return new PageResult<>(total, query.getPageNum(), query.getPageSize(), Collections.emptyList());
+        }
+
+        // Phase 2: 批量取任务详情（复用现有逻辑）
+        List<String> procInstIds = processes.stream()
+                .map(HistoricProcessInstance::getId)
+                .collect(Collectors.toList());
+
+        List<HistoricTaskInstance> allTasks = historyService.createHistoricTaskInstanceQuery()
+                .processInstanceIdIn(procInstIds)
+                .taskAssignee(userId)
+                .finished()
+                .orderByHistoricTaskInstanceEndTime().desc()
+                .list();
+
+        // 每个流程实例取 endTime 最新的那条任务
+        Map<String, HistoricTaskInstance> latestPerProcInst = new LinkedHashMap<>();
+        for (HistoricTaskInstance task : allTasks) {
+            latestPerProcInst.putIfAbsent(task.getProcessInstanceId(), task);
+        }
+
+        List<HistoricTaskInstance> orderedTasks = new ArrayList<>(latestPerProcInst.values());
+
+        Map<String, HistoricProcessInstance> procInstMap = processes.stream()
+                .collect(Collectors.toMap(HistoricProcessInstance::getId, p -> p, (a, b) -> a));
+
+        List<DoneTaskVO> vos = voAssembler.toDoneVOs(orderedTasks, procInstMap);
+
+        return new PageResult<>(total, query.getPageNum(), query.getPageSize(), vos);
+    }
+
     // ======================== 内部辅助方法 ========================
 
     private List<String> getGroupIds(String userId) {
@@ -248,5 +347,40 @@ public class TaskQueryModule {
         if (query.getEndDate() != null) {
             taskQuery.taskCreatedBefore(query.getEndDate());
         }
+    }
+
+    /**
+     * 转义 SQL 字符串中的单引号（{@code ' → ''}）。
+     *
+     * <p>用于 Native SQL 拼接时防止 SQL 注入。</p>
+     */
+    private static String escapeSql(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("'", "''");
+    }
+
+    /**
+     * 转义 SQL LIKE 表达式中的特殊字符。
+     *
+     * <p>在 {@link #escapeSql(String)} 基础上额外转义 {@code %} 和 {@code _}，
+     * 防止用户输入被误解为 SQL LIKE 通配符。</p>
+     */
+    private static String escapeLike(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("\\", "\\\\")
+                    .replace("%", "\\%")
+                    .replace("_", "\\_")
+                    .replace("'", "''");
+    }
+
+    private static final ThreadLocal<SimpleDateFormat> DATE_FORMAT =
+            ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"));
+
+    private static String formatDate(Date date) {
+        return DATE_FORMAT.get().format(date);
     }
 }

@@ -133,3 +133,6 @@ Core 模块已实现审批核心操作（发起、同意、驳回、撤回、撤
 | ADR-0008 | 自动提交采用 AutoApprovalRule SPI，异常快速失败 | 2026-07-03 |
 | ADR-0009 | 审批历史 Comment→Action 推断采用三级策略 | 2026-07-16 |
 | ADR-0010 | FlowablePlus 门面保持纯聚合角色 | 2026-07-17 |
+| ADR-0011 | DispatchableEvent 自分发替代 instanceof 链 | 2026-07-17 |
+| ADR-0012 | 已办查询基于流程实例维度的两阶段查询 | 2026-07-17 |
+| ADR-0013 | 已办查询精确分页引入 Native SQL | 2026-07-20 |

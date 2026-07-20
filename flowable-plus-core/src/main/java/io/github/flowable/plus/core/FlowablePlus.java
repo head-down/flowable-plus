@@ -106,6 +106,11 @@ public class FlowablePlus implements QueryOperations, DiagramOperations, History
         return taskQueryModule.queryDoneTasks(userId, query, enhancer);
     }
 
+    @Override
+    public PageResult<DoneTaskVO> queryDoneTasksPrecise(String userId, TaskQueryDTO query) {
+        return taskQueryModule.queryDoneTasksPrecise(userId, query);
+    }
+
     // ======================== QueryOperations: 节点预览 (委托给 NodePreviewWorkflow) ========================
 
     @Override
