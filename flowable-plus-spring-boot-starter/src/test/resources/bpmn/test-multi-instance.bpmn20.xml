@@ -1,0 +1,28 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:activiti="http://activiti.org/bpmn"
+             targetNamespace="http://flowable.plus/test">
+  <process id="testMultiInstance" name="会签审批（集成测试）" isExecutable="true">
+    <documentation>用于 CounterSignIntegrationTest：counterSign / addCounterSigner / removeCounterSigner / delegateTask / resolveDelegate
+    并行多实例会签，全部同意后流转到发起人确认节点</documentation>
+    <startEvent id="start"/>
+    <userTask id="draft" name="发起" activiti:assignee="${initiator}"/>
+
+    <!-- 并行多实例会签 — 全部审批人完成后推进 -->
+    <userTask id="counterSign" name="会签审批" activiti:assignee="${assignee}">
+      <multiInstanceLoopCharacteristics isSequential="false"
+          activiti:collection="counterSignUsers"
+          activiti:elementVariable="assignee">
+        <completionCondition>${nrOfCompletedInstances >= nrOfInstances}</completionCondition>
+      </multiInstanceLoopCharacteristics>
+    </userTask>
+
+    <userTask id="confirmTask" name="发起人确认" activiti:assignee="${initiator}"/>
+    <endEvent id="end"/>
+
+    <sequenceFlow id="f1" sourceRef="start" targetRef="draft"/>
+    <sequenceFlow id="f2" sourceRef="draft" targetRef="counterSign"/>
+    <sequenceFlow id="f3" sourceRef="counterSign" targetRef="confirmTask"/>
+    <sequenceFlow id="f4" sourceRef="confirmTask" targetRef="end"/>
+  </process>
+</definitions>

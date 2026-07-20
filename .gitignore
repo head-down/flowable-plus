@@ -35,3 +35,8 @@ build/
 ### Local dev tools ###
 .codebuddy/
 skills-lock.json
+
+### Production BPMN models (should not be committed) ###
+flowable-plus-spring-boot-starter/src/test/resources/bpmn/carUseApply.bpmn
+flowable-plus-spring-boot-starter/src/test/resources/bpmn/hospitalitySupplies.bpmn
+flowable-plus-spring-boot-starter/src/test/resources/bpmn/webInfoRelease.bpmn

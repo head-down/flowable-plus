@@ -136,8 +136,11 @@ public class TaskQueryModule {
      *
      * <p>两阶段查询：</p>
      * <ol>
-     *   <li>{@code HistoricProcessInstanceQuery.involvedUser(userId).or().startedBy(userId)}
-     *       按流程实例分页</li>
+     *   <li>{@code HistoricProcessInstanceQuery.involvedUser(userId)}
+     *       按流程实例分页。involvedUser 匹配所有身份链接类型
+     *       (participant/starter/candidate/owner)，<b>无需</b>额外叠加
+     *       {@code startedBy} 查询，因为 Flowable 在启动流程时会自动创建
+     *       {@code starter} 类型身份链接</li>
      *   <li>{@code HistoricTaskInstanceQuery.processInstanceIdIn(ids).taskAssignee(userId)}
      *       批量取任务，每流程实例取 endTime 最新的那条</li>
      * </ol>
@@ -165,12 +168,9 @@ public class TaskQueryModule {
             query = new TaskQueryDTO();
         }
 
-        // Phase 1: 流程维度分页（involvedUser 不指定 TYPE，匹配所有身份链接）
+        // Phase 1: 流程维度分页（involvedUser 匹配所有身份链接类型，包含 starter/participant/candidate 等）
         HistoricProcessInstanceQuery procQuery = historyService.createHistoricProcessInstanceQuery()
-                .involvedUser(userId)
-                .or()
-                    .startedBy(userId)
-                .endOr();
+                .involvedUser(userId);
 
         if (query.getProcessDefinitionKey() != null && !query.getProcessDefinitionKey().isEmpty()) {
             procQuery.processDefinitionKey(query.getProcessDefinitionKey());

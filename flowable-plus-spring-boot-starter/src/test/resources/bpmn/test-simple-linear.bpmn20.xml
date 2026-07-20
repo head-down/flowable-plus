@@ -1,0 +1,15 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:activiti="http://activiti.org/bpmn"
+             targetNamespace="http://flowable.plus/test">
+  <process id="testSimpleLinear" name="线性审批（集成测试）" isExecutable="true">
+    <documentation>用于 ProcessLifecycleIntegrationTest：startProcess / revokeProcess 的串行线性审批流程</documentation>
+    <startEvent id="start"/>
+    <userTask id="draft" name="发起" activiti:assignee="${initiator}"/>
+    <userTask id="deptApprove" name="部门审批" activiti:assignee="${approver}"/>
+    <endEvent id="end"/>
+    <sequenceFlow id="f1" sourceRef="start" targetRef="draft"/>
+    <sequenceFlow id="f2" sourceRef="draft" targetRef="deptApprove"/>
+    <sequenceFlow id="f3" sourceRef="deptApprove" targetRef="end"/>
+  </process>
+</definitions>
