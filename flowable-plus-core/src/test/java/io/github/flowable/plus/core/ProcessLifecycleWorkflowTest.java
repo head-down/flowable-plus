@@ -26,9 +26,11 @@ import org.flowable.task.api.history.HistoricTaskInstanceQuery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -37,6 +39,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -161,6 +165,290 @@ public class ProcessLifecycleWorkflowTest {
                 .hasMessageContaining("自动提交规则异常");
         verify(mockIdentityService).setAuthenticatedUserId(USER_ID);
         verify(mockIdentityService).setAuthenticatedUserId(null);
+    }
+
+    // ======================== 自动提交补充测试 ========================
+
+    private ProcessLifecycleWorkflow createWorkflowWithRules(List<AutoApprovalRule> rules) {
+        return new ProcessLifecycleWorkflow(userContext, mockTaskService, mockHistoryService,
+                mockRuntimeService, mockIdentityService, mockNodeFinder, rules, null);
+    }
+
+    @Test
+    void shouldCompleteFirstTaskWhenRuleReturnsNonNull() {
+        AutoApprovalRule rule = (task, vars) -> "自动通过";
+
+        HistoricTaskInstanceQuery historicTaskQuery = mock(HistoricTaskInstanceQuery.class);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.processInstanceId(anyString())).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.count()).thenReturn(0L);
+
+        Task mockTask = createMockTask("task-001", "leave:1:abc", "draft", "pi-001", USER_ID);
+        TaskQuery taskQuery = mock(TaskQuery.class);
+        when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
+        when(taskQuery.processInstanceId(anyString())).thenReturn(taskQuery);
+        when(taskQuery.active()).thenReturn(taskQuery);
+        when(taskQuery.list()).thenReturn(Collections.singletonList(mockTask));
+
+        workflow = createWorkflowWithRules(Collections.singletonList(rule));
+
+        Map<String, Object> variables = new HashMap<>();
+        variables.put("amount", 1000);
+
+        ProcessInstance mockPi = mock(ProcessInstance.class);
+        when(mockPi.getProcessInstanceId()).thenReturn("pi-001");
+        when(mockPi.getBusinessKey()).thenReturn("biz-001");
+        when(mockPi.getProcessDefinitionId()).thenReturn("leave:1:abc");
+        when(mockRuntimeService.startProcessInstanceByKey("leave", "biz-001", variables))
+                .thenReturn(mockPi);
+
+        PlusProcessInstance result = workflow.startProcess("leave", "biz-001", variables);
+
+        assertThat(result.getProcessInstanceId()).isEqualTo("pi-001");
+        verify(mockTaskService).addComment("task-001", "pi-001",
+                CommentType.AUTO_COMPLETE.name(), "自动通过");
+        verify(mockTaskService).complete("task-001", null);
+        verify(mockIdentityService).setAuthenticatedUserId(USER_ID);
+        verify(mockIdentityService).setAuthenticatedUserId(null);
+    }
+
+    @Test
+    void shouldNotCompleteWhenAllRulesReturnNull() {
+        AutoApprovalRule rule = (task, vars) -> null;
+
+        HistoricTaskInstanceQuery historicTaskQuery = mock(HistoricTaskInstanceQuery.class);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.processInstanceId(anyString())).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.count()).thenReturn(0L);
+
+        Task mockTask = createMockTask("task-001", "leave:1:abc", "draft", "pi-001", USER_ID);
+        TaskQuery taskQuery = mock(TaskQuery.class);
+        when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
+        when(taskQuery.processInstanceId(anyString())).thenReturn(taskQuery);
+        when(taskQuery.active()).thenReturn(taskQuery);
+        when(taskQuery.list()).thenReturn(Collections.singletonList(mockTask));
+
+        workflow = createWorkflowWithRules(Collections.singletonList(rule));
+
+        Map<String, Object> variables = new HashMap<>();
+        ProcessInstance mockPi = mock(ProcessInstance.class);
+        when(mockPi.getProcessInstanceId()).thenReturn("pi-001");
+        when(mockPi.getBusinessKey()).thenReturn("biz-001");
+        when(mockPi.getProcessDefinitionId()).thenReturn("leave:1:abc");
+        when(mockRuntimeService.startProcessInstanceByKey("leave", "biz-001", variables))
+                .thenReturn(mockPi);
+
+        workflow.startProcess("leave", "biz-001", variables);
+
+        verify(mockTaskService, never()).complete(anyString(), any());
+    }
+
+    @Test
+    void shouldNotCascadeToNewlyCreatedTasks() {
+        AutoApprovalRule rule = (task, vars) -> "自动通过";
+
+        HistoricTaskInstanceQuery historicTaskQuery = mock(HistoricTaskInstanceQuery.class);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.processInstanceId(anyString())).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.count()).thenReturn(0L);
+
+        Task mockTask = createMockTask("task-001", "leave:1:abc", "draft", "pi-001", USER_ID);
+        TaskQuery taskQuery = mock(TaskQuery.class);
+        when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
+        when(taskQuery.processInstanceId(anyString())).thenReturn(taskQuery);
+        when(taskQuery.active()).thenReturn(taskQuery);
+        when(taskQuery.list()).thenReturn(Collections.singletonList(mockTask));
+
+        workflow = createWorkflowWithRules(Collections.singletonList(rule));
+
+        Map<String, Object> variables = new HashMap<>();
+        ProcessInstance mockPi = mock(ProcessInstance.class);
+        when(mockPi.getProcessInstanceId()).thenReturn("pi-001");
+        when(mockPi.getBusinessKey()).thenReturn("biz-001");
+        when(mockPi.getProcessDefinitionId()).thenReturn("leave:1:abc");
+        when(mockRuntimeService.startProcessInstanceByKey("leave", "biz-001", variables))
+                .thenReturn(mockPi);
+
+        workflow.startProcess("leave", "biz-001", variables);
+
+        verify(mockTaskService, times(1)).complete(anyString(), any());
+    }
+
+    @Test
+    void shouldUseSecondRuleWhenFirstReturnsNull() {
+        AutoApprovalRule rule1 = (task, vars) -> null;
+        AutoApprovalRule rule2 = (task, vars) -> "由规则二自动通过";
+
+        HistoricTaskInstanceQuery historicTaskQuery = mock(HistoricTaskInstanceQuery.class);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.processInstanceId(anyString())).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.count()).thenReturn(0L);
+
+        Task mockTask = createMockTask("task-001", "leave:1:abc", "draft", "pi-001", USER_ID);
+        TaskQuery taskQuery = mock(TaskQuery.class);
+        when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
+        when(taskQuery.processInstanceId(anyString())).thenReturn(taskQuery);
+        when(taskQuery.active()).thenReturn(taskQuery);
+        when(taskQuery.list()).thenReturn(Collections.singletonList(mockTask));
+
+        workflow = createWorkflowWithRules(Arrays.asList(rule1, rule2));
+
+        Map<String, Object> variables = new HashMap<>();
+        ProcessInstance mockPi = mock(ProcessInstance.class);
+        when(mockPi.getProcessInstanceId()).thenReturn("pi-001");
+        when(mockPi.getBusinessKey()).thenReturn("biz-001");
+        when(mockPi.getProcessDefinitionId()).thenReturn("leave:1:abc");
+        when(mockRuntimeService.startProcessInstanceByKey("leave", "biz-001", variables))
+                .thenReturn(mockPi);
+
+        workflow.startProcess("leave", "biz-001", variables);
+
+        verify(mockTaskService).addComment("task-001", "pi-001",
+                CommentType.AUTO_COMPLETE.name(), "由规则二自动通过");
+        verify(mockTaskService).complete("task-001", null);
+    }
+
+    @Test
+    void shouldShortCircuitAfterFirstMatch() {
+        AutoApprovalRule rule1 = (task, vars) -> "规则一自动通过";
+        AutoApprovalRule rule2 = mock(AutoApprovalRule.class);
+
+        HistoricTaskInstanceQuery historicTaskQuery = mock(HistoricTaskInstanceQuery.class);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.processInstanceId(anyString())).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.count()).thenReturn(0L);
+
+        Task mockTask = createMockTask("task-001", "leave:1:abc", "draft", "pi-001", USER_ID);
+        TaskQuery taskQuery = mock(TaskQuery.class);
+        when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
+        when(taskQuery.processInstanceId(anyString())).thenReturn(taskQuery);
+        when(taskQuery.active()).thenReturn(taskQuery);
+        when(taskQuery.list()).thenReturn(Collections.singletonList(mockTask));
+
+        workflow = createWorkflowWithRules(Arrays.asList(rule1, rule2));
+
+        Map<String, Object> variables = new HashMap<>();
+        ProcessInstance mockPi = mock(ProcessInstance.class);
+        when(mockPi.getProcessInstanceId()).thenReturn("pi-001");
+        when(mockPi.getBusinessKey()).thenReturn("biz-001");
+        when(mockPi.getProcessDefinitionId()).thenReturn("leave:1:abc");
+        when(mockRuntimeService.startProcessInstanceByKey("leave", "biz-001", variables))
+                .thenReturn(mockPi);
+
+        workflow.startProcess("leave", "biz-001", variables);
+
+        verify(mockTaskService).complete("task-001", null);
+        verify(rule2, never()).evaluate(any(PlusTask.class), any());
+    }
+
+    @Test
+    void shouldSkipAutoCompleteWhenHistoryExists() {
+        AutoApprovalRule rule = (task, vars) -> "不该触发";
+
+        HistoricTaskInstanceQuery historicTaskQuery = mock(HistoricTaskInstanceQuery.class);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.processInstanceId(anyString())).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.count()).thenReturn(1L);
+
+        workflow = createWorkflowWithRules(Collections.singletonList(rule));
+
+        Map<String, Object> variables = new HashMap<>();
+        ProcessInstance mockPi = mock(ProcessInstance.class);
+        when(mockPi.getProcessInstanceId()).thenReturn("pi-001");
+        when(mockPi.getBusinessKey()).thenReturn("biz-001");
+        when(mockPi.getProcessDefinitionId()).thenReturn("leave:1:abc");
+        when(mockRuntimeService.startProcessInstanceByKey("leave", "biz-001", variables))
+                .thenReturn(mockPi);
+
+        workflow.startProcess("leave", "biz-001", variables);
+
+        verify(mockTaskService, never()).complete(anyString(), any());
+        verify(mockTaskService, never()).addComment(anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void shouldCompleteAllFirstTasks() {
+        AutoApprovalRule rule = (task, vars) -> "自动通过";
+
+        HistoricTaskInstanceQuery historicTaskQuery = mock(HistoricTaskInstanceQuery.class);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.processInstanceId(anyString())).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.count()).thenReturn(0L);
+
+        Task task1 = createMockTask("task-001", "leave:1:abc", "draft", "pi-001", USER_ID);
+        Task task2 = createMockTask("task-002", "leave:1:abc", "draft", "pi-001", USER_ID);
+        Task task3 = createMockTask("task-003", "leave:1:abc", "draft", "pi-001", USER_ID);
+        TaskQuery taskQuery = mock(TaskQuery.class);
+        when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
+        when(taskQuery.processInstanceId(anyString())).thenReturn(taskQuery);
+        when(taskQuery.active()).thenReturn(taskQuery);
+        when(taskQuery.list()).thenReturn(Arrays.asList(task1, task2, task3));
+
+        workflow = createWorkflowWithRules(Collections.singletonList(rule));
+
+        Map<String, Object> variables = new HashMap<>();
+        ProcessInstance mockPi = mock(ProcessInstance.class);
+        when(mockPi.getProcessInstanceId()).thenReturn("pi-001");
+        when(mockPi.getBusinessKey()).thenReturn("biz-001");
+        when(mockPi.getProcessDefinitionId()).thenReturn("leave:1:abc");
+        when(mockRuntimeService.startProcessInstanceByKey("leave", "biz-001", variables))
+                .thenReturn(mockPi);
+
+        workflow.startProcess("leave", "biz-001", variables);
+
+        verify(mockTaskService, times(3)).complete(anyString(), any());
+        verify(mockTaskService).addComment("task-001", "pi-001",
+                CommentType.AUTO_COMPLETE.name(), "自动通过");
+        verify(mockTaskService).addComment("task-002", "pi-001",
+                CommentType.AUTO_COMPLETE.name(), "自动通过");
+        verify(mockTaskService).addComment("task-003", "pi-001",
+                CommentType.AUTO_COMPLETE.name(), "自动通过");
+    }
+
+    @Test
+    void shouldPassReadonlyCopyOfVariablesToRule() {
+        java.util.concurrent.atomic.AtomicReference<Map<String, Object>> capturedVars =
+                new java.util.concurrent.atomic.AtomicReference<>();
+
+        AutoApprovalRule rule = (task, vars) -> {
+            capturedVars.set(vars);
+            return "自动通过";
+        };
+
+        HistoricTaskInstanceQuery historicTaskQuery = mock(HistoricTaskInstanceQuery.class);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.processInstanceId(anyString())).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.count()).thenReturn(0L);
+
+        Task mockTask = createMockTask("task-001", "leave:1:abc", "draft", "pi-001", USER_ID);
+        TaskQuery taskQuery = mock(TaskQuery.class);
+        when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
+        when(taskQuery.processInstanceId(anyString())).thenReturn(taskQuery);
+        when(taskQuery.active()).thenReturn(taskQuery);
+        when(taskQuery.list()).thenReturn(Collections.singletonList(mockTask));
+
+        workflow = createWorkflowWithRules(Collections.singletonList(rule));
+
+        Map<String, Object> variables = new HashMap<>();
+        variables.put("amount", 1000);
+        variables.put("days", 3);
+
+        ProcessInstance mockPi = mock(ProcessInstance.class);
+        when(mockPi.getProcessInstanceId()).thenReturn("pi-001");
+        when(mockPi.getBusinessKey()).thenReturn("biz-001");
+        when(mockPi.getProcessDefinitionId()).thenReturn("leave:1:abc");
+        when(mockRuntimeService.startProcessInstanceByKey("leave", "biz-001", variables))
+                .thenReturn(mockPi);
+
+        workflow.startProcess("leave", "biz-001", variables);
+
+        Map<String, Object> received = capturedVars.get();
+        assertThat(received).isNotNull();
+        assertThat(received.get("amount")).isEqualTo(1000);
+        assertThat(received.get("days")).isEqualTo(3);
+
+        assertThatThrownBy(() -> received.put("newKey", "newValue"))
+                .isInstanceOf(UnsupportedOperationException.class);
     }
 
     // ======================== 撤销 ========================
