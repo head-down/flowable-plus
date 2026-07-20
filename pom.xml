@@ -6,7 +6,7 @@
 
     <groupId>io.github.flowable.plus</groupId>
     <artifactId>flowable-plus</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0</version>
     <packaging>pom</packaging>
     <name>flowable-plus</name>
     <description>Flowable workflow engine enhancement toolkit, providing simplified APIs and Chinese-style workflow features.</description>
