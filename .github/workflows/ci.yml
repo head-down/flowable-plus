@@ -35,6 +35,7 @@ jobs:
           cache: maven
 
       - name: 编译与测试
+        shell: bash
         run: mvn clean verify --batch-mode --no-transfer-progress -Dflowable.test.db=${{ matrix.db }}
 
       - name: 上传测试报告
