@@ -109,7 +109,7 @@ starter 模块通过 `META-INF/spring.factories` 注册 `FlowablePlusAutoConfigu
 
 ## 当前状态
 
-**Alpha — 开发者预览版。** 所有测试均基于 H2 内存数据库运行，尚未在任何生产数据库（MySQL/PostgreSQL/Oracle）上验证。v1.0.0 GA 需要在多数据库 CI 矩阵通过后方可发布（见 ADR-0014）。
+**v1.0.0 GA 已发布。** CI 矩阵覆盖 H2 / MySQL 8.0 / PostgreSQL 14（见 ADR-0014），全量测试通过。
 
 Core 模块已实现审批核心操作（发起、同意、驳回、撤回、撤销、会签），含 BPMN 节点遍历、多实例检测和模型缓存。Starter 模块提供自动配置。Extension 模块为空壳。
 

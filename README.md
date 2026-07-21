@@ -6,17 +6,13 @@
 [![Spring Boot](https://img.shields.io/badge/spring--boot-2.7.18-brightgreen?style=flat-square&logo=springboot)](https://spring.io/projects/spring-boot)
 [![Flowable](https://img.shields.io/badge/flowable-6.8.0-red?style=flat-square)](https://www.flowable.com/)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
-[![Status](https://img.shields.io/badge/status-alpha-red?style=flat-square)](https://github.com/head-down/flowable-plus)
+[![Status](https://img.shields.io/badge/status-stable-brightgreen?style=flat-square)](https://github.com/head-down/flowable-plus)
 
 ## 状态
 
-**Alpha — 开发者预览版，尚未在生产数据库上验证。**
+**Stable — v1.0.0 GA 已发布。**
 
-当前所有测试均基于 H2 内存数据库运行。MySQL 和 PostgreSQL 的兼容性正通过 Testcontainers 集成进行验证。在多数据库 CI 矩阵通过之前，本项目不应被视为生产就绪。
-
-**v1.0.0 GA 硬性准入条件：** CI 矩阵覆盖 MySQL 8.0 和 PostgreSQL 14 两种生产数据库。
-
-将 alpha 版本用于生产环境属于高风险行为。
+CI 矩阵覆盖 H2 / MySQL 8.0 / PostgreSQL 14 三种数据库，全量测试通过。详见 [ADR-0014](docs/adr/0014-multi-database-ci-gate.md)。
 
 ## 功能特性
 
@@ -113,7 +109,7 @@ mvn clean test
 <dependency>
     <groupId>io.github.flowable.plus</groupId>
     <artifactId>flowable-plus-spring-boot-starter</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0.0</version>
 </dependency>
 ```
 
