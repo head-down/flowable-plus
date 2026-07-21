@@ -35,7 +35,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 验证 SVG 输出含正确的 data-state 标注和 CSS 样式。</p>
  */
 @SpringBootTest(classes = BpmnQueryIntegrationTestApplication.class)
-class DiagramIntegrationTest {
+class DiagramIntegrationTest extends AbstractIntegrationTest {
 
     private static final String PROCESS_KEY = "testDiagramProcess";
     private static final String INITIATOR = "initiator";

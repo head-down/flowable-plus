@@ -40,7 +40,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest(classes = BpmnQueryIntegrationTestApplication.class)
 @Import(SharedTestConfiguration.class)
-class CounterSignIntegrationTest {
+class CounterSignIntegrationTest extends AbstractIntegrationTest {
 
     private static final String PROCESS_KEY = "testMultiInstance";
     private static final String INITIATOR = "initiator";

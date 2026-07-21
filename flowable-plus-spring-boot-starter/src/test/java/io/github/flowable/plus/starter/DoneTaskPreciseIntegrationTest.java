@@ -37,7 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest(classes = BpmnQueryIntegrationTestApplication.class)
 @Import(SharedTestConfiguration.class)
-class DoneTaskPreciseIntegrationTest {
+class DoneTaskPreciseIntegrationTest extends AbstractIntegrationTest {
 
     private static final String INITIATOR = "initiator";
     private static final String APPROVER = "approver";

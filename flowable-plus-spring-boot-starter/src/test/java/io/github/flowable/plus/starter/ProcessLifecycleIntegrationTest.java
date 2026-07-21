@@ -40,7 +40,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 @SpringBootTest(classes = BpmnQueryIntegrationTestApplication.class)
 @Import(SharedTestConfiguration.class)
-class ProcessLifecycleIntegrationTest {
+class ProcessLifecycleIntegrationTest extends AbstractIntegrationTest {
 
     private static final String PROCESS_KEY = "testSimpleLinear";
     private static final String INITIATOR = "initiator";

@@ -8,12 +8,20 @@ on:
 
 jobs:
   build:
-    name: Java ${{ matrix.java }} on ${{ matrix.os }}
+    name: Java ${{ matrix.java }} / ${{ matrix.db }} / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
         java: [8]
+        db: [h2]
+        include:
+          - os: ubuntu-latest
+            java: 8
+            db: mysql
+          - os: ubuntu-latest
+            java: 8
+            db: postgresql
 
     steps:
       - name: 检出代码
@@ -27,13 +35,13 @@ jobs:
           cache: maven
 
       - name: 编译与测试
-        run: mvn clean verify --batch-mode --no-transfer-progress
+        run: mvn clean verify --batch-mode --no-transfer-progress -Dflowable.test.db=${{ matrix.db }}
 
       - name: 上传测试报告
         if: ${{ always() && matrix.os == 'ubuntu-latest' }}
         uses: actions/upload-artifact@v4
         with:
-          name: test-reports-${{ matrix.os }}-java${{ matrix.java }}
+          name: test-reports-${{ matrix.os }}-${{ matrix.db }}-java${{ matrix.java }}
           path: |
             **/target/surefire-reports/
             **/target/failsafe-reports/

@@ -55,7 +55,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 审批轨迹(S4)、GroupResolver 自定义实现可替换。</p>
  */
 @SpringBootTest(classes = BpmnQueryIntegrationTestApplication.class)
-class BpmnQueryIntegrationTest {
+class BpmnQueryIntegrationTest extends AbstractIntegrationTest {
 
     private static final String PROCESS_KEY = "testApprovalProcess";
     private static final String INITIATOR = "initiator";

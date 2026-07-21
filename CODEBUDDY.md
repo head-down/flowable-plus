@@ -81,11 +81,13 @@ mvn clean package -Dmaven.source.skip=false
 
 **.github/workflows/ci.yml** 在 push/PR 到 `master` 时触发：
 
-- **矩阵**: ubuntu-latest + windows-latest, JDK 8 (Temurin)
-- **命令**: `mvn clean verify --batch-mode --no-transfer-progress`
+- **矩阵**: ubuntu-latest + windows-latest, JDK 8 (Temurin), 数据库 H2 / MySQL 8.0 / PostgreSQL 14
+- **H2**: 同时在 ubuntu 和 windows 上运行（不需要 Docker）
+- **MySQL / PostgreSQL**: 通过 Testcontainers 拉起容器，仅在 ubuntu 上运行
+- **命令**: `mvn clean verify --batch-mode --no-transfer-progress -Dflowable.test.db=<db>`
 - **报告**: ubuntu 构建上传 surefire-reports/failsafe-reports，保留 7 天
 
-所有测试（~338 个，含 49 个 H2 集成测试）作为 PR 合并的必需门禁。若新增测试，CI 矩阵两端必须全部通过。
+所有测试（~335 个，含 ~77 个集成测试）作为 PR 合并的必需门禁。若新增测试，CI 矩阵两端必须全部通过。
 
 ## 注解处理
 
@@ -106,6 +108,8 @@ starter 模块通过 `META-INF/spring.factories` 注册 `FlowablePlusAutoConfigu
 当前配置项为 `flowable.plus.enabled`（布尔值，默认 `true`）。
 
 ## 当前状态
+
+**Alpha — 开发者预览版。** 所有测试均基于 H2 内存数据库运行，尚未在任何生产数据库（MySQL/PostgreSQL/Oracle）上验证。v1.0.0 GA 需要在多数据库 CI 矩阵通过后方可发布（见 ADR-0014）。
 
 Core 模块已实现审批核心操作（发起、同意、驳回、撤回、撤销、会签），含 BPMN 节点遍历、多实例检测和模型缓存。Starter 模块提供自动配置。Extension 模块为空壳。
 
@@ -146,3 +150,4 @@ Core 模块已实现审批核心操作（发起、同意、驳回、撤回、撤
 | ADR-0011 | DispatchableEvent 自分发替代 instanceof 链 | 2026-07-17 |
 | ADR-0012 | 已办查询基于流程实例维度的两阶段查询 | 2026-07-17 |
 | ADR-0013 | 已办查询精确分页引入 Native SQL | 2026-07-20 |
+| ADR-0014 | 多数据库 CI 矩阵作为 v1.0.0 GA 硬性准入条件 | 2026-07-21 |

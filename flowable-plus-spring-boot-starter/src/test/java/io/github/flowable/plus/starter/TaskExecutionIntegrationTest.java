@@ -43,7 +43,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 @SpringBootTest(classes = BpmnQueryIntegrationTestApplication.class)
 @Import(SharedTestConfiguration.class)
-class TaskExecutionIntegrationTest {
+class TaskExecutionIntegrationTest extends AbstractIntegrationTest {
 
     private static final String LINEAR_KEY = "testSimpleLinear";
     private static final String PARALLEL_KEY = "testParallelGateway";
