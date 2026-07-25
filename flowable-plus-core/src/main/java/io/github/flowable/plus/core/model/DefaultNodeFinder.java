@@ -316,9 +316,9 @@ public class DefaultNodeFinder implements NodeFinder {
             UserTask userTask = (UserTask) element;
             if (shouldIncludeUserTask(userTask, variables)) {
                 result.add(userTask.getId());
-            }
-            if (stopAtUserTask) {
-                return; // 紧邻遍历：收集后停止，不深入穿越
+                if (stopAtUserTask) {
+                    return; // 紧邻遍历：仅当节点被收集时才停止深入
+                }
             }
             // 注意：无论是否收集，UserTask 可能后接网关，继续遍历 outgoing
         }
