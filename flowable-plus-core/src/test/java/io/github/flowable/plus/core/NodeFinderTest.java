@@ -9,6 +9,7 @@ import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.bpmn.model.ExclusiveGateway;
 import org.flowable.bpmn.model.ParallelGateway;
 import org.flowable.bpmn.model.SequenceFlow;
+import org.flowable.bpmn.model.ServiceTask;
 import org.flowable.bpmn.model.StartEvent;
 import org.flowable.bpmn.model.SubProcess;
 import org.flowable.bpmn.model.UserTask;
@@ -956,6 +957,134 @@ public class NodeFinderTest {
         List<String> result = nodeFinder.findAdjacentUserTasks("proc-adj-none", "start", null);
 
         assertThat(result).isEmpty();
+    }
+
+    /**
+     * SubProcess 穿透：task1 → Sub(A → B) → taskC，从 task1 紧邻遍历应返回 [A]。
+     * 穿透 SubProcess 边界找到内部第一个 UserTask，不继续到 B，也不穿透出 SubProcess 到 taskC。
+     */
+    @Test
+    public void testFindAdjacentUserTasksSubProcessPenetration() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+
+        SubProcess sub1 = builder.addSubProcess("sub1");
+        builder.buildSubProcessWithChain(sub1, "taskA", "taskB");
+
+        UserTask taskC = builder.addUserTask("taskC");
+
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, sub1);
+        builder.addSequenceFlow("f3", sub1, taskC);
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-adj-sub")).thenReturn(model);
+
+        List<String> result = nodeFinder.findAdjacentUserTasks("proc-adj-sub", "task1", null);
+
+        // 紧邻遍历：穿透 SubProcess 找到 A，不继续到 B，也不穿透到 taskC
+        assertThat(result).containsExactly("taskA");
+    }
+
+    /**
+     * SkipInitiatorNodeFilter 集成：task1(isStartTask=true)→task2→task3，
+     * 从 task1 紧邻遍历应返回 [task2]（跳过发起人节点）。
+     */
+    @Test
+    public void testFindAdjacentUserTasksSkipInitiatorFilter() {
+        TestModelBuilder builder = new TestModelBuilder();
+        UserTask task1 = builder.addUserTask("task1");
+        setExtensionAttribute(task1, "flowable", "isStartTask", "true");
+        UserTask task2 = builder.addUserTask("task2");
+        UserTask task3 = builder.addUserTask("task3");
+        builder.addSequenceFlow("f1", task1, task2);
+        builder.addSequenceFlow("f2", task2, task3);
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-adj-skip")).thenReturn(model);
+
+        nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService,
+                Mockito.mock(ExpressionManager.class),
+                Collections.singletonList(new SkipInitiatorNodeFilter()));
+
+        List<String> result = nodeFinder.findAdjacentUserTasks("proc-adj-skip", "task1", null);
+
+        // task1 被 SkipInitiatorNodeFilter 跳过，紧邻收集 task2
+        assertThat(result).containsExactly("task2");
+    }
+
+    /**
+     * 循环防环：start→task1→egw→svc1→egw→task2（回路含 ServiceTask 非 UserTask），
+     * 紧邻遍历不卡死。从 task1 出发，穿越回路后到达 task2。
+     */
+    @Test
+    public void testFindAdjacentUserTasksCycleDetection() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        ExclusiveGateway egw = builder.addExclusiveGateway("egw");
+        ServiceTask svc1 = builder.addServiceTask("svc1");
+        UserTask task2 = builder.addUserTask("task2");
+
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, egw);
+        builder.addSequenceFlow("f3", egw, svc1);     // egw → svc1（回路入口）
+        builder.addSequenceFlow("f4", svc1, egw);      // svc1 → egw（回到网关）
+        builder.addSequenceFlow("f5", egw, task2);     // egw → task2（出口）
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-adj-cycle")).thenReturn(model);
+
+        List<String> result = nodeFinder.findAdjacentUserTasks("proc-adj-cycle", "task1", null);
+
+        // visited 防环截断 svc1→egw 重入，egw→task2 正常收集
+        assertThat(result).containsExactly("task2");
+    }
+
+    /**
+     * 紧邻 ⊆ 全遍历一致性：验证紧邻遍历结果是全遍历结果的子集。
+     * 拓扑：start → pgw → taskA
+     *                    → sub1(内部: taskSub → taskSub2) → taskB
+     *               taskA → pgw_merge
+     *               taskB → pgw_merge
+     *               pgw_merge → taskC
+     */
+    @Test
+    public void testFindAdjacentUserTasksIsSubsetOfFullTraversal() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        ParallelGateway pgwSplit = builder.addParallelGateway("pgw_split");
+        UserTask taskA = builder.addUserTask("taskA");
+
+        SubProcess sub1 = builder.addSubProcess("sub1");
+        builder.buildSubProcessWithChain(sub1, "taskSub", "taskSub2");
+
+        UserTask taskB = builder.addUserTask("taskB");
+        ParallelGateway pgwMerge = builder.addParallelGateway("pgw_merge");
+        UserTask taskC = builder.addUserTask("taskC");
+
+        builder.addSequenceFlow("f1", start, pgwSplit);
+        builder.addSequenceFlow("f2a", pgwSplit, taskA);
+        builder.addSequenceFlow("f2b", pgwSplit, sub1);
+        builder.addSequenceFlow("f3", sub1, taskB);
+        builder.addSequenceFlow("f4a", taskA, pgwMerge);
+        builder.addSequenceFlow("f4b", taskB, pgwMerge);
+        builder.addSequenceFlow("f5", pgwMerge, taskC);
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-adj-subset")).thenReturn(model);
+
+        // 全遍历
+        List<String> fullResult = nodeFinder.findAllReachableUserTasks("proc-adj-subset", null);
+
+        // 紧邻遍历
+        List<String> adjacentResult = nodeFinder.findAdjacentUserTasks("proc-adj-subset", "start", null);
+
+        // 紧邻结果是全遍历结果的子集
+        assertThat(fullResult).containsAll(adjacentResult);
+        // 紧邻遍历应收集 taskA 和 taskSub（SubProcess 内第一个），不含 taskSub2、taskB、taskC
+        assertThat(adjacentResult).containsExactlyInAnyOrder("taskA", "taskSub");
     }
 
     private void stubHistoricActivityInstances(String processInstanceId,

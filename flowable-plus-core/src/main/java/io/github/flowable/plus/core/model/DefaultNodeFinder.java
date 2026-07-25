@@ -327,10 +327,15 @@ public class DefaultNodeFinder implements NodeFinder {
         if (element instanceof SubProcess) {
             SubProcess subProcess = (SubProcess) element;
             if (subProcess.getFlowElements() != null) {
+                int beforeCount = result.size();
                 for (FlowElement subElement : subProcess.getFlowElements()) {
                     if (subElement instanceof StartEvent) {
                         traceForwardAll(bpmnModel, subElement, variables, visited, result, stopAtUserTask);
                     }
+                }
+                // 紧邻遍历时，若在子流程内已找到紧邻节点，不再穿透出边界
+                if (stopAtUserTask && result.size() > beforeCount) {
+                    return;
                 }
             }
         }

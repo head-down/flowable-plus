@@ -1,12 +1,15 @@
 package io.github.flowable.plus.core;
 
 import org.flowable.bpmn.model.BpmnModel;
+import org.flowable.bpmn.model.EndEvent;
 import org.flowable.bpmn.model.ExclusiveGateway;
 import org.flowable.bpmn.model.FlowElement;
+import org.flowable.bpmn.model.FlowNode;
 import org.flowable.bpmn.model.MultiInstanceLoopCharacteristics;
 import org.flowable.bpmn.model.ParallelGateway;
 import org.flowable.bpmn.model.Process;
 import org.flowable.bpmn.model.SequenceFlow;
+import org.flowable.bpmn.model.ServiceTask;
 import org.flowable.bpmn.model.StartEvent;
 import org.flowable.bpmn.model.SubProcess;
 import org.flowable.bpmn.model.UserTask;
@@ -39,6 +42,20 @@ class TestModelBuilder {
         task.setId(id);
         process.addFlowElement(task);
         return task;
+    }
+
+    ServiceTask addServiceTask(String id) {
+        ServiceTask serviceTask = new ServiceTask();
+        serviceTask.setId(id);
+        process.addFlowElement(serviceTask);
+        return serviceTask;
+    }
+
+    EndEvent addEndEvent(String id) {
+        EndEvent event = new EndEvent();
+        event.setId(id);
+        process.addFlowElement(event);
+        return event;
     }
 
     UserTask addMultiInstanceUserTask(String id, boolean sequential, String completionCondition) {
@@ -106,6 +123,53 @@ class TestModelBuilder {
         subProcess.setId(id);
         process.addFlowElement(subProcess);
         return subProcess;
+    }
+
+    /**
+     * 在子流程内构建线性节点链，从 StartEvent 开始连接 UserTask 节点。
+     * 调用方应先通过 {@link #addSubProcess} 创建 SubProcess 实例。
+     *
+     * @param subProcess 子流程实例
+     * @param chain 节点 ID 列表，如 "taskA", "taskB"
+     */
+    void buildSubProcessWithChain(SubProcess subProcess, String... chain) {
+        if (chain == null || chain.length == 0) {
+            return;
+        }
+
+        // 创建内部 StartEvent
+        StartEvent subStart = new StartEvent();
+        subStart.setId(subProcess.getId() + "_start");
+        subProcess.addFlowElement(subStart);
+
+        // 链的第一个节点
+        FlowNode prevNode = subStart;
+        for (int i = 0; i < chain.length; i++) {
+            UserTask task = new UserTask();
+            task.setId(chain[i]);
+            subProcess.addFlowElement(task);
+
+            SequenceFlow flow = new SequenceFlow();
+            flow.setId(subProcess.getId() + "_f" + i);
+            flow.setSourceRef(prevNode.getId());
+            flow.setTargetRef(task.getId());
+
+            List<SequenceFlow> outgoing = prevNode.getOutgoingFlows();
+            if (outgoing == null) {
+                outgoing = new ArrayList<>();
+                prevNode.setOutgoingFlows(outgoing);
+            }
+            outgoing.add(flow);
+
+            List<SequenceFlow> incoming = task.getIncomingFlows();
+            if (incoming == null) {
+                incoming = new ArrayList<>();
+                task.setIncomingFlows(incoming);
+            }
+            incoming.add(flow);
+
+            prevNode = task;
+        }
     }
 
     BpmnModel build() {
