@@ -124,6 +124,11 @@ public class FlowablePlus implements QueryOperations, DiagramOperations, History
     }
 
     @Override
+    public List<NodeApproverVO> getAdjacentNodeApproversByProcessKey(String processKey, Map<String, Object> variables) {
+        return nodePreviewWorkflow.getAdjacentNodeApproversByProcessKey(processKey, variables);
+    }
+
+    @Override
     public List<ApproverInfoVO> getNextTaskApprovers(String taskId) {
         return nodePreviewWorkflow.getNextTaskApprovers(taskId);
     }

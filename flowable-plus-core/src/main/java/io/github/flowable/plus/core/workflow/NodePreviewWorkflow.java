@@ -10,6 +10,7 @@ import io.github.flowable.plus.core.model.NodeFinder;
 import io.github.flowable.plus.core.support.BpmnFormDataHelper;
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.bpmn.model.FlowElement;
+import org.flowable.bpmn.model.StartEvent;
 import org.flowable.bpmn.model.UserTask;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
@@ -102,6 +103,63 @@ public class NodePreviewWorkflow {
         }
 
         return result;
+    }
+
+    /**
+     * 根据流程定义 Key 获取紧邻审批节点及审批人（仅返回第一个审批层级，遇 UserTask 即停止深入）。
+     */
+    public List<NodeApproverVO> getAdjacentNodeApproversByProcessKey(String processKey,
+                                                                      Map<String, Object> variables) {
+        if (processKey == null || processKey.isEmpty()) {
+            throw new IllegalArgumentException("processKey 不可为 null 或空");
+        }
+
+        ProcessDefinition definition = repositoryService.createProcessDefinitionQuery()
+                .processDefinitionKey(processKey)
+                .latestVersion()
+                .active()
+                .singleResult();
+        if (definition == null) {
+            throw new IllegalArgumentException("未找到流程定义，processKey=" + processKey);
+        }
+
+        String definitionId = definition.getId();
+        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(definitionId);
+
+        // 从 BPMN 模型中获取 StartEvent ID 作为遍历起点
+        String startNodeId = findStartEventId(bpmnModel);
+
+        List<String> nodeIds = nodeFinder.findAdjacentUserTasks(definitionId, startNodeId, variables);
+
+        List<NodeApproverVO> result = new ArrayList<>();
+        for (String nodeId : nodeIds) {
+            FlowElement flowElement = bpmnModel.getFlowElement(nodeId);
+            if (!(flowElement instanceof UserTask)) {
+                continue;
+            }
+            UserTask userTask = (UserTask) flowElement;
+
+            List<ApproverInfoVO> approvers = approverResolver.resolveApprovers(userTask);
+
+            result.add(NodeApproverVO.builder()
+                    .nodeId(nodeId)
+                    .nodeName(userTask.getName())
+                    .approvers(approvers)
+                    .build());
+        }
+
+        return result;
+    }
+
+    /**
+     * 从 BPMN 模型中查找 StartEvent 节点 ID。
+     */
+    private String findStartEventId(BpmnModel bpmnModel) {
+        return bpmnModel.getProcesses().get(0).getFlowElements().stream()
+                .filter(element -> element instanceof StartEvent)
+                .map(FlowElement::getId)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("BPMN 模型中未找到 StartEvent"));
     }
 
     /**

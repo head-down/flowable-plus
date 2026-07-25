@@ -151,6 +151,26 @@ public interface QueryOperations {
     List<NodeApproverVO> getNextNodeApproversByProcessKey(String processKey, Map<String, Object> variables);
 
     /**
+     * 根据流程定义 Key 获取紧邻审批节点及审批人（仅返回第一个审批层级，遇 UserTask 即停止深入）。
+     *
+     * <p>与 {@link #getNextNodeApproversByProcessKey(String, Map)} 的区别：</p>
+     * <ul>
+     *   <li>全遍历（Full） — 从 StartEvent 出发，遍历所有可达 UserTask，包括嵌套子流程、
+     *       被调用流程、以及经过多个审批节点后的下游节点。</li>
+     *   <li>紧邻遍历（Adjacent） — 从 StartEvent 出发，仅返回第一个审批层级（紧邻的
+     *       UserTask），遇到 UserTask 后收集并停止，不再继续穿越其 outgoing 序列流。</li>
+     * </ul>
+     *
+     * <p>典型场景：前端需要在发起审批页面展示"第一个"审批节点的审批人选择（如直属上级），
+     * 而非全部审批节点列表。</p>
+     *
+     * @param processKey 流程定义 Key
+     * @param variables  变量上下文，为 null 时不评估条件，全部展开
+     * @return 紧邻审批节点列表
+     */
+    List<NodeApproverVO> getAdjacentNodeApproversByProcessKey(String processKey, Map<String, Object> variables);
+
+    /**
      * 获取当前任务所有下一节点的审批人（扁平列表）。
      *
      * @param taskId 当前任务 ID

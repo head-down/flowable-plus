@@ -284,6 +284,103 @@ public class NodePreviewOperationsTest {
         assertThat(result).hasSize(1);
     }
 
+    // ======================== getAdjacentNodeApproversByProcessKey ========================
+
+    @Test
+    public void testAdjacentRejectNullProcessKey() {
+        assertThatThrownBy(() -> nodePreviewWorkflow.getAdjacentNodeApproversByProcessKey(null, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("processKey");
+    }
+
+    @Test
+    public void testAdjacentRejectEmptyProcessKey() {
+        assertThatThrownBy(() -> nodePreviewWorkflow.getAdjacentNodeApproversByProcessKey("", null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("processKey");
+    }
+
+    @Test
+    public void testAdjacentProcessKeyNotFound() {
+        ProcessDefinitionQuery pdQuery = mock(ProcessDefinitionQuery.class);
+        when(mockRepoService.createProcessDefinitionQuery()).thenReturn(pdQuery);
+        when(pdQuery.processDefinitionKey("unknown-key")).thenReturn(pdQuery);
+        when(pdQuery.latestVersion()).thenReturn(pdQuery);
+        when(pdQuery.active()).thenReturn(pdQuery);
+        when(pdQuery.singleResult()).thenReturn(null);
+
+        assertThatThrownBy(() -> nodePreviewWorkflow.getAdjacentNodeApproversByProcessKey("unknown-key", null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("未找到流程定义");
+    }
+
+    @Test
+    public void testAdjacentSingleNode() {
+        String processKey = "leave";
+        String definitionId = "leave:1:abc";
+
+        stubProcessDefinition(processKey, definitionId);
+
+        UserTask userTask = buildUserTask("taskA", "部门经理审批", "manager1", null, null);
+        BpmnModel model = buildBpmnModel(userTask);
+
+        when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
+        when(mockNodeFinder.findAdjacentUserTasks(definitionId, "start", null))
+                .thenReturn(Collections.singletonList("taskA"));
+
+        List<NodeApproverVO> result = nodePreviewWorkflow.getAdjacentNodeApproversByProcessKey(processKey, null);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getNodeId()).isEqualTo("taskA");
+        assertThat(result.get(0).getNodeName()).isEqualTo("部门经理审批");
+        assertThat(result.get(0).getApprovers()).hasSize(1);
+        assertThat(result.get(0).getApprovers().get(0).getId()).isEqualTo("manager1");
+    }
+
+    @Test
+    public void testAdjacentMultipleNodes() {
+        String processKey = "leave";
+        String definitionId = "leave:1:abc";
+
+        stubProcessDefinition(processKey, definitionId);
+
+        UserTask taskA = buildUserTask("taskA", "节点A", "userA", null, null);
+        UserTask taskB = buildUserTask("taskB", "节点B", "userB", null, null);
+        BpmnModel model = buildBpmnModel(taskA, taskB);
+
+        when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
+        when(mockNodeFinder.findAdjacentUserTasks(definitionId, "start", null))
+                .thenReturn(Arrays.asList("taskA", "taskB"));
+
+        List<NodeApproverVO> result = nodePreviewWorkflow.getAdjacentNodeApproversByProcessKey(processKey, null);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).getNodeId()).isEqualTo("taskA");
+        assertThat(result.get(1).getNodeId()).isEqualTo("taskB");
+    }
+
+    @Test
+    public void testAdjacentWithVariablesPassesToNodeFinder() {
+        String processKey = "leave";
+        String definitionId = "leave:1:abc";
+        Map<String, Object> variables = new HashMap<>();
+        variables.put("amount", 5000);
+
+        stubProcessDefinition(processKey, definitionId);
+
+        UserTask taskA = buildUserTask("taskA", "主管审批", "supervisor", null, null);
+        BpmnModel model = buildBpmnModel(taskA);
+
+        when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
+        when(mockNodeFinder.findAdjacentUserTasks(definitionId, "start", variables))
+                .thenReturn(Collections.singletonList("taskA"));
+
+        List<NodeApproverVO> result = nodePreviewWorkflow.getAdjacentNodeApproversByProcessKey(processKey, variables);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getNodeId()).isEqualTo("taskA");
+    }
+
     // ======================== getNextTaskApprovers ========================
 
     @Test
