@@ -29,7 +29,7 @@ import io.github.flowable.plus.core.spi.ExecutionTreeHelper;
 import io.github.flowable.plus.core.spi.GroupResolver;
 import io.github.flowable.plus.core.spi.IdentityResolver;
 import io.github.flowable.plus.core.spi.ProcessEventListener;
-import io.github.flowable.plus.core.spi.SkipStartTaskFilter;
+import io.github.flowable.plus.core.spi.SkipInitiatorNodeFilter;
 import io.github.flowable.plus.core.spi.UserTaskTraversalFilter;
 
 import io.github.flowable.plus.core.spi.UserContext;
@@ -124,12 +124,12 @@ public class FlowablePlusAutoConfiguration {
      * {@link UserTaskTraversalFilter} Bean 时，此默认实现自动注销，
      * 由用户自定义的 Filter 完全接管。</p>
      *
-     * @return SkipStartTaskFilter 实例
+     * @return SkipInitiatorNodeFilter 实例
      */
     @Bean
     @ConditionalOnMissingBean(UserTaskTraversalFilter.class)
     public UserTaskTraversalFilter defaultUserTaskTraversalFilter() {
-        return new SkipStartTaskFilter();
+        return new SkipInitiatorNodeFilter();
     }
 
     /**

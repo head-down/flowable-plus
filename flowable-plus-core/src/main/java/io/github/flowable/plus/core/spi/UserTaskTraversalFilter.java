@@ -29,26 +29,25 @@ import java.util.Map;
  * <p>框架通过 {@code @Autowired(required = false) List<UserTaskTraversalFilter>}
  * 自动收集所有注册为 Spring Bean 的实现。</p>
  *
+ * <h3>开箱即用</h3>
+ * <p>框架已内置 {@link SkipInitiatorNodeFilter} 默认实现，自动跳过 BPMN 中标记了
+ * {@code flowable:isStartTask = "true"} 扩展属性的发起人节点。
+ * <b>无需编写任何代码即可生效。</b>如需自定义过滤规则，注册自己的
+ * {@code UserTaskTraversalFilter} Bean 即可自动替换默认实现。</p>
+ *
  * <h3>使用示例</h3>
  *
- * <h4>示例一：根据 BPMN 扩展属性跳过发起人节点</h4>
- * <p>在 BPMN 设计器中为发起人节点设置扩展属性 {@code flowable:isStartTask = "true"}，
- * 然后在遍历时跳过该节点：</p>
+ * <h4>示例一：替换默认实现</h4>
+ * <p>如果默认的 {@link SkipInitiatorNodeFilter} 不符合需求（如改为根据节点名称判断），
+ * 声明自定义 Filter Bean 即可自动替换：</p>
  * <pre>{@code
- * package com.example.workflow;
- *
- * import io.github.flowable.plus.core.spi.UserTaskTraversalFilter;
- * import org.flowable.bpmn.model.UserTask;
- * import org.springframework.stereotype.Component;
- *
- * import java.util.Map;
- *
  * @Component
- * public class SkipInitiatorFilter implements UserTaskTraversalFilter {
+ * public class CustomFilter implements UserTaskTraversalFilter {
  *     @Override
  *     public boolean shouldInclude(UserTask userTask, Map<String, Object> variables) {
- *         String isStart = userTask.getAttributeValue("flowable", "isStartTask");
- *         return !"true".equals(isStart);
+ *         // 例如：跳过名称包含"发起"的节点
+ *         String name = userTask.getName();
+ *         return name == null || !name.contains("发起");
  *     }
  * }
  * }</pre>
@@ -73,14 +72,14 @@ import java.util.Map;
  * }</pre>
  *
  * <h4>示例三：多个 Filter 协同工作（AND 合并）</h4>
- * <p>假设同时注册了 {@code SkipInitiatorFilter} 和 {@code AmountFilter}，
+ * <p>假设同时注册了 {@code CustomFilter} 和 {@code AmountFilter}，
  * 某个节点必须同时通过两个 Filter（都返回 {@code true}）才会被收集。例如：</p>
  * <ul>
- *   <li>节点 A（isStartTask=true, skipWhenBelowThreshold=true, amount=500）
- *       → SkipInitiatorFilter 返回 false → <b>跳过</b></li>
- *   <li>节点 B（isStartTask=false, skipWhenBelowThreshold=true, amount=500）
- *       → SkipInitiatorFilter 返回 true, AmountFilter 返回 false → <b>跳过</b></li>
- *   <li>节点 C（isStartTask=false, skipWhenBelowThreshold=true, amount=2000）
+ *   <li>节点 A（name="发起人审批", skipWhenBelowThreshold=true, amount=500）
+ *       → CustomFilter 返回 false → <b>跳过</b></li>
+ *   <li>节点 B（name="部门审批", skipWhenBelowThreshold=true, amount=500）
+ *       → CustomFilter 返回 true, AmountFilter 返回 false → <b>跳过</b></li>
+ *   <li>节点 C（name="部门审批", skipWhenBelowThreshold=true, amount=2000）
  *       → 两个 Filter 都返回 true → <b>收集</b></li>
  * </ul>
  *

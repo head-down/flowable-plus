@@ -33,7 +33,7 @@ import java.util.Map;
  * @author flowable-plus
  * @since 1.1.0
  */
-public class SkipStartTaskFilter implements UserTaskTraversalFilter {
+public class SkipInitiatorNodeFilter implements UserTaskTraversalFilter {
 
     private static final String NAMESPACE_FLOWABLE = "flowable";
     private static final String ATTR_IS_START_TASK = "isStartTask";

@@ -2,7 +2,7 @@ package io.github.flowable.plus.core;
 
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;
-import io.github.flowable.plus.core.spi.SkipStartTaskFilter;
+import io.github.flowable.plus.core.spi.SkipInitiatorNodeFilter;
 import io.github.flowable.plus.core.spi.UserTaskTraversalFilter;
 import org.flowable.bpmn.model.ExtensionAttribute;
 import org.flowable.bpmn.model.BpmnModel;
@@ -777,13 +777,13 @@ public class NodeFinderTest {
         assertThat(resultWith).containsExactly("task2", "task3");
     }
 
-    // ======================== SkipStartTaskFilter 默认实现 ========================
+    // ======================== SkipInitiatorNodeFilter 默认实现 ========================
 
     /**
      * isStartTask=true 的节点被跳过，遍历继续收集后续节点。
      */
     @Test
-    public void testSkipStartTaskFilterSkipsStartNode() {
+    public void testSkipInitiatorNodeFilterSkipsStartNode() {
         TestModelBuilder builder = new TestModelBuilder();
         UserTask task1 = builder.addUserTask("task1");
         setExtensionAttribute(task1, "flowable", "isStartTask", "true");
@@ -797,7 +797,7 @@ public class NodeFinderTest {
 
         nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService,
                 Mockito.mock(ExpressionManager.class),
-                Collections.singletonList(new SkipStartTaskFilter()));
+                Collections.singletonList(new SkipInitiatorNodeFilter()));
 
         List<String> result = nodeFinder.findNextUserTasks("proc-skip-start", "task1", "pi-001",
                 Collections.emptyMap());
@@ -810,7 +810,7 @@ public class NodeFinderTest {
      * isStartTask=false 的节点正常收集。
      */
     @Test
-    public void testSkipStartTaskFilterCollectsNonStartNode() {
+    public void testSkipInitiatorNodeFilterCollectsNonStartNode() {
         TestModelBuilder builder = new TestModelBuilder();
         UserTask task1 = builder.addUserTask("task1");
         setExtensionAttribute(task1, "flowable", "isStartTask", "false");
@@ -822,7 +822,7 @@ public class NodeFinderTest {
 
         nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService,
                 Mockito.mock(ExpressionManager.class),
-                Collections.singletonList(new SkipStartTaskFilter()));
+                Collections.singletonList(new SkipInitiatorNodeFilter()));
 
         List<String> result = nodeFinder.findNextUserTasks("proc-non-start", "task1", "pi-001",
                 Collections.emptyMap());
@@ -835,7 +835,7 @@ public class NodeFinderTest {
      * 无扩展属性的节点正常收集（不会误判为发起人节点）。
      */
     @Test
-    public void testSkipStartTaskFilterCollectsNodeWithoutAttribute() {
+    public void testSkipInitiatorNodeFilterCollectsNodeWithoutAttribute() {
         TestModelBuilder builder = new TestModelBuilder();
         UserTask task1 = builder.addUserTask("task1");
         UserTask task2 = builder.addUserTask("task2");
@@ -846,7 +846,7 @@ public class NodeFinderTest {
 
         nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService,
                 Mockito.mock(ExpressionManager.class),
-                Collections.singletonList(new SkipStartTaskFilter()));
+                Collections.singletonList(new SkipInitiatorNodeFilter()));
 
         List<String> result = nodeFinder.findNextUserTasks("proc-no-attr", "task1", "pi-001",
                 Collections.emptyMap());
