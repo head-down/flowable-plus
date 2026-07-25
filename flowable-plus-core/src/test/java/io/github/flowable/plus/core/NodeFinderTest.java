@@ -2,7 +2,9 @@ package io.github.flowable.plus.core;
 
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;
+import io.github.flowable.plus.core.spi.SkipStartTaskFilter;
 import io.github.flowable.plus.core.spi.UserTaskTraversalFilter;
+import org.flowable.bpmn.model.ExtensionAttribute;
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.bpmn.model.ExclusiveGateway;
 import org.flowable.bpmn.model.ParallelGateway;
@@ -775,6 +777,84 @@ public class NodeFinderTest {
         assertThat(resultWith).containsExactly("task2", "task3");
     }
 
+    // ======================== SkipStartTaskFilter 默认实现 ========================
+
+    /**
+     * isStartTask=true 的节点被跳过，遍历继续收集后续节点。
+     */
+    @Test
+    public void testSkipStartTaskFilterSkipsStartNode() {
+        TestModelBuilder builder = new TestModelBuilder();
+        UserTask task1 = builder.addUserTask("task1");
+        setExtensionAttribute(task1, "flowable", "isStartTask", "true");
+        UserTask task2 = builder.addUserTask("task2");
+        UserTask task3 = builder.addUserTask("task3");
+        builder.addSequenceFlow("f1", task1, task2);
+        builder.addSequenceFlow("f2", task2, task3);
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-skip-start")).thenReturn(model);
+
+        nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService,
+                Mockito.mock(ExpressionManager.class),
+                Collections.singletonList(new SkipStartTaskFilter()));
+
+        List<String> result = nodeFinder.findNextUserTasks("proc-skip-start", "task1", "pi-001",
+                Collections.emptyMap());
+
+        // task1 被跳过（isStartTask=true），但遍历穿过它收集 task2, task3
+        assertThat(result).containsExactly("task2", "task3");
+    }
+
+    /**
+     * isStartTask=false 的节点正常收集。
+     */
+    @Test
+    public void testSkipStartTaskFilterCollectsNonStartNode() {
+        TestModelBuilder builder = new TestModelBuilder();
+        UserTask task1 = builder.addUserTask("task1");
+        setExtensionAttribute(task1, "flowable", "isStartTask", "false");
+        UserTask task2 = builder.addUserTask("task2");
+        builder.addSequenceFlow("f1", task1, task2);
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-non-start")).thenReturn(model);
+
+        nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService,
+                Mockito.mock(ExpressionManager.class),
+                Collections.singletonList(new SkipStartTaskFilter()));
+
+        List<String> result = nodeFinder.findNextUserTasks("proc-non-start", "task1", "pi-001",
+                Collections.emptyMap());
+
+        // isStartTask=false → 不跳过，正常收集 task2
+        assertThat(result).containsExactly("task2");
+    }
+
+    /**
+     * 无扩展属性的节点正常收集（不会误判为发起人节点）。
+     */
+    @Test
+    public void testSkipStartTaskFilterCollectsNodeWithoutAttribute() {
+        TestModelBuilder builder = new TestModelBuilder();
+        UserTask task1 = builder.addUserTask("task1");
+        UserTask task2 = builder.addUserTask("task2");
+        builder.addSequenceFlow("f1", task1, task2);
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-no-attr")).thenReturn(model);
+
+        nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService,
+                Mockito.mock(ExpressionManager.class),
+                Collections.singletonList(new SkipStartTaskFilter()));
+
+        List<String> result = nodeFinder.findNextUserTasks("proc-no-attr", "task1", "pi-001",
+                Collections.emptyMap());
+
+        // 无扩展属性 → 不跳过，正常收集 task2
+        assertThat(result).containsExactly("task2");
+    }
+
     private void stubHistoricActivityInstances(String processInstanceId,
                                                 List<HistoricActivityInstance> instances) {
         HistoricActivityInstanceQuery query = Mockito.mock(HistoricActivityInstanceQuery.class);
@@ -796,5 +876,13 @@ public class NodeFinderTest {
         when(instance.getStartTime()).thenReturn(startTime);
         when(instance.getEndTime()).thenReturn(endTime);
         return instance;
+    }
+
+    private void setExtensionAttribute(UserTask userTask, String namespace, String name, String value) {
+        ExtensionAttribute attr = new ExtensionAttribute();
+        attr.setNamespace(namespace);
+        attr.setName(name);
+        attr.setValue(value);
+        userTask.addAttribute(attr);
     }
 }
