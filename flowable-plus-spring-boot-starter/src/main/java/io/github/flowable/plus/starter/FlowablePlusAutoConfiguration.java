@@ -29,6 +29,7 @@ import io.github.flowable.plus.core.spi.ExecutionTreeHelper;
 import io.github.flowable.plus.core.spi.GroupResolver;
 import io.github.flowable.plus.core.spi.IdentityResolver;
 import io.github.flowable.plus.core.spi.ProcessEventListener;
+import io.github.flowable.plus.core.spi.UserTaskTraversalFilter;
 
 import io.github.flowable.plus.core.spi.UserContext;
 import org.flowable.common.engine.impl.el.ExpressionManager;
@@ -107,10 +108,11 @@ public class FlowablePlusAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public NodeFinder nodeFinder(BpmnModelCache bpmnModelCache, HistoryService historyService,
-                                  ProcessEngine processEngine) {
+                                  ProcessEngine processEngine,
+                                  @Autowired(required = false) List<UserTaskTraversalFilter> traversalFilters) {
         ExpressionManager expressionManager = ((ProcessEngineConfigurationImpl) processEngine
                 .getProcessEngineConfiguration()).getExpressionManager();
-        return new DefaultNodeFinder(bpmnModelCache, historyService, expressionManager);
+        return new DefaultNodeFinder(bpmnModelCache, historyService, expressionManager, traversalFilters);
     }
 
     /**

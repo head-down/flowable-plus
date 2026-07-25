@@ -2,6 +2,7 @@ package io.github.flowable.plus.core.model;
 
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;
+import io.github.flowable.plus.core.spi.UserTaskTraversalFilter;
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.bpmn.model.CallActivity;
 import org.flowable.bpmn.model.ExclusiveGateway;
@@ -41,9 +42,11 @@ public class DefaultNodeFinder implements NodeFinder {
     private final BpmnModelCache bpmnModelCache;
     private final HistoryService historyService;
     private final ExpressionManager expressionManager;
+    private final List<UserTaskTraversalFilter> traversalFilters;
 
     public DefaultNodeFinder(BpmnModelCache bpmnModelCache, HistoryService historyService,
-                             ExpressionManager expressionManager) {
+                             ExpressionManager expressionManager,
+                             List<UserTaskTraversalFilter> traversalFilters) {
         if (bpmnModelCache == null) {
             throw new IllegalArgumentException("BpmnModelCache 不可为 null");
         }
@@ -56,6 +59,7 @@ public class DefaultNodeFinder implements NodeFinder {
         this.bpmnModelCache = bpmnModelCache;
         this.historyService = historyService;
         this.expressionManager = expressionManager;
+        this.traversalFilters = traversalFilters != null ? traversalFilters : Collections.emptyList();
     }
 
     @Override
@@ -286,10 +290,13 @@ public class DefaultNodeFinder implements NodeFinder {
             return; // 防止循环
         }
 
-        // 遇到 UserTask，收集并继续遍历
+        // 遇到 UserTask，通过 Filter 决定是否收集，继续遍历后续节点
         if (element instanceof UserTask) {
-            result.add(element.getId());
-            // 注意：UserTask 可能后接网关，继续遍历 outgoing
+            UserTask userTask = (UserTask) element;
+            if (shouldIncludeUserTask(userTask, variables)) {
+                result.add(userTask.getId());
+            }
+            // 注意：无论是否收集，UserTask 可能后接网关，继续遍历 outgoing
         }
 
         // 递归进入 SubProcess 内部
@@ -341,6 +348,22 @@ public class DefaultNodeFinder implements NodeFinder {
                 }
             }
         }
+    }
+
+    /**
+     * 通过已注册的 {@link UserTaskTraversalFilter} 列表决定是否收集当前 UserTask。
+     * 多个 Filter 以 AND 逻辑合并，无 Filter 注册时默认收集。
+     */
+    private boolean shouldIncludeUserTask(UserTask userTask, Map<String, Object> variables) {
+        if (traversalFilters.isEmpty()) {
+            return true;
+        }
+        for (UserTaskTraversalFilter filter : traversalFilters) {
+            if (!filter.shouldInclude(userTask, variables)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override

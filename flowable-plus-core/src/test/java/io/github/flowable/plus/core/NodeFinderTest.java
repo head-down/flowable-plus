@@ -2,6 +2,7 @@ package io.github.flowable.plus.core;
 
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;
+import io.github.flowable.plus.core.spi.UserTaskTraversalFilter;
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.bpmn.model.ExclusiveGateway;
 import org.flowable.bpmn.model.ParallelGateway;
@@ -51,7 +52,7 @@ public class NodeFinderTest {
         historyService = Mockito.mock(HistoryService.class);
         bpmnModelCache = new DefaultBpmnModelCache(repositoryService);
         nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService,
-                Mockito.mock(ExpressionManager.class));
+                Mockito.mock(ExpressionManager.class), null);
 
         // 默认返回空列表，让不需要历史数据的测试正常通过
         stubHistoricActivityInstances("any-pi", Collections.emptyList());
@@ -289,7 +290,7 @@ public class NodeFinderTest {
         when(mockExprMgr.createExpression("amount > 5000")).thenReturn(exprFalse);
         when(mockExprMgr.createExpression("amount <= 5000")).thenReturn(exprTrue);
 
-        nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService, mockExprMgr);
+        nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService, mockExprMgr, null);
 
         Map<String, Object> vars = new HashMap<>();
         vars.put("amount", 3000);
@@ -596,7 +597,183 @@ public class NodeFinderTest {
         assertThat(name).isNull();
     }
 
-    // ======================== 辅助方法 ========================
+    // ======================== UserTaskTraversalFilter 扩展点 ========================
+
+    /**
+     * 无 Filter 时，findNextUserTasks 应收集所有下游节点（向后兼容）。
+     */
+    @Test
+    public void testTraversalFilterNoFilterCollectsAll() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        UserTask task2 = builder.addUserTask("task2");
+        UserTask task3 = builder.addUserTask("task3");
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, task2);
+        builder.addSequenceFlow("f3", task2, task3);
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-no-filter")).thenReturn(model);
+
+        nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService,
+                Mockito.mock(ExpressionManager.class), Collections.emptyList());
+
+        List<String> result = nodeFinder.findNextUserTasks("proc-no-filter", "task1", "pi-001",
+                Collections.emptyMap());
+
+        assertThat(result).containsExactly("task2", "task3");
+    }
+
+    /**
+     * 单个 Filter 跳过指定节点，其余正常收集。
+     */
+    @Test
+    public void testTraversalFilterSkipSingleNode() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        UserTask task2 = builder.addUserTask("task2");
+        UserTask task3 = builder.addUserTask("task3");
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, task2);
+        builder.addSequenceFlow("f3", task2, task3);
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-skip-single")).thenReturn(model);
+
+        UserTaskTraversalFilter skipTask2 = (userTask, vars) -> !"task2".equals(userTask.getId());
+        nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService,
+                Mockito.mock(ExpressionManager.class), Collections.singletonList(skipTask2));
+
+        List<String> result = nodeFinder.findNextUserTasks("proc-skip-single", "task1", "pi-001",
+                Collections.emptyMap());
+
+        // task2 被跳过，但遍历继续穿过它，应收集 task3
+        assertThat(result).containsExactly("task3");
+    }
+
+    /**
+     * 多个 Filter 以 AND 逻辑合并：任一返回 false 即跳过。
+     */
+    @Test
+    public void testTraversalFilterAndLogic() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        UserTask task2 = builder.addUserTask("task2");
+        UserTask task3 = builder.addUserTask("task3");
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, task2);
+        builder.addSequenceFlow("f3", task2, task3);
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-and-filter")).thenReturn(model);
+
+        // Filter1: 不跳过任何节点（始终 true）
+        UserTaskTraversalFilter passthrough = (userTask, vars) -> true;
+        // Filter2: 跳过 task2
+        UserTaskTraversalFilter skipTask2 = (userTask, vars) -> !"task2".equals(userTask.getId());
+
+        nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService,
+                Mockito.mock(ExpressionManager.class),
+                java.util.Arrays.asList(passthrough, skipTask2));
+
+        List<String> result = nodeFinder.findNextUserTasks("proc-and-filter", "task1", "pi-001",
+                Collections.emptyMap());
+
+        // AND 逻辑：passthrough 通过、skipTask2 拦截 task2 → 只剩 task3
+        assertThat(result).containsExactly("task3");
+    }
+
+    /**
+     * Filter 与网关条件同时生效：Filter 跳过其中一个分支节点，条件排除了另一个分支。
+     */
+    @Test
+    public void testTraversalFilterWithGatewayCondition() {
+        TestModelBuilder builder = new TestModelBuilder();
+        UserTask task1 = builder.addUserTask("task1");
+        ExclusiveGateway gw = builder.addExclusiveGateway("gw");
+        UserTask taskA = builder.addUserTask("taskA");
+        UserTask taskB = builder.addUserTask("taskB");
+
+        builder.addSequenceFlow("f1", task1, gw);
+        builder.addSequenceFlowWithCondition("f2a", gw, taskA, "${amount > 5000}");
+        builder.addSequenceFlowWithCondition("f2b", gw, taskB, "${amount <= 5000}");
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-filter-gw")).thenReturn(model);
+
+        // Mock 表达式：amount > 5000 = false, amount <= 5000 = true → 走 taskB
+        ExpressionManager mockExprMgr = Mockito.mock(ExpressionManager.class);
+        Expression exprFalse = Mockito.mock(Expression.class);
+        Expression exprTrue = Mockito.mock(Expression.class);
+        when(exprFalse.getValue(Mockito.any())).thenReturn(false);
+        when(exprTrue.getValue(Mockito.any())).thenReturn(true);
+        when(mockExprMgr.createExpression("amount > 5000")).thenReturn(exprFalse);
+        when(mockExprMgr.createExpression("amount <= 5000")).thenReturn(exprTrue);
+
+        // Filter 跳过 taskB——两个条件叠加，最终没有节点可收集
+        UserTaskTraversalFilter skipTaskB = (userTask, vars) -> !"taskB".equals(userTask.getId());
+        nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService, mockExprMgr,
+                Collections.singletonList(skipTaskB));
+
+        Map<String, Object> vars = new HashMap<>();
+        vars.put("amount", 3000);
+
+        List<String> result = nodeFinder.findNextUserTasks("proc-filter-gw", "task1", "pi-001", vars);
+
+        // 条件走到 taskB，但 Filter 跳过 taskB → 空列表
+        assertThat(result).isEmpty();
+    }
+
+    /**
+     * Filter 使用 variables 判断：根据流程变量决定是否跳过节点。
+     */
+    @Test
+    public void testTraversalFilterUsesVariables() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask task1 = builder.addUserTask("task1");
+        UserTask task2 = builder.addUserTask("task2");
+        UserTask task3 = builder.addUserTask("task3");
+        builder.addSequenceFlow("f1", start, task1);
+        builder.addSequenceFlow("f2", task1, task2);
+        builder.addSequenceFlow("f3", task2, task3);
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-filter-vars")).thenReturn(model);
+
+        // 当 variables.needApproval == true 时收集 task2，否则跳过
+        UserTaskTraversalFilter conditionalFilter = (userTask, vars) -> {
+            if ("task2".equals(userTask.getId()) && vars != null) {
+                return Boolean.TRUE.equals(vars.get("needApproval"));
+            }
+            return true;
+        };
+
+        nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService,
+                Mockito.mock(ExpressionManager.class),
+                Collections.singletonList(conditionalFilter));
+
+        Map<String, Object> varsFalse = new HashMap<>();
+        varsFalse.put("needApproval", false);
+
+        List<String> resultWithout = nodeFinder.findNextUserTasks("proc-filter-vars", "task1",
+                "pi-001", varsFalse);
+
+        // needApproval=false → 跳过 task2 → 只剩 task3
+        assertThat(resultWithout).containsExactly("task3");
+
+        Map<String, Object> varsTrue = new HashMap<>();
+        varsTrue.put("needApproval", true);
+
+        List<String> resultWith = nodeFinder.findNextUserTasks("proc-filter-vars", "task1",
+                "pi-002", varsTrue);
+
+        // needApproval=true → 不跳过 task2 → 收集 task2, task3
+        assertThat(resultWith).containsExactly("task2", "task3");
+    }
 
     private void stubHistoricActivityInstances(String processInstanceId,
                                                 List<HistoricActivityInstance> instances) {
