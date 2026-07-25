@@ -64,6 +64,19 @@ public interface NodeFinder {
                                    String processInstanceId, Map<String, Object> variables);
 
     /**
+     * 从指定节点出发正向穿越网关/子流程入口，收集紧邻的第一个 UserTask 层级。
+     * 遇到 UserTask 时收集并停止深入，不继续穿越其 outgoing。
+     *
+     * @param processDefinitionId 流程定义 ID，不可为 null
+     * @param startNodeId 起始节点 ID，不可为 null
+     * @param variables 变量上下文（用于评估网关条件），为 null 时不评估条件，全部展开
+     * @return 紧邻的 UserTask 节点 ID 列表，无下游节点时返回空列表
+     * @throws NotFoundException 流程定义或节点不存在时抛出
+     */
+    List<String> findAdjacentUserTasks(String processDefinitionId, String startNodeId,
+                                       Map<String, Object> variables);
+
+    /**
      * 从当前节点向后回溯，收集所有已完成的上游 UserTask 节点 ID。
      * 与 {@link #findPreviousNodes} 不同：遇到 UserTask 时收集并继续回溯（不停在最近一个），
      * 最终经历史数据确认节点确实执行过，无历史记录的 nodeId 静默丢弃。

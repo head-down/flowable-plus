@@ -217,18 +217,39 @@ public class DefaultNodeFinder implements NodeFinder {
 
         Set<String> visited = new HashSet<>();
         List<String> result = new ArrayList<>();
-        traceForwardAll(bpmnModel, startEvent, variables, visited, result);
+        traceForwardAll(bpmnModel, startEvent, variables, visited, result, false);
         return result;
     }
 
     @Override
     public List<String> findNextUserTasks(String processDefinitionId, String currentActivityId,
                                            String processInstanceId, Map<String, Object> variables) {
+        return traceForwardFromOutgoing(processDefinitionId, currentActivityId, variables, false);
+    }
+
+    @Override
+    public List<String> findAdjacentUserTasks(String processDefinitionId, String startNodeId,
+                                               Map<String, Object> variables) {
+        return traceForwardFromOutgoing(processDefinitionId, startNodeId, variables, true);
+    }
+
+    /**
+     * 从指定节点的 outgoing flows 出发正向遍历，收集可达的 UserTask 节点。
+     *
+     * @param processDefinitionId 流程定义 ID
+     * @param nodeId 起始节点 ID
+     * @param variables 变量上下文，为 null 时不评估网关条件，全部展开
+     * @param stopAtUserTask 遇到 UserTask 时是否停止深入（不穿越其 outgoing）
+     * @return 按遍历顺序排列的 UserTask 节点 ID 列表
+     * @throws NotFoundException 流程定义或节点不存在时抛出
+     */
+    private List<String> traceForwardFromOutgoing(String processDefinitionId, String nodeId,
+                                                   Map<String, Object> variables, boolean stopAtUserTask) {
         if (processDefinitionId == null || processDefinitionId.isEmpty()) {
             throw new IllegalArgumentException("processDefinitionId 不可为 null 或空");
         }
-        if (currentActivityId == null || currentActivityId.isEmpty()) {
-            throw new IllegalArgumentException("currentActivityId 不可为 null 或空");
+        if (nodeId == null || nodeId.isEmpty()) {
+            throw new IllegalArgumentException("nodeId 不可为 null 或空");
         }
 
         BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(processDefinitionId);
@@ -236,29 +257,28 @@ public class DefaultNodeFinder implements NodeFinder {
             throw new NotFoundException("流程定义 " + processDefinitionId + " 不存在");
         }
 
-        FlowElement currentElement = bpmnModel.getFlowElement(currentActivityId);
-        if (currentElement == null) {
-            throw new NotFoundException("节点 " + currentActivityId + " 不存在");
+        FlowElement startElement = bpmnModel.getFlowElement(nodeId);
+        if (startElement == null) {
+            throw new NotFoundException("节点 " + nodeId + " 不存在");
         }
 
         Set<String> visited = new HashSet<>();
         List<String> result = new ArrayList<>();
 
-        // 从当前节点的 outgoing flows 开始遍历，跳过当前节点自身
-        if (currentElement instanceof FlowNode) {
-            FlowNode currentFlowNode = (FlowNode) currentElement;
-            List<SequenceFlow> outgoingFlows = currentFlowNode.getOutgoingFlows();
+        if (startElement instanceof FlowNode) {
+            FlowNode startFlowNode = (FlowNode) startElement;
+            List<SequenceFlow> outgoingFlows = startFlowNode.getOutgoingFlows();
             if (outgoingFlows != null) {
                 for (SequenceFlow flow : outgoingFlows) {
-                    // 评估网关条件
-                    if (flow.getConditionExpression() != null && !flow.getConditionExpression().isEmpty()) {
+                    if (variables != null && flow.getConditionExpression() != null
+                            && !flow.getConditionExpression().isEmpty()) {
                         if (!evaluateCondition(flow.getConditionExpression(), variables)) {
                             continue;
                         }
                     }
                     FlowElement target = bpmnModel.getFlowElement(flow.getTargetRef());
                     if (target != null) {
-                        traceForwardAll(bpmnModel, target, variables, visited, result);
+                        traceForwardAll(bpmnModel, target, variables, visited, result, stopAtUserTask);
                     }
                 }
             }
@@ -285,7 +305,8 @@ public class DefaultNodeFinder implements NodeFinder {
      * 递归进入 SubProcess 和 CallActivity 引用的流程定义。
      */
     private void traceForwardAll(BpmnModel bpmnModel, FlowElement element,
-                                 Map<String, Object> variables, Set<String> visited, List<String> result) {
+                                 Map<String, Object> variables, Set<String> visited, List<String> result,
+                                 boolean stopAtUserTask) {
         if (!visited.add(element.getId())) {
             return; // 防止循环
         }
@@ -296,6 +317,9 @@ public class DefaultNodeFinder implements NodeFinder {
             if (shouldIncludeUserTask(userTask, variables)) {
                 result.add(userTask.getId());
             }
+            if (stopAtUserTask) {
+                return; // 紧邻遍历：收集后停止，不深入穿越
+            }
             // 注意：无论是否收集，UserTask 可能后接网关，继续遍历 outgoing
         }
 
@@ -305,7 +329,7 @@ public class DefaultNodeFinder implements NodeFinder {
             if (subProcess.getFlowElements() != null) {
                 for (FlowElement subElement : subProcess.getFlowElements()) {
                     if (subElement instanceof StartEvent) {
-                        traceForwardAll(bpmnModel, subElement, variables, visited, result);
+                        traceForwardAll(bpmnModel, subElement, variables, visited, result, stopAtUserTask);
                     }
                 }
             }
@@ -320,7 +344,7 @@ public class DefaultNodeFinder implements NodeFinder {
                 if (calledModel != null) {
                     StartEvent calledStartEvent = findStartEvent(calledModel);
                     if (calledStartEvent != null) {
-                        traceForwardAll(calledModel, calledStartEvent, variables, visited, result);
+                        traceForwardAll(calledModel, calledStartEvent, variables, visited, result, stopAtUserTask);
                     }
                 }
             }
@@ -344,7 +368,7 @@ public class DefaultNodeFinder implements NodeFinder {
 
                 FlowElement target = bpmnModel.getFlowElement(flow.getTargetRef());
                 if (target != null) {
-                    traceForwardAll(bpmnModel, target, variables, visited, result);
+                    traceForwardAll(bpmnModel, target, variables, visited, result, stopAtUserTask);
                 }
             }
         }

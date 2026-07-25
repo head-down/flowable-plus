@@ -855,6 +855,109 @@ public class NodeFinderTest {
         assertThat(result).containsExactly("task2");
     }
 
+    // ======================== findAdjacentUserTasks ========================
+
+    /**
+     * 简单线性：start → taskA → taskB，从 start 紧邻遍历应返回 [taskA]，不穿透 taskA 继续到 taskB。
+     */
+    @Test
+    public void testFindAdjacentUserTasksSimpleLinear() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask taskA = builder.addUserTask("taskA");
+        UserTask taskB = builder.addUserTask("taskB");
+        builder.addSequenceFlow("f1", start, taskA);
+        builder.addSequenceFlow("f2", taskA, taskB);
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-adj-1")).thenReturn(model);
+
+        List<String> result = nodeFinder.findAdjacentUserTasks("proc-adj-1", "start", null);
+
+        // 仅返回紧邻的 taskA，不包含 taskB
+        assertThat(result).containsExactly("taskA");
+    }
+
+    /**
+     * 并行网关：start → pgw → taskA, pgw → taskB，紧邻遍历应收集同层级的两个节点。
+     */
+    @Test
+    public void testFindAdjacentUserTasksParallelGateway() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        ParallelGateway pgw = builder.addParallelGateway("pgw");
+        UserTask taskA = builder.addUserTask("taskA");
+        UserTask taskB = builder.addUserTask("taskB");
+
+        builder.addSequenceFlow("f1", start, pgw);
+        builder.addSequenceFlow("f2a", pgw, taskA);
+        builder.addSequenceFlow("f2b", pgw, taskB);
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-adj-par")).thenReturn(model);
+
+        List<String> result = nodeFinder.findAdjacentUserTasks("proc-adj-par", "start", null);
+
+        assertThat(result).containsExactlyInAnyOrder("taskA", "taskB");
+    }
+
+    /**
+     * 排他网关条件：start → egw → taskA (amount>5000), egw → taskB (amount<=5000)，
+     * 紧邻遍历按条件表达式匹配分支。
+     */
+    @Test
+    public void testFindAdjacentUserTasksExclusiveGatewayCondition() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        ExclusiveGateway egw = builder.addExclusiveGateway("egw");
+        UserTask taskA = builder.addUserTask("taskA");
+        UserTask taskB = builder.addUserTask("taskB");
+
+        builder.addSequenceFlow("f1", start, egw);
+        builder.addSequenceFlowWithCondition("f2a", egw, taskA, "${amount > 5000}");
+        builder.addSequenceFlowWithCondition("f2b", egw, taskB, "${amount <= 5000}");
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-adj-gw")).thenReturn(model);
+
+        ExpressionManager mockExprMgr = Mockito.mock(ExpressionManager.class);
+        Expression exprTrue = Mockito.mock(Expression.class);
+        Expression exprFalse = Mockito.mock(Expression.class);
+        when(exprTrue.getValue(Mockito.any())).thenReturn(true);
+        when(exprFalse.getValue(Mockito.any())).thenReturn(false);
+
+        // amount > 5000 匹配，amount <= 5000 不匹配
+        when(mockExprMgr.createExpression("amount > 5000")).thenReturn(exprTrue);
+        when(mockExprMgr.createExpression("amount <= 5000")).thenReturn(exprFalse);
+
+        nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService, mockExprMgr, null);
+
+        Map<String, Object> vars = new HashMap<>();
+        vars.put("amount", 6000);
+
+        List<String> result = nodeFinder.findAdjacentUserTasks("proc-adj-gw", "start", vars);
+
+        assertThat(result).containsExactly("taskA");
+    }
+
+    /**
+     * 无下游：start → endEvent（无 UserTask），紧邻遍历返回空列表。
+     */
+    @Test
+    public void testFindAdjacentUserTasksNoDownstreamNodes() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        // start 无 outgoing，或 outgoing 只到非 UserTask 节点
+        // 对于紧邻遍历，start 后无 UserTask → 空列表
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-adj-none")).thenReturn(model);
+
+        List<String> result = nodeFinder.findAdjacentUserTasks("proc-adj-none", "start", null);
+
+        assertThat(result).isEmpty();
+    }
+
     private void stubHistoricActivityInstances(String processInstanceId,
                                                 List<HistoricActivityInstance> instances) {
         HistoricActivityInstanceQuery query = Mockito.mock(HistoricActivityInstanceQuery.class);
