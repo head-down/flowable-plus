@@ -107,6 +107,59 @@ starter 模块通过 `META-INF/spring.factories` 注册 `FlowablePlusAutoConfigu
 
 当前配置项为 `flowable.plus.enabled`（布尔值，默认 `true`）。
 
+## SPI 扩展点
+
+框架通过 `@FunctionalInterface` SPI 提供可扩展点，使用方实现接口并注册为 Spring Bean 即可注入自定义逻辑，无需替换整个模块。所有 SPI 位于 `io.github.flowable.plus.core.spi` 包。
+
+### 可用 SPI 列表
+
+| SPI | 注册方式 | 作用 |
+|---|---|---|
+| `AutoApprovalRule` | 多个 Bean（OR 逻辑） | 流程发起后自动完成首审批任务 |
+| `UserTaskTraversalFilter` | 多个 Bean（AND 逻辑） | BPMN 正向遍历中跳过指定 UserTask |
+| `ApproverResolver` | 单个 Bean 替换 | 自定义审批人解析策略 |
+| `GroupResolver` | 单个 Bean 替换 | 自定义候选组展开策略 |
+| `IdentityResolver` | 单个 Bean 替换 | 用户 ID → 显示名映射 |
+| `UserContext` | 单个 Bean 替换 | 当前操作用户获取策略 |
+| `TaskQueryEnhancer` | 多个 Bean | 待办/已办查询附加过滤条件 |
+| `CounterSignCallback` | 多个 Bean | 会签投票前后回调 |
+| `ProcessEventListener` | 多个 Bean | 流程生命周期事件监听 |
+| `ExecutionTreeHelper` | 单个 Bean 替换 | 引擎版本适配（并行网关清理） |
+
+### UserTaskTraversalFilter 使用指南
+
+该 SPI 在 BPMN 正向遍历（`findAllReachableUserTasks`、`findNextUserTasks`）遇到每个 UserTask 时回调，决定是否收集该节点。常用于跳过发起人节点、根据 BPMN 扩展属性过滤等场景。
+
+**实现示例** — 跳过 BPMN 中标记了 `isStartTask` 扩展属性的发起人节点：
+
+```java
+package com.example.workflow;
+
+import io.github.flowable.plus.core.spi.UserTaskTraversalFilter;
+import org.flowable.bpmn.model.UserTask;
+import org.springframework.stereotype.Component;
+
+import java.util.Map;
+
+@Component
+public class SkipStartTaskFilter implements UserTaskTraversalFilter {
+    @Override
+    public boolean shouldInclude(UserTask userTask, Map<String, Object> variables) {
+        // 读取 BPMN 设计器中设置的扩展属性 isStartTask
+        String isStart = userTask.getAttributeValue("flowable", "isStartTask");
+        return !"true".equals(isStart);
+    }
+}
+```
+
+**关键规则**：
+
+- 注册为 Spring `@Component` 即自动生效，无需额外配置
+- 多个 Filter 以 **AND 逻辑**合并——任一返回 `false` 则该节点被跳过
+- 无 Filter 注册时行为不变（全部收集），向后兼容
+- `variables` 参数为只读运行时变量，可用于条件判断（如 `Boolean.TRUE.equals(variables.get("needApproval"))`）
+- Filter 只影响节点收集，**不影响遍历深度**——被跳过的节点仍会穿过它继续遍历后续节点
+
 ## 当前状态
 
 **v1.0.0 GA 已发布。** CI 矩阵覆盖 H2 / MySQL 8.0 / PostgreSQL 14（见 ADR-0014），全量测试通过。
