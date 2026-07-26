@@ -220,4 +220,31 @@ public interface QueryOperations {
      * @throws NotFoundException 如果流程实例不存在
      */
     List<ApprovalTraceVO> getApprovalTrace(String processInstanceId);
+
+    /**
+     * 根据流程实例 ID 获取 businessKey。
+     *
+     * <p><b>背景</b>：Flowable 6+ 出于 task-service 模块解耦的设计考量，
+     * 从 {@link org.flowable.task.service.delegate.DelegateTask} 接口上移除了
+     * {@code getExecution()} 方法，TaskEntity 内部仅持有 {@code executionId}
+     * 字符串而非 Execution 对象。这使得无法像 Activiti 6 那样通过
+     * {@code delegateTask.getExecution().getProcessInstanceBusinessKey()} 直接获取
+     * businessKey。</p>
+     *
+     * <p>本方法封装了从 processInstanceId → businessKey 的查询路径：先查运行时
+     * （{@code RuntimeService}），未命中则查历史（{@code HistoryService}）。
+     * 在 TaskListener 等 CommandContext 内部执行时，Flowable 的一级 entity cache
+     * 通常已持有目标 ProcessInstance，因此一般为缓存命中，无额外数据库 I/O。</p>
+     *
+     * <p><b>极低延时场景</b>：如果您的 Listener 对每次 Service 调用都敏感，
+     * 可在流程启动时额外将 businessKey 作为流程变量传入
+     * （{@code variables.put("businessKey", businessKey)}），在 Listener 中通过
+     * {@code delegateTask.getVariable("businessKey")} 直接获取。注意：此方案存在
+     * 数据冗余和不一致风险，不推荐作为默认方案。</p>
+     *
+     * @param processInstanceId 流程实例 ID，不可为 null 或空
+     * @return businessKey，未设置或流程实例不存在时返回 null
+     * @see #batchQueryProcessSummaries(List)
+     */
+    String getBusinessKeyByProcessInstanceId(String processInstanceId);
 }

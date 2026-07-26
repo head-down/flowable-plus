@@ -307,6 +307,89 @@ public class ProcessQueryOperationsTest {
         assertThat(vo.getActiveAssignees()).isEmpty();
     }
 
+    // ======================== businessKey 查询 ========================
+
+    @Test
+    public void testGetBusinessKeyRunning() {
+        String instanceId = "pi-bk-running";
+
+        ProcessInstance pi = createMockProcessInstance(instanceId, "order-12345",
+                "leave", "请假", "userA", new Date());
+        ProcessInstanceQuery query = stubRuntimeProcessInstanceQuery(instanceId, pi);
+        when(mockRuntimeService.createProcessInstanceQuery()).thenReturn(query);
+
+        String result = processQueryWorkflow.getBusinessKeyByProcessInstanceId(instanceId);
+        assertThat(result).isEqualTo("order-12345");
+    }
+
+    @Test
+    public void testGetBusinessKeyEnded() {
+        String instanceId = "pi-bk-ended";
+
+        // 运行时查询返回 null（流程已结束）
+        ProcessInstanceQuery runtimeQuery = stubRuntimeProcessInstanceQuery(instanceId, null);
+        when(mockRuntimeService.createProcessInstanceQuery()).thenReturn(runtimeQuery);
+
+        // 历史实例有 businessKey
+        HistoricProcessInstance hpi = mock(HistoricProcessInstance.class);
+        when(hpi.getId()).thenReturn(instanceId);
+        when(hpi.getBusinessKey()).thenReturn("biz-finished");
+
+        HistoricProcessInstanceQuery histPiQuery = mock(HistoricProcessInstanceQuery.class);
+        when(histPiQuery.processInstanceId(instanceId)).thenReturn(histPiQuery);
+        when(histPiQuery.singleResult()).thenReturn(hpi);
+
+        when(mockHistoryService.createHistoricProcessInstanceQuery()).thenReturn(histPiQuery);
+
+        String result = processQueryWorkflow.getBusinessKeyByProcessInstanceId(instanceId);
+        assertThat(result).isEqualTo("biz-finished");
+    }
+
+    @Test
+    public void testGetBusinessKeyNullBusinessKey() {
+        String instanceId = "pi-bk-null";
+
+        ProcessInstance pi = createMockProcessInstance(instanceId, null,
+                "leave", "请假", "userA", new Date());
+        ProcessInstanceQuery query = stubRuntimeProcessInstanceQuery(instanceId, pi);
+        when(mockRuntimeService.createProcessInstanceQuery()).thenReturn(query);
+
+        String result = processQueryWorkflow.getBusinessKeyByProcessInstanceId(instanceId);
+        assertThat(result).isNull();
+    }
+
+    @Test
+    public void testGetBusinessKeyInstanceNotFound() {
+        String instanceId = "pi-nonexistent";
+
+        // 运行时查询返回 null
+        ProcessInstanceQuery runtimeQuery = stubRuntimeProcessInstanceQuery(instanceId, null);
+        when(mockRuntimeService.createProcessInstanceQuery()).thenReturn(runtimeQuery);
+
+        // 历史查询也返回 null
+        HistoricProcessInstanceQuery histPiQuery = mock(HistoricProcessInstanceQuery.class);
+        when(histPiQuery.processInstanceId(instanceId)).thenReturn(histPiQuery);
+        when(histPiQuery.singleResult()).thenReturn(null);
+        when(mockHistoryService.createHistoricProcessInstanceQuery()).thenReturn(histPiQuery);
+
+        String result = processQueryWorkflow.getBusinessKeyByProcessInstanceId(instanceId);
+        assertThat(result).isNull();
+    }
+
+    @Test
+    public void testGetBusinessKeyRejectNullId() {
+        assertThatThrownBy(() -> processQueryWorkflow.getBusinessKeyByProcessInstanceId(null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("processInstanceId");
+    }
+
+    @Test
+    public void testGetBusinessKeyRejectEmptyId() {
+        assertThatThrownBy(() -> processQueryWorkflow.getBusinessKeyByProcessInstanceId(""))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("processInstanceId");
+    }
+
     // ======================== 审批轨迹 ========================
 
     @Test
@@ -580,6 +663,13 @@ public class ProcessQueryOperationsTest {
         when(mockHpi.getEndTime()).thenReturn(hpi.getEndTime());
         when(mockHpi.getDeleteReason()).thenReturn(hpi.getDeleteReason());
         return mockHpi;
+    }
+
+    private ProcessInstanceQuery stubRuntimeProcessInstanceQuery(String instanceId, ProcessInstance pi) {
+        ProcessInstanceQuery query = mock(ProcessInstanceQuery.class);
+        when(query.processInstanceId(instanceId)).thenReturn(query);
+        when(query.singleResult()).thenReturn(pi);
+        return query;
     }
 
     private void stubRunningQueries(

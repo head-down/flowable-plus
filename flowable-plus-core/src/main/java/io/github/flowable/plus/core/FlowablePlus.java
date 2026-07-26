@@ -155,6 +155,11 @@ public class FlowablePlus implements QueryOperations, DiagramOperations, History
         return processQueryWorkflow.getApprovalTrace(processInstanceId);
     }
 
+    @Override
+    public String getBusinessKeyByProcessInstanceId(String processInstanceId) {
+        return processQueryWorkflow.getBusinessKeyByProcessInstanceId(processInstanceId);
+    }
+
     // ======================== DiagramOperations: 流程图 (委托给 DiagramWorkflow) ========================
 
     @Override

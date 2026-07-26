@@ -140,6 +140,38 @@ public class ProcessQueryWorkflow {
         return result;
     }
 
+    // ======================== businessKey 查询 ========================
+
+    /**
+     * 根据流程实例 ID 获取 businessKey，先查运行时再查历史。
+     *
+     * @param processInstanceId 流程实例 ID，不可为 null 或空
+     * @return businessKey，未设置或流程实例不存在时返回 null
+     */
+    public String getBusinessKeyByProcessInstanceId(String processInstanceId) {
+        if (processInstanceId == null || processInstanceId.isEmpty()) {
+            throw new IllegalArgumentException("processInstanceId 不可为 null 或空");
+        }
+
+        // 1. 先查运行时（多数场景是运行中的流程）
+        ProcessInstance pi = runtimeService.createProcessInstanceQuery()
+                .processInstanceId(processInstanceId)
+                .singleResult();
+        if (pi != null) {
+            return pi.getBusinessKey();
+        }
+
+        // 2. 回退查历史（已结束的流程）
+        HistoricProcessInstance hpi = historyService.createHistoricProcessInstanceQuery()
+                .processInstanceId(processInstanceId)
+                .singleResult();
+        if (hpi != null) {
+            return hpi.getBusinessKey();
+        }
+
+        return null;
+    }
+
     // ======================== 审批轨迹查询 ========================
 
     public List<ApprovalTraceVO> getApprovalTrace(String processInstanceId) {
