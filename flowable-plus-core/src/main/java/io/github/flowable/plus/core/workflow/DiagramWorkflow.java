@@ -7,7 +7,6 @@ import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.bpmn.model.FlowElement;
 import org.flowable.bpmn.model.GraphicInfo;
 import org.flowable.bpmn.model.Process;
-import org.flowable.bpmn.model.SequenceFlow;
 import org.flowable.bpmn.model.ServiceTask;
 import org.flowable.bpmn.model.StartEvent;
 import org.flowable.bpmn.model.UserTask;
@@ -22,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -38,7 +38,6 @@ import java.util.stream.Collectors;
  *   <li>active — 当前活跃任务节点</li>
  *   <li>completed — 已完成审批节点（UserTask）</li>
  *   <li>auto — 已完成的自动节点（ServiceTask 等）</li>
- *   <li>flow-passed — 已通过的连线</li>
  * </ul>
  *
  * @author flowable-plus
@@ -62,11 +61,36 @@ public class DiagramWorkflow {
         SKIP_TYPES.add("intermediateThrowEvent");
     }
 
+    /** 中文字体自动检测降级链 */
+    private static final String[] CJK_FALLBACK_FONTS = {
+            "宋体", "SimSun",
+            "微软雅黑", "Microsoft YaHei",
+            "文泉驿微米黑", "WenQuanYi Micro Hei",
+            "Noto Sans CJK SC", "Noto Sans SC",
+            "Source Han Sans SC",
+            "SimHei"
+    };
+
     private final HistoryService historyService;
     private final BpmnModelCache bpmnModelCache;
+    private final String activityFont;
+    private final String labelFont;
+    private final String annotationFont;
     private final ProcessDiagramGenerator diagramGenerator;
 
-    public DiagramWorkflow(HistoryService historyService, BpmnModelCache bpmnModelCache) {
+    /**
+     * 创建 DiagramWorkflow，指定流程图渲染字体。
+     * <p>字体通过 {@link ProcessDiagramGenerator#generateDiagram} 方法参数传入，
+     * 而非 {@link DefaultProcessDiagramGenerator} 构造器（该构造器不接受字体参数）。</p>
+     *
+     * @param historyService  Flowable 历史服务
+     * @param bpmnModelCache  BPMN 模型缓存
+     * @param activityFont    活动节点字体名，如 "宋体"、"微软雅黑" 等
+     * @param labelFont       标签/连线字体名
+     * @param annotationFont  注解字体名
+     */
+    public DiagramWorkflow(HistoryService historyService, BpmnModelCache bpmnModelCache,
+                           String activityFont, String labelFont, String annotationFont) {
         if (historyService == null) {
             throw new IllegalArgumentException("HistoryService 不可为 null");
         }
@@ -75,7 +99,75 @@ public class DiagramWorkflow {
         }
         this.historyService = historyService;
         this.bpmnModelCache = bpmnModelCache;
+        this.activityFont = resolveFont(activityFont);
+        this.labelFont = resolveFont(labelFont);
+        this.annotationFont = resolveFont(annotationFont);
         this.diagramGenerator = new DefaultProcessDiagramGenerator();
+    }
+
+    /**
+     * @deprecated 使用 {@link #DiagramWorkflow(HistoryService, BpmnModelCache, String, String, String)}
+     *             指定中文字体，避免流程图节点名显示为方块。
+     */
+    @Deprecated
+    public DiagramWorkflow(HistoryService historyService, BpmnModelCache bpmnModelCache) {
+        this(historyService, bpmnModelCache, "宋体", "宋体", "宋体");
+    }
+
+    // ======================== 字体解析 ========================
+
+    /**
+     * 解析字体名称：若系统不支持指定字体，按降级链尝试其他中文字体。
+     *
+     * <p>在 Linux/Docker 等可能缺少中文字体的环境中，此方法尝试找到可用的中文字体。
+     * 如果所有中文字体都不可用，则返回原名称并记录警告（Java 将使用默认字体，
+     * 可能导致中文显示为方块）。</p>
+     *
+     * @param desiredFont 期望的字体名称
+     * @return 系统可用的字体名称
+     */
+    static String resolveFont(String desiredFont) {
+        if (desiredFont == null || desiredFont.isEmpty()) {
+            return "宋体";
+        }
+
+        try {
+            java.awt.GraphicsEnvironment ge = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment();
+            String[] available = ge.getAvailableFontFamilyNames();
+
+            // 精确匹配
+            for (String font : available) {
+                if (font.equals(desiredFont)) {
+                    return desiredFont;
+                }
+            }
+
+            // 忽略大小写匹配
+            for (String font : available) {
+                if (font.equalsIgnoreCase(desiredFont)) {
+                    return font; // 使用系统中的规范名称
+                }
+            }
+
+            // 降级链：尝试常见中文字体
+            for (String fallback : CJK_FALLBACK_FONTS) {
+                for (String font : available) {
+                    if (font.equalsIgnoreCase(fallback)) {
+                        log.warn("期望字体 '{}' 在系统中未找到，降级使用 '{}'",
+                                desiredFont, font);
+                        return font;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("无法枚举系统字体: {}。直接使用指定字体 '{}'。",
+                    e.getMessage(), desiredFont);
+            return desiredFont;
+        }
+
+        log.warn("系统中未找到任何中文字体。期望字体 '{}' 将被使用，"
+                + "但中文可能显示为方块。请安装中文字体（如 'Noto Sans CJK SC'）。", desiredFont);
+        return desiredFont;
     }
 
     /**
@@ -129,27 +221,40 @@ public class DiagramWorkflow {
 
         // 5. 分类节点状态
         Map<String, String> nodeStates = classifyNodeStates(allActivities, activeNodeIds);
-        Set<String> executedNodeIds = allActivities.stream()
-                .map(HistoricActivityInstance::getActivityId)
-                .collect(Collectors.toCollection(HashSet::new));
 
-        // 6. 分类连线状态
-        Set<String> flowPassedIds = classifyFlowStates(bpmnModel, executedNodeIds);
+        log.debug("getProcessDiagram: processInstanceId={}, nodeStates={}",
+                processInstanceId, nodeStates.size());
 
-        log.debug("getProcessDiagram: processInstanceId={}, nodeStates={}, flowPassed={}",
-                processInstanceId, nodeStates.size(), flowPassedIds.size());
-
-        // 7. 生成 PNG 底图并封装为 SVG
-        // Flowable 6.8.0 的 ProcessDiagramGenerator 仅支持光栅输出(PNG/JPG)
-        // 生成 PNG 后以 base64 嵌入 SVG，再叠加 data-state 标注层和 CSS
-        InputStream pngStream = diagramGenerator.generatePngDiagram(bpmnModel, 1.0, false);
+        // 6. 生成 PNG 底图并封装为 SVG
+        // 使用带字体参数的 generateDiagram 而非 generatePngDiagram，
+        // 确保中文字体正确渲染，避免显示为方块（□□□）。
+        InputStream pngStream = diagramGenerator.generateDiagram(
+                bpmnModel, "png",
+                new ArrayList<String>(), new ArrayList<String>(),
+                activityFont, labelFont, annotationFont,
+                null, 1.0, false);
         if (pngStream == null) {
             throw new RuntimeException("流程图 PNG 生成失败");
         }
         String pngBase64 = encodePngToBase64(pngStream);
-        int canvasWidth = calcCanvasWidth(bpmnModel);
-        int canvasHeight = calcCanvasHeight(bpmnModel);
-        String svg = buildSvg(pngBase64, bpmnModel, canvasWidth, canvasHeight, nodeStates, flowPassedIds);
+
+        // 单次遍历 locationMap 计算画布尺寸（PNG 生成器内部以 minX/minY 为原点做偏移绘制）
+        double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, maxX = 0, maxY = 0;
+        for (GraphicInfo gi : bpmnModel.getLocationMap().values()) {
+            double x = gi.getX();
+            double y = gi.getY();
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            double right = x + gi.getWidth();
+            double bottom = y + gi.getHeight();
+            if (right > maxX) maxX = right;
+            if (bottom > maxY) maxY = bottom;
+        }
+        int canvasWidth = (int) (maxX - minX) + 30;
+        int canvasHeight = (int) (maxY - minY) + 30;
+
+        String svg = buildSvg(pngBase64, bpmnModel, canvasWidth, canvasHeight,
+                nodeStates, minX, minY);
 
         return ProcessDiagramVO.builder()
                 .processInstanceId(processInstanceId)
@@ -202,25 +307,6 @@ public class DiagramWorkflow {
         return states;
     }
 
-    /**
-     * 分类连线状态：若 SequenceFlow 的 source 和 target 都已被执行，则标记为 flow-passed。
-     */
-    private Set<String> classifyFlowStates(BpmnModel bpmnModel, Set<String> executedNodeIds) {
-        Set<String> flowPassed = new HashSet<>();
-        for (Process process : bpmnModel.getProcesses()) {
-            for (FlowElement element : process.getFlowElements()) {
-                if (element instanceof SequenceFlow) {
-                    SequenceFlow flow = (SequenceFlow) element;
-                    if (executedNodeIds.contains(flow.getSourceRef())
-                            && executedNodeIds.contains(flow.getTargetRef())) {
-                        flowPassed.add(flow.getId());
-                    }
-                }
-            }
-        }
-        return flowPassed;
-    }
-
     // ======================== SVG 构建 ========================
 
     private String encodePngToBase64(InputStream is) {
@@ -236,33 +322,12 @@ public class DiagramWorkflow {
         }
     }
 
-    private int calcCanvasWidth(BpmnModel bpmnModel) {
-        double maxX = 0;
-        for (GraphicInfo gi : bpmnModel.getLocationMap().values()) {
-            double right = gi.getX() + gi.getWidth();
-            if (right > maxX) {
-                maxX = right;
-            }
-        }
-        return (int) maxX + 30;
-    }
-
-    private int calcCanvasHeight(BpmnModel bpmnModel) {
-        double maxY = 0;
-        for (GraphicInfo gi : bpmnModel.getLocationMap().values()) {
-            double bottom = gi.getY() + gi.getHeight();
-            if (bottom > maxY) {
-                maxY = bottom;
-            }
-        }
-        return (int) maxY + 30;
-    }
-
     /**
      * 构建含 PNG 底图和 data-state 标注层的完整 SVG。
      */
     private String buildSvg(String pngBase64, BpmnModel bpmnModel, int width, int height,
-                             Map<String, String> nodeStates, Set<String> flowPassedIds) {
+                             Map<String, String> nodeStates,
+                             double minX, double minY) {
         StringBuilder svg = new StringBuilder();
         svg.append("<svg xmlns=\"http://www.w3.org/2000/svg\" ")
                 .append("xmlns:xlink=\"http://www.w3.org/1999/xlink\" ")
@@ -297,8 +362,8 @@ public class DiagramWorkflow {
                 svg.append("  <rect id=\"").append(nodeId).append("\" ")
                         .append("data-state=\"").append(state).append("\" ")
                         .append("class=\"state-").append(state).append("\" ")
-                        .append("x=\"").append(gi.getX()).append("\" ")
-                        .append("y=\"").append(gi.getY()).append("\" ")
+                        .append("x=\"").append(gi.getX() - minX).append("\" ")
+                        .append("y=\"").append(gi.getY() - minY).append("\" ")
                         .append("width=\"").append(gi.getWidth()).append("\" ")
                         .append("height=\"").append(gi.getHeight()).append("\" ")
                         .append("rx=\"5\" ry=\"5\" fill-opacity=\"0.3\"/>\n");

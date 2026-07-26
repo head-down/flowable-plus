@@ -68,7 +68,7 @@ import java.util.List;
  */
 @Configuration
 @ConditionalOnClass(name = "org.flowable.engine.ProcessEngine")
-@EnableConfigurationProperties({FlowablePlusCounterSignProperties.class, FlowablePlusEventProperties.class})
+@EnableConfigurationProperties({FlowablePlusCounterSignProperties.class, FlowablePlusEventProperties.class, FlowablePlusDiagramProperties.class})
 public class FlowablePlusAutoConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(FlowablePlusAutoConfiguration.class);
@@ -442,12 +442,18 @@ public class FlowablePlusAutoConfiguration {
      *
      * @param historyService  Flowable 历史服务
      * @param bpmnModelCache  BPMN 模型缓存
+     * @param diagramProps    流程图配置属性
      * @return DiagramWorkflow 实例
      */
     @Bean
     @ConditionalOnMissingBean
-    public DiagramWorkflow diagramWorkflow(HistoryService historyService, BpmnModelCache bpmnModelCache) {
-        return new DiagramWorkflow(historyService, bpmnModelCache);
+    public DiagramWorkflow diagramWorkflow(HistoryService historyService,
+                                            BpmnModelCache bpmnModelCache,
+                                            FlowablePlusDiagramProperties diagramProps) {
+        return new DiagramWorkflow(historyService, bpmnModelCache,
+                diagramProps.getActivityFont(),
+                diagramProps.getLabelFont(),
+                diagramProps.getAnnotationFont());
     }
 
     /**
