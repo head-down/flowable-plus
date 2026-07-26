@@ -138,6 +138,7 @@ public class ProcessLifecycleWorkflowTest {
         HistoricTaskInstanceQuery historicTaskQuery = mock(HistoricTaskInstanceQuery.class);
         when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(historicTaskQuery);
         when(historicTaskQuery.processInstanceId(anyString())).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.finished()).thenReturn(historicTaskQuery);
         when(historicTaskQuery.count()).thenReturn(0L);
 
         TaskQuery taskQuery = mock(TaskQuery.class);
@@ -181,6 +182,7 @@ public class ProcessLifecycleWorkflowTest {
         HistoricTaskInstanceQuery historicTaskQuery = mock(HistoricTaskInstanceQuery.class);
         when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(historicTaskQuery);
         when(historicTaskQuery.processInstanceId(anyString())).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.finished()).thenReturn(historicTaskQuery);
         when(historicTaskQuery.count()).thenReturn(0L);
 
         Task mockTask = createMockTask("task-001", "leave:1:abc", "draft", "pi-001", USER_ID);
@@ -219,6 +221,7 @@ public class ProcessLifecycleWorkflowTest {
         HistoricTaskInstanceQuery historicTaskQuery = mock(HistoricTaskInstanceQuery.class);
         when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(historicTaskQuery);
         when(historicTaskQuery.processInstanceId(anyString())).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.finished()).thenReturn(historicTaskQuery);
         when(historicTaskQuery.count()).thenReturn(0L);
 
         Task mockTask = createMockTask("task-001", "leave:1:abc", "draft", "pi-001", USER_ID);
@@ -250,6 +253,7 @@ public class ProcessLifecycleWorkflowTest {
         HistoricTaskInstanceQuery historicTaskQuery = mock(HistoricTaskInstanceQuery.class);
         when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(historicTaskQuery);
         when(historicTaskQuery.processInstanceId(anyString())).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.finished()).thenReturn(historicTaskQuery);
         when(historicTaskQuery.count()).thenReturn(0L);
 
         Task mockTask = createMockTask("task-001", "leave:1:abc", "draft", "pi-001", USER_ID);
@@ -282,6 +286,7 @@ public class ProcessLifecycleWorkflowTest {
         HistoricTaskInstanceQuery historicTaskQuery = mock(HistoricTaskInstanceQuery.class);
         when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(historicTaskQuery);
         when(historicTaskQuery.processInstanceId(anyString())).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.finished()).thenReturn(historicTaskQuery);
         when(historicTaskQuery.count()).thenReturn(0L);
 
         Task mockTask = createMockTask("task-001", "leave:1:abc", "draft", "pi-001", USER_ID);
@@ -316,6 +321,7 @@ public class ProcessLifecycleWorkflowTest {
         HistoricTaskInstanceQuery historicTaskQuery = mock(HistoricTaskInstanceQuery.class);
         when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(historicTaskQuery);
         when(historicTaskQuery.processInstanceId(anyString())).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.finished()).thenReturn(historicTaskQuery);
         when(historicTaskQuery.count()).thenReturn(0L);
 
         Task mockTask = createMockTask("task-001", "leave:1:abc", "draft", "pi-001", USER_ID);
@@ -348,6 +354,7 @@ public class ProcessLifecycleWorkflowTest {
         HistoricTaskInstanceQuery historicTaskQuery = mock(HistoricTaskInstanceQuery.class);
         when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(historicTaskQuery);
         when(historicTaskQuery.processInstanceId(anyString())).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.finished()).thenReturn(historicTaskQuery);
         when(historicTaskQuery.count()).thenReturn(1L);
 
         workflow = createWorkflowWithRules(Collections.singletonList(rule));
@@ -373,6 +380,7 @@ public class ProcessLifecycleWorkflowTest {
         HistoricTaskInstanceQuery historicTaskQuery = mock(HistoricTaskInstanceQuery.class);
         when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(historicTaskQuery);
         when(historicTaskQuery.processInstanceId(anyString())).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.finished()).thenReturn(historicTaskQuery);
         when(historicTaskQuery.count()).thenReturn(0L);
 
         Task task1 = createMockTask("task-001", "leave:1:abc", "draft", "pi-001", USER_ID);
@@ -418,6 +426,7 @@ public class ProcessLifecycleWorkflowTest {
         HistoricTaskInstanceQuery historicTaskQuery = mock(HistoricTaskInstanceQuery.class);
         when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(historicTaskQuery);
         when(historicTaskQuery.processInstanceId(anyString())).thenReturn(historicTaskQuery);
+        when(historicTaskQuery.finished()).thenReturn(historicTaskQuery);
         when(historicTaskQuery.count()).thenReturn(0L);
 
         Task mockTask = createMockTask("task-001", "leave:1:abc", "draft", "pi-001", USER_ID);

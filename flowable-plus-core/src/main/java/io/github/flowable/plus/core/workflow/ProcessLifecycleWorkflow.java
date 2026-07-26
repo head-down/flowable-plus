@@ -153,7 +153,7 @@ public class ProcessLifecycleWorkflow implements ProcessLifecycleOperations {
      *
      * <p>双重守卫：
      * <ul>
-     *   <li>{@code isFirstStart} — 历史任务为空才触发，防止重新触发时误动提交</li>
+     *   <li>{@code isFirstStart} — 已完成历史任务为空才触发，防止重新触发时误动提交</li>
      *   <li>快照隔离 — 仅处理当前活跃任务快照，自动完成后新产生的任务不级联</li>
      * </ul>
      * 多规则 OR 逻辑：任一规则返回非 null 即触发自动提交，意见取第一个非 null 结果。
@@ -163,7 +163,7 @@ public class ProcessLifecycleWorkflow implements ProcessLifecycleOperations {
                                          Map<String, Object> startVariables) {
         // 守卫 1：非首次启动不触发
         long historyCount = historyService.createHistoricTaskInstanceQuery()
-                .processInstanceId(processInstanceId).count();
+                .processInstanceId(processInstanceId).finished().count();
         if (historyCount > 0) {
             return;
         }
