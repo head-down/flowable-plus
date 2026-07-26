@@ -238,23 +238,21 @@ public class DiagramWorkflow {
         }
         String pngBase64 = encodePngToBase64(pngStream);
 
-        // 单次遍历 locationMap 计算画布尺寸（PNG 生成器内部以 minX/minY 为原点做偏移绘制）
-        double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, maxX = 0, maxY = 0;
+        // 单次遍历 locationMap 计算画布尺寸。
+        // PNG 与 SVG 均按 BPMN 绝对坐标定位，画布尺寸与 DefaultProcessDiagramGenerator
+        // 保持一致（maxX+10 × maxY+10），以避免缩放错位。
+        double maxX = 0, maxY = 0;
         for (GraphicInfo gi : bpmnModel.getLocationMap().values()) {
-            double x = gi.getX();
-            double y = gi.getY();
-            if (x < minX) minX = x;
-            if (y < minY) minY = y;
-            double right = x + gi.getWidth();
-            double bottom = y + gi.getHeight();
+            double right = gi.getX() + gi.getWidth();
+            double bottom = gi.getY() + gi.getHeight();
             if (right > maxX) maxX = right;
             if (bottom > maxY) maxY = bottom;
         }
-        int canvasWidth = (int) (maxX - minX) + 30;
-        int canvasHeight = (int) (maxY - minY) + 30;
+        int canvasWidth = (int) maxX + 10;
+        int canvasHeight = (int) maxY + 10;
 
         String svg = buildSvg(pngBase64, bpmnModel, canvasWidth, canvasHeight,
-                nodeStates, minX, minY);
+                nodeStates);
 
         return ProcessDiagramVO.builder()
                 .processInstanceId(processInstanceId)
@@ -326,8 +324,7 @@ public class DiagramWorkflow {
      * 构建含 PNG 底图和 data-state 标注层的完整 SVG。
      */
     private String buildSvg(String pngBase64, BpmnModel bpmnModel, int width, int height,
-                             Map<String, String> nodeStates,
-                             double minX, double minY) {
+                             Map<String, String> nodeStates) {
         StringBuilder svg = new StringBuilder();
         svg.append("<svg xmlns=\"http://www.w3.org/2000/svg\" ")
                 .append("xmlns:xlink=\"http://www.w3.org/1999/xlink\" ")
@@ -351,7 +348,7 @@ public class DiagramWorkflow {
                 .append("height=\"").append(height).append("\" ")
                 .append("href=\"data:image/png;base64,").append(pngBase64).append("\"/>\n");
 
-        // data-state 标注层
+        // data-state 标注层 —— 按 BPMN 绝对坐标定位，与 PNG 底层保持一致
         svg.append("<g id=\"state-overlay\">\n");
         Map<String, GraphicInfo> locationMap = bpmnModel.getLocationMap();
         for (Map.Entry<String, String> entry : nodeStates.entrySet()) {
@@ -362,8 +359,8 @@ public class DiagramWorkflow {
                 svg.append("  <rect id=\"").append(nodeId).append("\" ")
                         .append("data-state=\"").append(state).append("\" ")
                         .append("class=\"state-").append(state).append("\" ")
-                        .append("x=\"").append(gi.getX() - minX).append("\" ")
-                        .append("y=\"").append(gi.getY() - minY).append("\" ")
+                        .append("x=\"").append(gi.getX()).append("\" ")
+                        .append("y=\"").append(gi.getY()).append("\" ")
                         .append("width=\"").append(gi.getWidth()).append("\" ")
                         .append("height=\"").append(gi.getHeight()).append("\" ")
                         .append("rx=\"5\" ry=\"5\" fill-opacity=\"0.3\"/>\n");
