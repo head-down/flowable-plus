@@ -91,6 +91,16 @@ public class DiagramWorkflow {
      */
     public DiagramWorkflow(HistoryService historyService, BpmnModelCache bpmnModelCache,
                            String activityFont, String labelFont, String annotationFont) {
+        this(historyService, bpmnModelCache, activityFont, labelFont, annotationFont, null);
+    }
+
+    /**
+     * 包级可见构造器，允许注入自定义 {@link ProcessDiagramGenerator} 用于测试。
+     * 若 diagramGenerator 为 null，则使用默认 {@link DefaultProcessDiagramGenerator}。
+     */
+    DiagramWorkflow(HistoryService historyService, BpmnModelCache bpmnModelCache,
+                    String activityFont, String labelFont, String annotationFont,
+                    ProcessDiagramGenerator diagramGenerator) {
         if (historyService == null) {
             throw new IllegalArgumentException("HistoryService 不可为 null");
         }
@@ -102,7 +112,9 @@ public class DiagramWorkflow {
         this.activityFont = resolveFont(activityFont);
         this.labelFont = resolveFont(labelFont);
         this.annotationFont = resolveFont(annotationFont);
-        this.diagramGenerator = new DefaultProcessDiagramGenerator();
+        this.diagramGenerator = diagramGenerator != null
+                ? diagramGenerator
+                : new DefaultProcessDiagramGenerator();
     }
 
     /**
@@ -269,7 +281,7 @@ public class DiagramWorkflow {
      * - completed: UserTask 类型且已完成
      * - auto: 非 UserTask、非网关/事件的类型且已完成
      */
-    private Map<String, String> classifyNodeStates(
+    Map<String, String> classifyNodeStates(
             List<HistoricActivityInstance> allActivities,
             Set<String> activeNodeIds) {
 
@@ -307,7 +319,7 @@ public class DiagramWorkflow {
 
     // ======================== SVG 构建 ========================
 
-    private String encodePngToBase64(InputStream is) {
+    String encodePngToBase64(InputStream is) {
         try (ByteArrayOutputStream buffer = new ByteArrayOutputStream()) {
             byte[] data = new byte[8192];
             int n;
@@ -323,7 +335,7 @@ public class DiagramWorkflow {
     /**
      * 构建含 PNG 底图和 data-state 标注层的完整 SVG。
      */
-    private String buildSvg(String pngBase64, BpmnModel bpmnModel, int width, int height,
+    String buildSvg(String pngBase64, BpmnModel bpmnModel, int width, int height,
                              Map<String, String> nodeStates) {
         StringBuilder svg = new StringBuilder();
         svg.append("<svg xmlns=\"http://www.w3.org/2000/svg\" ")
@@ -377,7 +389,7 @@ public class DiagramWorkflow {
     /**
      * 为不包含 GraphicInfo 坐标的 BPMN 模型添加默认水平布局。
      */
-    private void addDefaultLayout(BpmnModel bpmnModel) {
+    void addDefaultLayout(BpmnModel bpmnModel) {
         double x = 50;
         double y = 100;
         double taskWidth = 100;
@@ -396,14 +408,14 @@ public class DiagramWorkflow {
             for (FlowElement element : process.getFlowElements()) {
                 if (element instanceof UserTask) {
                     bpmnModel.addGraphicInfo(element.getId(),
-                            new GraphicInfo(x, y, taskWidth, taskHeight));
+                            new GraphicInfo(x, y, taskHeight, taskWidth));
                     x += taskWidth + xGap;
                 }
             }
             for (FlowElement element : process.getFlowElements()) {
                 if (element instanceof ServiceTask) {
                     bpmnModel.addGraphicInfo(element.getId(),
-                            new GraphicInfo(x, y, taskWidth, taskHeight));
+                            new GraphicInfo(x, y, taskHeight, taskWidth));
                     x += taskWidth + xGap;
                 }
             }
