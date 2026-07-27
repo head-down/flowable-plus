@@ -307,6 +307,72 @@ public class ProcessQueryOperationsTest {
         assertThat(vo.getActiveAssignees()).isEmpty();
     }
 
+    // ======================== getProcessSummary 单条查询 ========================
+
+    @Test
+    public void testGetProcessSummaryRunning() {
+        String instanceId = "pi-summary-running";
+        ProcessInstance pi = createMockProcessInstance(instanceId, "biz-summary", "leave", "请假审批",
+                "userA", new Date());
+        when(pi.isSuspended()).thenReturn(false);
+
+        PlusTask task = createPlusTask("task-s", instanceId, "task1", "部门审批", "reviewer1");
+        stubRunningQueries(Collections.singletonList(pi), Collections.singletonList(task));
+
+        ProcessSummaryVO vo = processQueryWorkflow.getProcessSummary(instanceId);
+
+        assertThat(vo).isNotNull();
+        assertThat(vo.getInstanceId()).isEqualTo(instanceId);
+        assertThat(vo.getBusinessKey()).isEqualTo("biz-summary");
+        assertThat(vo.getProcessDefinitionKey()).isEqualTo("leave");
+        assertThat(vo.getIsEnded()).isFalse();
+        assertThat(vo.getCurrentTaskName()).isEqualTo("部门审批");
+        assertThat(vo.getActiveAssignees()).hasSize(1);
+    }
+
+    @Test
+    public void testGetProcessSummaryEnded() {
+        String instanceId = "pi-summary-ended";
+        Date startTime = new Date(100000);
+        Date endTime = new Date(200000);
+
+        PlusHistoricProcessInstance hpi = createPlusHistoricPi(instanceId, "biz-end", "leave",
+                "请假审批", "userA", startTime, endTime, null);
+        stubEndedQueries(Collections.emptyList(), Collections.singletonList(hpi));
+
+        ProcessSummaryVO vo = processQueryWorkflow.getProcessSummary(instanceId);
+
+        assertThat(vo).isNotNull();
+        assertThat(vo.getInstanceId()).isEqualTo(instanceId);
+        assertThat(vo.getIsEnded()).isTrue();
+        assertThat(vo.getEndTime()).isNotNull();
+        assertThat(vo.getCurrentTaskId()).isNull();
+        assertThat(vo.getActiveAssignees()).isEmpty();
+    }
+
+    @Test
+    public void testGetProcessSummaryNotFound() {
+        stubRunningQueries(Collections.emptyList(), Collections.emptyList());
+
+        ProcessSummaryVO vo = processQueryWorkflow.getProcessSummary("pi-nonexistent");
+
+        assertThat(vo).isNull();
+    }
+
+    @Test
+    public void testGetProcessSummaryRejectNull() {
+        assertThatThrownBy(() -> processQueryWorkflow.getProcessSummary(null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("processInstanceId");
+    }
+
+    @Test
+    public void testGetProcessSummaryRejectEmpty() {
+        assertThatThrownBy(() -> processQueryWorkflow.getProcessSummary(""))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("processInstanceId");
+    }
+
     // ======================== businessKey 查询 ========================
 
     @Test

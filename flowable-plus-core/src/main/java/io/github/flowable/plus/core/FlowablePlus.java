@@ -146,6 +146,11 @@ public class FlowablePlus implements QueryOperations, DiagramOperations, History
     // ======================== QueryOperations: 流程追踪 (委托给 ProcessQueryWorkflow) ========================
 
     @Override
+    public ProcessSummaryVO getProcessSummary(String processInstanceId) {
+        return processQueryWorkflow.getProcessSummary(processInstanceId);
+    }
+
+    @Override
     public Map<String, ProcessSummaryVO> batchQueryProcessSummaries(List<String> processInstanceIds) {
         return processQueryWorkflow.batchQueryProcessSummaries(processInstanceIds);
     }

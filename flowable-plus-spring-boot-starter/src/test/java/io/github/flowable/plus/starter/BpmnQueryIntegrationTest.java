@@ -253,6 +253,29 @@ class BpmnQueryIntegrationTest extends AbstractIntegrationTest {
         assertThat(summary.getCurrentTaskName()).isNotNull();
     }
 
+    @Test
+    void testGetProcessSummary() {
+        DynamicUserContext.set(INITIATOR);
+        ProcessInstance pi = runtimeService.startProcessInstanceByKey(PROCESS_KEY, "biz-004b",
+                Collections.singletonMap("initiator", (Object) INITIATOR));
+        processInstanceIds.add(pi.getId());
+
+        ProcessSummaryVO summary = flowablePlus.getProcessSummary(pi.getId());
+
+        assertThat(summary).isNotNull();
+        assertThat(summary.getProcessDefinitionKey()).isEqualTo(PROCESS_KEY);
+        assertThat(summary.getBusinessKey()).isEqualTo("biz-004b");
+        assertThat(summary.getIsEnded()).isFalse();
+        assertThat(summary.getCurrentTaskName()).isNotNull();
+    }
+
+    @Test
+    void testGetProcessSummaryNotFound() {
+        ProcessSummaryVO summary = flowablePlus.getProcessSummary("non-existent-pi");
+
+        assertThat(summary).isNull();
+    }
+
     // ======================== S6/S7: 审批中预审 ========================
 
     @Test

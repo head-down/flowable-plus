@@ -199,6 +199,17 @@ public interface QueryOperations {
     // ======================== 流程追踪 ========================
 
     /**
+     * 获取单个流程实例的运行时摘要信息。
+     *
+     * <p>内部复用 {@link #batchQueryProcessSummaries(List)} 逻辑，
+     * 适用于详情页、状态检查等单条查询场景。</p>
+     *
+     * @param processInstanceId 流程实例 ID，不可为 null 或空
+     * @return 流程摘要信息，流程实例不存在时返回 null
+     */
+    ProcessSummaryVO getProcessSummary(String processInstanceId);
+
+    /**
      * 批量获取流程实例的运行时摘要信息。
      *
      * <p>内部按固定批次（500）分片查询，解决列表页 N+1 查询问题。

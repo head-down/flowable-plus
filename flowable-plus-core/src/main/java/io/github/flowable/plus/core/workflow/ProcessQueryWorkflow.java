@@ -140,6 +140,26 @@ public class ProcessQueryWorkflow {
         return result;
     }
 
+    // ======================== 单条流程摘要查询 ========================
+
+    /**
+     * 获取单个流程实例的运行时摘要信息。
+     *
+     * <p>内部委托给 {@link #batchQueryProcessSummaries(List)}，封装单条语义。
+     * 流程实例不存在时返回 null。</p>
+     *
+     * @param processInstanceId 流程实例 ID，不可为 null 或空
+     * @return 流程摘要信息，流程实例不存在时返回 null
+     * @throws IllegalArgumentException 如果 processInstanceId 为 null 或空
+     */
+    public ProcessSummaryVO getProcessSummary(String processInstanceId) {
+        if (processInstanceId == null || processInstanceId.isEmpty()) {
+            throw new IllegalArgumentException("processInstanceId 不可为 null 或空");
+        }
+        return batchQueryProcessSummaries(
+                Collections.singletonList(processInstanceId)).get(processInstanceId);
+    }
+
     // ======================== businessKey 查询 ========================
 
     /**
