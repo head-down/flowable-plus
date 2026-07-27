@@ -44,6 +44,23 @@ public class DefaultNodeFinder implements NodeFinder {
     private final ExpressionManager expressionManager;
     private final List<UserTaskTraversalFilter> traversalFilters;
 
+    /**
+     * 回溯遍历策略，控制 UserTask 发现后的行为和网关分支选择方式。
+     */
+    private enum BackwardTraversalStrategy {
+        /**
+         * 发现第一个 UserTask 即停止回溯。排他网关通过历史数据解析实际执行分支。
+         * 用于 {@link #findPreviousNodes}。
+         */
+        STOP_AT_FIRST_USER_TASK,
+
+        /**
+         * 收集所有上游 UserTask，穿越 UserTask 继续回溯。排他网关遍历所有入边（不做历史过滤）。
+         * 用于 {@link #findCompletedUserTasks}。
+         */
+        COLLECT_ALL_UPSTREAM
+    }
+
     public DefaultNodeFinder(BpmnModelCache bpmnModelCache, HistoryService historyService,
                              ExpressionManager expressionManager,
                              List<UserTaskTraversalFilter> traversalFilters) {
@@ -76,7 +93,8 @@ public class DefaultNodeFinder implements NodeFinder {
 
         Set<String> visited = new HashSet<>();
         List<String> result = new ArrayList<>();
-        traceBackward(bpmnModel, currentElement, processInstanceId, visited, result);
+        traceBackward(bpmnModel, currentElement, processInstanceId, visited, result,
+                BackwardTraversalStrategy.STOP_AT_FIRST_USER_TASK);
 
         if (result.isEmpty()) {
             throw new NoPreviousNodeException("节点 " + currentActivityId + " 无上一审批节点");
@@ -109,16 +127,18 @@ public class DefaultNodeFinder implements NodeFinder {
     }
 
     /**
-     * 从指定元素开始向后追踪，收集所有上一 UserTask。
+     * 从指定元素开始向后追踪，根据策略收集上一 UserTask。
      */
     private void traceBackward(BpmnModel bpmnModel, FlowElement element,
-                                String processInstanceId, Set<String> visited, List<String> result) {
+                                String processInstanceId, Set<String> visited,
+                                java.util.Collection<String> result,
+                                BackwardTraversalStrategy strategy) {
         if (!(element instanceof FlowNode)) {
             return;
         }
 
         if (!visited.add(element.getId())) {
-            return; // 防止死循环
+            return;
         }
 
         FlowNode flowNode = (FlowNode) element;
@@ -135,26 +155,40 @@ public class DefaultNodeFinder implements NodeFinder {
 
             if (source instanceof UserTask) {
                 result.add(source.getId());
+                if (strategy == BackwardTraversalStrategy.COLLECT_ALL_UPSTREAM) {
+                    // 穿越 UserTask 继续回溯上游节点
+                    traceBackward(bpmnModel, source, processInstanceId, visited, result, strategy);
+                }
             } else if (source instanceof ExclusiveGateway) {
-                traceExclusiveGatewayBackward(bpmnModel, (ExclusiveGateway) source, processInstanceId, visited, result);
+                traceExclusiveGatewayBackward(bpmnModel, (ExclusiveGateway) source,
+                        processInstanceId, visited, result, strategy);
             } else if (source instanceof ParallelGateway) {
-                traceBackward(bpmnModel, source, processInstanceId, visited, result);
+                traceBackward(bpmnModel, source, processInstanceId, visited, result, strategy);
             } else if (source instanceof StartEvent) {
-                // 到达 StartEvent，无上一审批节点
+                // 到达 StartEvent，停止
             }
         }
     }
 
     /**
-     * 穿越排他网关向后追踪，通过历史数据判定实际执行路径。
+     * 穿越排他网关向后追踪，根据策略选择分支路径。
      */
     private void traceExclusiveGatewayBackward(BpmnModel bpmnModel, ExclusiveGateway gateway,
-                                                String processInstanceId, Set<String> visited, List<String> result) {
+                                                String processInstanceId, Set<String> visited,
+                                                java.util.Collection<String> result,
+                                                BackwardTraversalStrategy strategy) {
         if (!visited.add(gateway.getId())) {
             return;
         }
 
-        List<SequenceFlow> resolvedFlows = resolveExclusiveGateway(processInstanceId, gateway.getIncomingFlows());
+        List<SequenceFlow> resolvedFlows;
+        if (strategy == BackwardTraversalStrategy.STOP_AT_FIRST_USER_TASK) {
+            resolvedFlows = resolveExclusiveGateway(processInstanceId, gateway.getIncomingFlows());
+        } else {
+            List<SequenceFlow> incomingFlows = gateway.getIncomingFlows();
+            resolvedFlows = incomingFlows != null ? incomingFlows : Collections.<SequenceFlow>emptyList();
+        }
+
         for (SequenceFlow resolvedFlow : resolvedFlows) {
             FlowElement source = bpmnModel.getFlowElement(resolvedFlow.getSourceRef());
             if (source == null) {
@@ -163,8 +197,11 @@ public class DefaultNodeFinder implements NodeFinder {
 
             if (source instanceof UserTask) {
                 result.add(source.getId());
+                if (strategy == BackwardTraversalStrategy.COLLECT_ALL_UPSTREAM) {
+                    traceBackward(bpmnModel, source, processInstanceId, visited, result, strategy);
+                }
             } else {
-                traceBackward(bpmnModel, source, processInstanceId, visited, result);
+                traceBackward(bpmnModel, source, processInstanceId, visited, result, strategy);
             }
         }
     }
@@ -411,7 +448,8 @@ public class DefaultNodeFinder implements NodeFinder {
         // 1. BPMN 回溯收集所有上游 UserTask
         Set<String> visited = new HashSet<>();
         Set<String> allUpstreamUserTasks = new LinkedHashSet<>();
-        traceBackwardCollectAll(bpmnModel, currentElement, processInstanceId, visited, allUpstreamUserTasks);
+        traceBackward(bpmnModel, currentElement, processInstanceId, visited, allUpstreamUserTasks,
+                BackwardTraversalStrategy.COLLECT_ALL_UPSTREAM);
 
         if (allUpstreamUserTasks.isEmpty()) {
             return Collections.emptyList();
@@ -440,77 +478,6 @@ public class DefaultNodeFinder implements NodeFinder {
         }
 
         return result;
-    }
-
-    /**
-     * 从指定元素向后回溯，收集所有上游 UserTask（不停在第一个，继续回溯）。
-     */
-    private void traceBackwardCollectAll(BpmnModel bpmnModel, FlowElement element,
-                                          String processInstanceId, Set<String> visited,
-                                          Set<String> result) {
-        if (!(element instanceof FlowNode)) {
-            return;
-        }
-
-        if (!visited.add(element.getId())) {
-            return;
-        }
-
-        FlowNode flowNode = (FlowNode) element;
-        List<SequenceFlow> incomingFlows = flowNode.getIncomingFlows();
-        if (incomingFlows == null || incomingFlows.isEmpty()) {
-            return;
-        }
-
-        for (SequenceFlow incoming : incomingFlows) {
-            FlowElement source = bpmnModel.getFlowElement(incoming.getSourceRef());
-            if (source == null) {
-                continue;
-            }
-
-            if (source instanceof UserTask) {
-                result.add(source.getId());
-                // 继续回溯 past UserTask — 与 traceBackward 的关键区别
-                traceBackwardCollectAll(bpmnModel, source, processInstanceId, visited, result);
-            } else if (source instanceof ExclusiveGateway) {
-                traceExclusiveGatewayBackwardCollectAll(bpmnModel, (ExclusiveGateway) source,
-                        processInstanceId, visited, result);
-            } else if (source instanceof ParallelGateway) {
-                traceBackwardCollectAll(bpmnModel, source, processInstanceId, visited, result);
-            } else if (source instanceof StartEvent) {
-                // 到达 StartEvent，停止
-            }
-        }
-    }
-
-    /**
-     * 穿越排他网关向后回溯（收集所有路径，不限于实际执行分支）。
-     */
-    private void traceExclusiveGatewayBackwardCollectAll(BpmnModel bpmnModel, ExclusiveGateway gateway,
-                                                          String processInstanceId, Set<String> visited,
-                                                          Set<String> result) {
-        if (!visited.add(gateway.getId())) {
-            return;
-        }
-
-        List<SequenceFlow> incomingFlows = gateway.getIncomingFlows();
-        if (incomingFlows == null || incomingFlows.isEmpty()) {
-            return;
-        }
-
-        for (SequenceFlow incoming : incomingFlows) {
-            FlowElement source = bpmnModel.getFlowElement(incoming.getSourceRef());
-            if (source == null) {
-                continue;
-            }
-
-            if (source instanceof UserTask) {
-                result.add(source.getId());
-                traceBackwardCollectAll(bpmnModel, source, processInstanceId, visited, result);
-            } else {
-                traceBackwardCollectAll(bpmnModel, source, processInstanceId, visited, result);
-            }
-        }
     }
 
     @Override
