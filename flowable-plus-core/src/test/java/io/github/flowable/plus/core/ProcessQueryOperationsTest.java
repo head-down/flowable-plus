@@ -1,6 +1,9 @@
 package io.github.flowable.plus.core;
 
 import io.github.flowable.plus.core.exception.NotFoundException;
+import io.github.flowable.plus.core.model.MultiInstanceDetector;
+import io.github.flowable.plus.core.support.ActionInferenceStrategy;
+import io.github.flowable.plus.core.support.DefaultActionInferenceStrategy;
 import io.github.flowable.plus.core.vo.ApprovalTraceVO;
 import io.github.flowable.plus.core.vo.AssigneeInfo;
 import io.github.flowable.plus.core.vo.ProcessSummaryVO;
@@ -21,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import io.github.flowable.plus.core.domain.PlusHistoricProcessInstance;
 import io.github.flowable.plus.core.domain.PlusHistoricTask;
 import io.github.flowable.plus.core.domain.PlusTask;
+import io.github.flowable.plus.core.enums.CommentType;
 import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.workflow.ProcessQueryWorkflow;
 
@@ -64,8 +68,11 @@ public class ProcessQueryOperationsTest {
         when(mockRuntimeService.createProcessInstanceQuery()).thenReturn(mockProcessInstanceQuery);
         when(mockProcessInstanceQuery.processInstanceIds(anySet())).thenReturn(mockProcessInstanceQuery);
 
+        ActionInferenceStrategy actionInferenceStrategy = new DefaultActionInferenceStrategy();
+
         processQueryWorkflow = new ProcessQueryWorkflow(
-                mockRuntimeService, mockTaskService, mockHistoryService, mockMultiInstanceDetector);
+                mockRuntimeService, mockTaskService, mockHistoryService, mockMultiInstanceDetector,
+                actionInferenceStrategy);
     }
 
     // ======================== 参数校验 ========================
@@ -497,7 +504,8 @@ public class ProcessQueryOperationsTest {
         assertThat(result.get(0).getStartTime()).isEqualTo(t1Start);
         assertThat(result.get(0).getEndTime()).isEqualTo(t1End);
         assertThat(result.get(0).getDurationMillis()).isEqualTo(1000L);
-        assertThat(result.get(0).getApproved()).isTrue();
+        // deleteReason=null + 无 Comment → action=null → approved=null, isRejected=false
+        assertThat(result.get(0).getApproved()).isNull();
         assertThat(result.get(0).getIsRejected()).isFalse();
         assertThat(result.get(1).getTaskId()).isEqualTo("ht-2");
         assertThat(result.get(1).getTaskName()).isEqualTo("经理审批");
@@ -526,7 +534,8 @@ public class ProcessQueryOperationsTest {
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).getEndTime()).isNotNull();
-        assertThat(result.get(0).getApproved()).isTrue();
+        // deleteReason=null + 无 Comment → approved=null
+        assertThat(result.get(0).getApproved()).isNull();
         assertThat(result.get(1).getTaskId()).isEqualTo("task-active");
         assertThat(result.get(1).getEndTime()).isNull();
         assertThat(result.get(1).getDurationMillis()).isNull();
@@ -554,9 +563,11 @@ public class ProcessQueryOperationsTest {
         List<ApprovalTraceVO> result = processQueryWorkflow.getApprovalTrace(instanceId);
 
         assertThat(result).hasSize(2);
-        assertThat(result.get(0).getApproved()).isFalse();
-        assertThat(result.get(0).getIsRejected()).isTrue();
-        assertThat(result.get(1).getApproved()).isTrue();
+        // ht1: deleteReason="驳回至发起人" → 非标准值 → TERMINATE → approved=null, isRejected=false
+        assertThat(result.get(0).getApproved()).isNull();
+        assertThat(result.get(0).getIsRejected()).isFalse();
+        // ht2: deleteReason=null → action=null → approved=null
+        assertThat(result.get(1).getApproved()).isNull();
         assertThat(result.get(1).getIsRejected()).isFalse();
     }
 
@@ -571,6 +582,7 @@ public class ProcessQueryOperationsTest {
 
         Comment comment = mock(Comment.class);
         when(comment.getTaskId()).thenReturn("ht-1");
+        when(comment.getType()).thenReturn(CommentType.AGREE.name());
         when(comment.getFullMessage()).thenReturn("同意，请继续");
 
         HistoricTaskInstance mockHt1 = toMockHistoricTask(ht1);
@@ -606,18 +618,25 @@ public class ProcessQueryOperationsTest {
         Date t1End = new Date(2000);
 
         PlusHistoricTask ht1 = createPlusHistoricTask("ht-1", instanceId, "node1", "部门审批",
-                "user1", t1Start, t1End, "WITHDRAW");
+                "user1", t1Start, t1End, "deleted");
+
+        Comment comment = mock(Comment.class);
+        when(comment.getTaskId()).thenReturn("ht-1");
+        when(comment.getType()).thenReturn(CommentType.WITHDRAW.name());
+        when(comment.getFullMessage()).thenReturn("撤回了审批");
 
         HistoricTaskInstance mockHt1 = toMockHistoricTask(ht1);
         stubApprovalTraceQueries(Collections.emptyList(), instanceId, null,
                 Collections.singletonList(mockHt1));
-        when(mockTaskService.getProcessInstanceComments(instanceId)).thenReturn(Collections.emptyList());
+        when(mockTaskService.getProcessInstanceComments(instanceId))
+                .thenReturn(Collections.singletonList(comment));
 
         List<ApprovalTraceVO> result = processQueryWorkflow.getApprovalTrace(instanceId);
 
         assertThat(result).hasSize(1);
-        assertThat(result.get(0).getApproved()).isFalse();
-        assertThat(result.get(0).getIsRejected()).isTrue();
+        // WITHDRAW → approved=null, isRejected=false（撤回不等于驳回）
+        assertThat(result.get(0).getApproved()).isNull();
+        assertThat(result.get(0).getIsRejected()).isFalse();
     }
 
     @Test
@@ -648,7 +667,7 @@ public class ProcessQueryOperationsTest {
         assertThat(parent.getNodeId()).isEqualTo("counterSignNode");
         assertThat(parent.getTaskName()).isEqualTo("会签审批");
         assertThat(parent.getAssignee()).isNull();
-        assertThat(parent.getApproved()).isTrue();
+        assertThat(parent.getApproved()).isFalse();
         assertThat(parent.getIsRejected()).isFalse();
         assertThat(parent.getCountersignDetails()).hasSize(3);
         assertThat(parent.getCountersignDetails().get(0).getAssignee()).isEqualTo("userA");

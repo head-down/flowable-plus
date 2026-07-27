@@ -1,6 +1,8 @@
 package io.github.flowable.plus.starter;
 
+import io.github.flowable.plus.core.support.ActionInferenceStrategy;
 import io.github.flowable.plus.core.support.BpmnFormDataHelper;
+import io.github.flowable.plus.core.support.DefaultActionInferenceStrategy;
 import io.github.flowable.plus.core.support.PreviousNodeAuthorizer;
 import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.model.BpmnModelCache;
@@ -457,6 +459,21 @@ public class FlowablePlusAutoConfiguration {
     }
 
     /**
+     * 注册 ActionInferenceStrategy Bean。
+     *
+     * <p>实现 ADR-0009 三级 Comment→Action 推断策略，
+     * 供 HistoryWorkflow 和 ProcessQueryWorkflow 一致消费。
+     * 应用可通过声明同名 Bean 替换默认实现。</p>
+     *
+     * @return ActionInferenceStrategy 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public ActionInferenceStrategy actionInferenceStrategy() {
+        return new DefaultActionInferenceStrategy();
+    }
+
+    /**
      * 注册 HistoryWorkflow Bean。
      *
      * <p>封装审批历史查询逻辑，实现 ADR-0009 三级 Comment→Action 推断策略。
@@ -475,9 +492,10 @@ public class FlowablePlusAutoConfiguration {
                                             TaskService taskService,
                                             BpmnModelCache bpmnModelCache,
                                             MultiInstanceDetector multiInstanceDetector,
-                                            IdentityResolver identityResolver) {
+                                            IdentityResolver identityResolver,
+                                            ActionInferenceStrategy actionInferenceStrategy) {
         return new HistoryWorkflow(historyService, taskService, bpmnModelCache,
-                multiInstanceDetector, identityResolver);
+                multiInstanceDetector, identityResolver, actionInferenceStrategy);
     }
 
     /**
@@ -538,8 +556,10 @@ public class FlowablePlusAutoConfiguration {
     public ProcessQueryWorkflow processQueryWorkflow(RuntimeService runtimeService,
                                                       TaskService taskService,
                                                       HistoryService historyService,
-                                                      MultiInstanceDetector multiInstanceDetector) {
-        return new ProcessQueryWorkflow(runtimeService, taskService, historyService, multiInstanceDetector);
+                                                      MultiInstanceDetector multiInstanceDetector,
+                                                      ActionInferenceStrategy actionInferenceStrategy) {
+        return new ProcessQueryWorkflow(runtimeService, taskService, historyService,
+                multiInstanceDetector, actionInferenceStrategy);
     }
 
     /**

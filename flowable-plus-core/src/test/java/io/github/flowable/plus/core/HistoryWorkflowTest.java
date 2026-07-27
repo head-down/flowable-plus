@@ -5,6 +5,8 @@ import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.model.BpmnModelCache;
 import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.spi.IdentityResolver;
+import io.github.flowable.plus.core.support.ActionInferenceStrategy;
+import io.github.flowable.plus.core.support.DefaultActionInferenceStrategy;
 import io.github.flowable.plus.core.vo.ApprovalRecordVO;
 import io.github.flowable.plus.core.vo.CountersignSubRecord;
 import io.github.flowable.plus.core.workflow.HistoryWorkflow;
@@ -72,8 +74,11 @@ public class HistoryWorkflowTest {
         when(mockIdentityResolver.resolve("userB")).thenReturn("用户B");
         when(mockIdentityResolver.resolve("userC")).thenReturn("用户C");
 
+        ActionInferenceStrategy actionInferenceStrategy = new DefaultActionInferenceStrategy();
+
         historyWorkflow = new HistoryWorkflow(mockHistoryService, mockTaskService,
-                mockBpmnModelCache, mockMultiInstanceDetector, mockIdentityResolver);
+                mockBpmnModelCache, mockMultiInstanceDetector, mockIdentityResolver,
+                actionInferenceStrategy);
     }
 
     // ======================== 参数校验 ========================

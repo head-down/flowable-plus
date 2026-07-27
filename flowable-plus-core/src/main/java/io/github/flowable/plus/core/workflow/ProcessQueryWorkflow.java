@@ -1,6 +1,8 @@
 package io.github.flowable.plus.core.workflow;
 
+import io.github.flowable.plus.core.enums.ApprovalAction;
 import io.github.flowable.plus.core.exception.NotFoundException;
+import io.github.flowable.plus.core.support.ActionInferenceStrategy;
 import io.github.flowable.plus.core.vo.ApprovalTraceVO;
 import io.github.flowable.plus.core.vo.AssigneeInfo;
 import io.github.flowable.plus.core.vo.ProcessSummaryVO;
@@ -46,11 +48,13 @@ public class ProcessQueryWorkflow {
     private final TaskService taskService;
     private final HistoryService historyService;
     private final MultiInstanceDetector multiInstanceDetector;
+    private final ActionInferenceStrategy actionInferenceStrategy;
 
     public ProcessQueryWorkflow(RuntimeService runtimeService,
                                 TaskService taskService,
                                 HistoryService historyService,
-                                MultiInstanceDetector multiInstanceDetector) {
+                                MultiInstanceDetector multiInstanceDetector,
+                                ActionInferenceStrategy actionInferenceStrategy) {
         if (runtimeService == null) {
             throw new IllegalArgumentException("RuntimeService 不可为 null");
         }
@@ -60,10 +64,14 @@ public class ProcessQueryWorkflow {
         if (historyService == null) {
             throw new IllegalArgumentException("HistoryService 不可为 null");
         }
+        if (actionInferenceStrategy == null) {
+            throw new IllegalArgumentException("ActionInferenceStrategy 不可为 null");
+        }
         this.runtimeService = runtimeService;
         this.taskService = taskService;
         this.historyService = historyService;
         this.multiInstanceDetector = multiInstanceDetector;
+        this.actionInferenceStrategy = actionInferenceStrategy;
     }
 
     // ======================== 批量流程摘要查询 ========================
@@ -225,9 +233,9 @@ public class ProcessQueryWorkflow {
             return Collections.emptyList();
         }
 
-        // 4. 查询审批意见，按 taskId 取最后一条
+        // 4. 查询审批意见，按 taskId 分组（时间倒序）
         List<Comment> comments = taskService.getProcessInstanceComments(processInstanceId);
-        Map<String, String> lastCommentByTaskId = groupLastCommentByTaskId(comments);
+        Map<String, List<Comment>> commentsByTaskId = groupCommentsByTaskId(comments);
 
         // 5. 按 nodeId 分组
         Map<String, List<PlusHistoricTask>> historicByNode = historicTasks.stream()
@@ -256,14 +264,14 @@ public class ProcessQueryWorkflow {
 
             if (isMultiInstance) {
                 // 会签：聚合展示
-                result.add(buildCounterSignParent(nodeId, nodeHistTasks, nodeActiveTasks, lastCommentByTaskId));
+                result.add(buildCounterSignParent(nodeId, nodeHistTasks, nodeActiveTasks, commentsByTaskId));
             } else {
                 // 普通节点：逐一展示
                 for (PlusHistoricTask ht : nodeHistTasks) {
-                    result.add(buildHistoricTraceVO(ht, lastCommentByTaskId.get(ht.getId())));
+                    result.add(buildHistoricTraceVO(ht, commentsByTaskId));
                 }
                 for (PlusTask at : nodeActiveTasks) {
-                    result.add(buildActiveTraceVO(at, lastCommentByTaskId.get(at.getId())));
+                    result.add(buildActiveTraceVO(at, commentsByTaskId));
                 }
             }
         }
@@ -277,11 +285,16 @@ public class ProcessQueryWorkflow {
 
     // ======================== 私有构建方法 ========================
 
-    private ApprovalTraceVO buildHistoricTraceVO(PlusHistoricTask ht, String comment) {
+    private ApprovalTraceVO buildHistoricTraceVO(PlusHistoricTask ht, Map<String, List<Comment>> commentsByTaskId) {
         Long durationMillis = null;
         if (ht.getEndTime() != null && ht.getCreateTime() != null) {
             durationMillis = ht.getEndTime().getTime() - ht.getCreateTime().getTime();
         }
+
+        List<Comment> taskComments = commentsByTaskId.getOrDefault(ht.getId(), Collections.emptyList());
+        ApprovalAction action = actionInferenceStrategy.inferAction(
+                ht.getId(), ht.getDeleteReason(), taskComments);
+        String comment = extractCommentText(taskComments);
 
         return ApprovalTraceVO.builder()
                 .taskId(ht.getId())
@@ -292,13 +305,15 @@ public class ProcessQueryWorkflow {
                 .endTime(ht.getEndTime())
                 .durationMillis(durationMillis)
                 .comment(comment)
-                .approved(inferApproved(ht.getDeleteReason()))
-                .isRejected(inferRejected(ht.getDeleteReason()))
+                .approved(toApproved(action))
+                .isRejected(toRejected(action))
                 .countersignDetails(null)
                 .build();
     }
 
-    private ApprovalTraceVO buildActiveTraceVO(PlusTask at, String comment) {
+    private ApprovalTraceVO buildActiveTraceVO(PlusTask at, Map<String, List<Comment>> commentsByTaskId) {
+        List<Comment> taskComments = commentsByTaskId.getOrDefault(at.getId(), Collections.emptyList());
+        String comment = extractCommentText(taskComments);
         return ApprovalTraceVO.builder()
                 .taskId(at.getId())
                 .taskName(at.getName())
@@ -317,14 +332,14 @@ public class ProcessQueryWorkflow {
     private ApprovalTraceVO buildCounterSignParent(String nodeId,
                                                     List<PlusHistoricTask> nodeHistTasks,
                                                     List<PlusTask> nodeActiveTasks,
-                                                    Map<String, String> lastCommentByTaskId) {
+                                                    Map<String, List<Comment>> commentsByTaskId) {
         // 构建子详情列表
         List<ApprovalTraceVO> details = new ArrayList<>();
         for (PlusHistoricTask ht : nodeHistTasks) {
-            details.add(buildHistoricTraceVO(ht, lastCommentByTaskId.get(ht.getId())));
+            details.add(buildHistoricTraceVO(ht, commentsByTaskId));
         }
         for (PlusTask at : nodeActiveTasks) {
-            details.add(buildActiveTraceVO(at, lastCommentByTaskId.get(at.getId())));
+            details.add(buildActiveTraceVO(at, commentsByTaskId));
         }
         details.sort(Comparator.comparing(ApprovalTraceVO::getStartTime,
                 Comparator.nullsLast(Comparator.naturalOrder())));
@@ -386,19 +401,56 @@ public class ProcessQueryWorkflow {
                 .build();
     }
 
-    private Map<String, String> groupLastCommentByTaskId(List<Comment> comments) {
-        Map<String, String> result = new HashMap<>();
+    // ======================== Comment 工具方法 ========================
+
+    /**
+     * 按 taskId 对 Comment 进行分组，每组按时间倒序排列。
+     */
+    private Map<String, List<Comment>> groupCommentsByTaskId(List<Comment> comments) {
+        Map<String, List<Comment>> result = new HashMap<>();
         if (comments == null || comments.isEmpty()) {
             return result;
         }
-        // getProcessInstanceComments 已按时间升序排列
+        // getProcessInstanceComments 返回按时���升序的结果
         for (Comment comment : comments) {
             String taskId = comment.getTaskId();
             if (taskId != null) {
-                result.put(taskId, comment.getFullMessage());
+                result.computeIfAbsent(taskId, k -> new ArrayList<>()).add(comment);
             }
         }
+        // 每组内部按时间倒序
+        for (List<Comment> list : result.values()) {
+            list.sort((a, b) -> b.getTime().compareTo(a.getTime()));
+        }
         return result;
+    }
+
+    /**
+     * 从 Comment 列表中提取审批意见文本（取第一个业务 Comment 的 fullMessage）。
+     */
+    private String extractCommentText(List<Comment> taskComments) {
+        Comment businessComment = actionInferenceStrategy.findFirstBusinessComment(taskComments);
+        return businessComment != null ? businessComment.getFullMessage() : null;
+    }
+
+    /**
+     * 从 ApprovalAction 派生 approved 字段。
+     */
+    private static Boolean toApproved(ApprovalAction action) {
+        if (action == ApprovalAction.AGREE || action == ApprovalAction.COUNTER_SIGN_AGREE) {
+            return true;
+        }
+        return null;
+    }
+
+    /**
+     * 从 ApprovalAction 派生 isRejected 字段。
+     */
+    private static Boolean toRejected(ApprovalAction action) {
+        if (action == ApprovalAction.REJECT || action == ApprovalAction.COUNTER_SIGN_REJECT) {
+            return true;
+        }
+        return false;
     }
 
     private String resolveProcessDefinitionId(List<PlusHistoricTask> nodeHistTasks, List<PlusTask> nodeActiveTasks) {
@@ -409,21 +461,6 @@ public class ProcessQueryWorkflow {
             return nodeActiveTasks.get(0).getProcessDefinitionId();
         }
         return null;
-    }
-
-    private Boolean inferApproved(String deleteReason) {
-        if (deleteReason == null || deleteReason.isEmpty()) {
-            return true;
-        }
-        return false;
-    }
-
-    private Boolean inferRejected(String deleteReason) {
-        if (deleteReason == null) {
-            return false;
-        }
-        String reason = deleteReason.toUpperCase();
-        return reason.contains("驳回") || reason.contains("REJECT") || reason.contains("撤回") || reason.contains("WITHDRAW");
     }
 
     // ======================== 流程摘要构建 ========================

@@ -1,12 +1,11 @@
 package io.github.flowable.plus.core.workflow;
 
 import io.github.flowable.plus.core.enums.ApprovalAction;
-import io.github.flowable.plus.core.enums.CommentType;
-import io.github.flowable.plus.core.enums.CommentTypeConverter;
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.model.BpmnModelCache;
 import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.spi.IdentityResolver;
+import io.github.flowable.plus.core.support.ActionInferenceStrategy;
 import io.github.flowable.plus.core.vo.ApprovalRecordVO;
 import io.github.flowable.plus.core.vo.CountersignSubRecord;
 import org.flowable.engine.HistoryService;
@@ -15,8 +14,6 @@ import org.flowable.engine.history.HistoricActivityInstance;
 import org.flowable.engine.history.HistoricProcessInstance;
 import org.flowable.engine.task.Comment;
 import org.flowable.task.api.history.HistoricTaskInstance;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -38,8 +35,6 @@ import java.util.stream.Collectors;
  */
 public class HistoryWorkflow {
 
-    private static final Logger log = LoggerFactory.getLogger(HistoryWorkflow.class);
-
     /** 活动类型白名单：仅保留这些类型的历史活动实例 */
     private static final Set<String> INCLUDED_ACTIVITY_TYPES = Collections.unmodifiableSet(
             new HashSet<>(Arrays.asList("startEvent", "userTask")));
@@ -52,10 +47,12 @@ public class HistoryWorkflow {
     private final BpmnModelCache bpmnModelCache;
     private final MultiInstanceDetector multiInstanceDetector;
     private final IdentityResolver identityResolver;
+    private final ActionInferenceStrategy actionInferenceStrategy;
 
     public HistoryWorkflow(HistoryService historyService, TaskService taskService,
                            BpmnModelCache bpmnModelCache, MultiInstanceDetector multiInstanceDetector,
-                           IdentityResolver identityResolver) {
+                           IdentityResolver identityResolver,
+                           ActionInferenceStrategy actionInferenceStrategy) {
         if (historyService == null) {
             throw new IllegalArgumentException("HistoryService 不可为 null");
         }
@@ -71,11 +68,15 @@ public class HistoryWorkflow {
         if (identityResolver == null) {
             throw new IllegalArgumentException("IdentityResolver 不可为 null");
         }
+        if (actionInferenceStrategy == null) {
+            throw new IllegalArgumentException("ActionInferenceStrategy 不可为 null");
+        }
         this.historyService = historyService;
         this.taskService = taskService;
         this.bpmnModelCache = bpmnModelCache;
         this.multiInstanceDetector = multiInstanceDetector;
         this.identityResolver = identityResolver;
+        this.actionInferenceStrategy = actionInferenceStrategy;
     }
 
     // ======================== 主方法 ========================
@@ -245,74 +246,12 @@ public class HistoryWorkflow {
     // ======================== Comment → ApprovalAction 三级推断 (ADR-0009) ========================
 
     /**
-     * 查找任务关联的第一个业务 Comment（按时间倒序）。
-     * 跳过非业务类型（如普通留言 comment 类型）。
-     *
-     * @return 第一个匹配的业务 Comment，如果没有则返回 null
-     */
-    private Comment findFirstBusinessComment(HistoricTaskInstance task,
-                                              Map<String, List<Comment>> commentsByTaskId) {
-        List<Comment> taskComments = commentsByTaskId.getOrDefault(task.getId(), Collections.emptyList());
-        for (Comment comment : taskComments) {
-            String typeStr = comment.getType();
-            if (typeStr != null) {
-                try {
-                    CommentType.valueOf(typeStr);
-                    return comment;
-                } catch (IllegalArgumentException ignored) {
-                    // 非业务类型，跳过
-                }
-            }
-        }
-        return null;
-    }
-
-    /**
-     * 三级 Comment→Action 推断策略（ADR-0009）：
-     * 1. 特征提取：按 Comment 时间倒序扫描，取第一个匹配 CommentType 的值
-     * 2. DeleteReason 兜底：无匹配 Comment 时，读取 HistoricTaskInstance.deleteReason
-     * 3. START 特殊处理：由 startEvent + startUserId 构造，不经过此方法
-     */
-    private ApprovalAction inferAction(HistoricTaskInstance task,
-                                        Map<String, List<Comment>> commentsByTaskId) {
-        // 一级：特征提取（时间倒序扫描 Comment）
-        Comment businessComment = findFirstBusinessComment(task, commentsByTaskId);
-        if (businessComment != null) {
-            try {
-                CommentType ct = CommentType.valueOf(businessComment.getType());
-                return CommentTypeConverter.toApprovalAction(ct);
-            } catch (IllegalArgumentException ignored) {
-                // 不会被触发（findFirstBusinessComment 已验证），仅为防御
-            }
-        }
-
-        // 二级：DeleteReason 兜底
-        String deleteReason = task.getDeleteReason();
-        if ("completed".equals(deleteReason)) {
-            return ApprovalAction.AGREE;
-        }
-        if ("deleted".equals(deleteReason)) {
-            // "deleted" 含义太宽泛（驳回/撤回/撤销/转办均删除任务），
-            // 无法在无 Comment 时精确推断，返回 null 表示未知
-            return null;
-        }
-        if (deleteReason != null && !deleteReason.isEmpty()) {
-            // 其他非标准 deleteReason（如管理员强杀），标记为终止
-            log.warn("未知 deleteReason: taskId={}, deleteReason={}", task.getId(), deleteReason);
-            return ApprovalAction.TERMINATE;
-        }
-
-        // 三级默认：活跃节点（无 deleteReason，无结束时间），action 为 null
-        return null;
-    }
-
-    /**
      * 从 Comment 中提取审批意见文本。
      * 取时间倒序第一个匹配 CommentType 的业务 Comment 的 fullMessage。
      */
-    private String extractCommentText(HistoricTaskInstance task,
-                                       Map<String, List<Comment>> commentsByTaskId) {
-        Comment businessComment = findFirstBusinessComment(task, commentsByTaskId);
+    private String extractCommentText(String taskId, Map<String, List<Comment>> commentsByTaskId) {
+        List<Comment> taskComments = commentsByTaskId.getOrDefault(taskId, Collections.emptyList());
+        Comment businessComment = actionInferenceStrategy.findFirstBusinessComment(taskComments);
         return businessComment != null ? businessComment.getFullMessage() : null;
     }
 
@@ -353,8 +292,10 @@ public class HistoryWorkflow {
             return buildRecordWithoutTask(activity);
         }
 
-        ApprovalAction action = inferAction(task, commentsByTaskId);
-        String comment = extractCommentText(task, commentsByTaskId);
+        List<Comment> taskComments = commentsByTaskId.getOrDefault(task.getId(), Collections.emptyList());
+        ApprovalAction action = actionInferenceStrategy.inferAction(
+                task.getId(), task.getDeleteReason(), taskComments);
+        String comment = extractCommentText(task.getId(), commentsByTaskId);
         String actorName = identityResolver.resolve(task.getAssignee());
 
         return ApprovalRecordVO.builder()
@@ -409,8 +350,13 @@ public class HistoryWorkflow {
             }
             HistoricTaskInstance task = taskMap.get(taskId);
 
-            ApprovalAction action = task != null ? inferAction(task, commentsByTaskId) : null;
-            String comment = task != null ? extractCommentText(task, commentsByTaskId) : null;
+            List<Comment> taskComments = taskId != null
+                    ? commentsByTaskId.getOrDefault(taskId, Collections.emptyList())
+                    : Collections.emptyList();
+            ApprovalAction action = task != null
+                    ? actionInferenceStrategy.inferAction(task.getId(), task.getDeleteReason(), taskComments)
+                    : null;
+            String comment = task != null ? extractCommentText(task.getId(), commentsByTaskId) : null;
             String actorName = task != null ? identityResolver.resolve(task.getAssignee()) : null;
 
             CountersignSubRecord subRecord = CountersignSubRecord.builder()
