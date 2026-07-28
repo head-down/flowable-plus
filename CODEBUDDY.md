@@ -13,7 +13,7 @@ flowable-plus 是一个面向 Java 8 的 Flowable (6.8.0) 工作流引擎增强�
 
 ```
 flowable-plus (父 POM, packaging=pom)
-├── flowable-plus-core                 -- 纯 Java 核心模块，无 Spring 依赖
+├── flowable-plus-core                 -- 核心模块，带 spring-tx（注解级，非 DI 运行时）
 ├── flowable-plus-spring-boot-starter  -- Spring Boot 自动配置粘合层
 └── flowable-plus-extension            -- 可选扩展模块（多实例、高级审批等）
 ```
@@ -23,6 +23,7 @@ flowable-plus (父 POM, packaging=pom)
 ```
 flowable-plus-core
 ├── flowable-engine (6.8.0)
+├── spring-tx (5.3.31, 注解级)
 └── hutool-all (5.8.28)
 
 flowable-plus-spring-boot-starter
@@ -37,7 +38,7 @@ flowable-plus-extension
 ```
 
 ### 各模块职责
-- **flowable-plus-core** — 框架无关的包装层，封装 Flowable 的 RuntimeService、TaskService、HistoryService 等核心服务。包含 BPMN 模型缓存（`BpmnModelCache`）以消除重复引擎 I/O。可在任意 Java 8+ 应用中使用。
+- **flowable-plus-core** — 封装 Flowable 核心服务（RuntimeService、TaskService、HistoryService 等），通过 SPI 接口解耦运行时框架。依赖 spring-tx 仅用于 `@Transactional` 注解元数据声明（无 DI/AOP 运行时），`@Transactional` 在无 Spring AOP 的环境中无害忽略。包含 BPMN 模型缓存（`BpmnModelCache`）以消除重复引擎 I/O。可在任意 Java 8+ 应用中使用。
 - **flowable-plus-spring-boot-starter** — 通过 `META-INF/spring.factories` 实现自动配置。配置属性前缀为 `flowable.plus.*`。当 classpath 上存在 `org.flowable.engine.ProcessEngine` 时条件激活。
 - **flowable-plus-extension** — 可选模块，提供高级功能（多实例处理、高级审批模式等）。仅依赖 core 模块。
 

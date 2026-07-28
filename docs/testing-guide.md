@@ -63,7 +63,7 @@ DynamicUserContext.CURRENT_USER.remove();  // tearDown 中清理
 
 ## 新增测试指南
 
-**单元测试**：core 模块的测试通过 Mockito mock 构造被测对象，无 Spring 依赖：
+**单元测试**：core 模块的测试通过 Mockito mock 构造被测对象，不启动 Spring 上下文：
 
 ```java
 @Test

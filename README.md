@@ -48,7 +48,7 @@ CI 矩阵覆盖 H2 / MySQL 8.0 / PostgreSQL 14 三种数据库，全量测试通
 
 ```
 flowable-plus (父 POM, packaging=pom)
-├── flowable-plus-core                  核心模块（纯 Java，无框架依赖）
+├── flowable-plus-core                  核心模块（API 封装层，不启动 Spring DI 容器，可在任意 Java 8+ 应用中使用）
 ├── flowable-plus-spring-boot-starter   Spring Boot 自动配置粘合层
 └── flowable-plus-extension             可选扩展（高级审批模式等）
 ```
