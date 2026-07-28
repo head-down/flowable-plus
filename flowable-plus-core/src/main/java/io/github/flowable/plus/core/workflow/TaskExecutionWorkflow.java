@@ -168,10 +168,6 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
         PlusTask task = TaskValidation.validateTaskExists(taskService, historyService, taskId, "撤回");
         TaskValidation.validateNotMultiInstance(multiInstanceDetector, task, taskId);
 
-        if (currentUserId.equals(task.getAssignee())) {
-            throw new PermissionDeniedException("无法撤回自己当前处理的任务 " + taskId);
-        }
-
         String processInstanceId = task.getProcessInstanceId();
 
         checkActiveParallelBranch(task);

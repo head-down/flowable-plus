@@ -275,14 +275,30 @@ public class TaskExecutionWorkflowTest {
     }
 
     @Test
-    void testWithdrawTaskRejectsOwnTask() {
+    void testWithdrawTaskRejectsNotPrevAssigneeWhenAlsoTaskAssignee() {
         PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", USER_ID);
         stubTaskExists(task);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
+        when(mockNodeFinder.findPreviousNodes("leave:1:abc", "task2", "pi-001"))
+                .thenReturn(Collections.singletonList("task1"));
+
+        HistoricTaskInstance prevTask = createMockHistoricTask(
+                "ht-prev", "leave:1:abc", "task1", "pi-001", "otherUser", "上一节点",
+                new Date(), new Date(), null);
+        HistoricTaskInstanceQuery histTaskQuery = mock(HistoricTaskInstanceQuery.class);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(histTaskQuery);
+        when(histTaskQuery.processInstanceId("pi-001")).thenReturn(histTaskQuery);
+        when(histTaskQuery.taskDefinitionKey("task1")).thenReturn(histTaskQuery);
+        when(histTaskQuery.finished()).thenReturn(histTaskQuery);
+        when(histTaskQuery.orderByHistoricTaskInstanceEndTime()).thenReturn(histTaskQuery);
+        when(histTaskQuery.desc()).thenReturn(histTaskQuery);
+        when(histTaskQuery.listPage(0, 1)).thenReturn(Collections.singletonList(prevTask));
+
+        when(mockPreviousNodeAuthorizer.isAuthorized(USER_ID, "task-001")).thenReturn(false);
 
         assertThatThrownBy(() -> workflow.withdrawTask("task-001", "撤回"))
                 .isInstanceOf(PermissionDeniedException.class)
-                .hasMessageContaining("无法撤回自己当前处理的任务");
+                .hasMessageContaining("不是上一节点审批人");
     }
 
     @Test
