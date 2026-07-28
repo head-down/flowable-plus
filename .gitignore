@@ -36,6 +36,10 @@ build/
 .codebuddy/
 skills-lock.json
 
+### Local scratch files ###
+.scratch/
+*.txt
+
 ### Production BPMN models (should not be committed) ###
 flowable-plus-spring-boot-starter/src/test/resources/bpmn/carUseApply.bpmn
 flowable-plus-spring-boot-starter/src/test/resources/bpmn/hospitalitySupplies.bpmn
