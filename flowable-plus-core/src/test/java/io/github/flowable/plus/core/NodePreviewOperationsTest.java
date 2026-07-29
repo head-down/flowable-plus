@@ -484,6 +484,8 @@ public class NodePreviewOperationsTest {
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
         when(mockNodeFinder.findNextUserTasks(definitionId, "nodeA", processInstanceId, new HashMap<>()))
                 .thenReturn(Arrays.asList("nodeB", "nodeC"));
+        when(mockNodeFinder.findReachableEndEvents(definitionId, "nodeA", new HashMap<>()))
+                .thenReturn(Collections.emptyList());
 
         List<NextTaskNodeVO> result = nodePreviewWorkflow.getNextTaskNodes(processInstanceId, taskId);
 
@@ -526,6 +528,8 @@ public class NodePreviewOperationsTest {
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
         when(mockNodeFinder.findAdjacentUserTasks(definitionId, "nodeA", new HashMap<>()))
                 .thenReturn(Collections.singletonList("nodeB"));
+        when(mockNodeFinder.findReachableEndEvents(definitionId, "nodeA", new HashMap<>()))
+                .thenReturn(Collections.emptyList());
 
         List<NextTaskNodeVO> result = nodePreviewWorkflow.getAdjacentTaskNodes(processInstanceId, taskId);
 
@@ -563,7 +567,7 @@ public class NodePreviewOperationsTest {
 
         when(mockNodeFinder.findAdjacentUserTasks(definitionId, "nodeA", new HashMap<>()))
                 .thenReturn(Collections.emptyList());
-        when(mockNodeFinder.findForwardEndEvents(definitionId, "nodeA", new HashMap<>()))
+        when(mockNodeFinder.findReachableEndEvents(definitionId, "nodeA", new HashMap<>()))
                 .thenReturn(Collections.singletonList("endEvent1"));
 
         List<NextTaskNodeVO> result = nodePreviewWorkflow.getAdjacentTaskNodes(processInstanceId, taskId);
@@ -575,7 +579,7 @@ public class NodePreviewOperationsTest {
     }
 
     /**
-     * 紧邻遍历无 UserTask 且 findForwardEndEvents 也返回空 → 返回空列表。
+     * 紧邻遍历无 UserTask 且 findReachableEndEvents 也返回空 → 返回空列表。
      */
     @Test
     public void testGetAdjacentTaskNodesEmptyNoEndSignal() {
@@ -588,12 +592,42 @@ public class NodePreviewOperationsTest {
 
         when(mockNodeFinder.findAdjacentUserTasks(definitionId, "nodeA", new HashMap<>()))
                 .thenReturn(Collections.emptyList());
-        when(mockNodeFinder.findForwardEndEvents(definitionId, "nodeA", new HashMap<>()))
+        when(mockNodeFinder.findReachableEndEvents(definitionId, "nodeA", new HashMap<>()))
                 .thenReturn(Collections.emptyList());
 
         List<NextTaskNodeVO> result = nodePreviewWorkflow.getAdjacentTaskNodes(processInstanceId, taskId);
 
         assertThat(result).isEmpty();
+    }
+
+    /**
+     * 紧邻遍历：UserTask 与 EndEvent 并存（如网关分支场景）→ 两者都应返回。
+     */
+    @Test
+    public void testGetAdjacentTaskNodesWithEndEventBranch() {
+        String taskId = "task-001";
+        String processInstanceId = "pi-001";
+        String definitionId = "leave:1:abc";
+
+        Task task = mockTask(taskId, definitionId, processInstanceId, "nodeA");
+        when(mockRuntimeService.getVariables(processInstanceId)).thenReturn(new HashMap<>());
+
+        UserTask adjacentA = buildUserTask("nodeB", "部门经理", "manager1", null, null);
+        BpmnModel model = buildBpmnModel(adjacentA);
+        when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
+        when(mockNodeFinder.findAdjacentUserTasks(definitionId, "nodeA", new HashMap<>()))
+                .thenReturn(Collections.singletonList("nodeB"));
+        when(mockNodeFinder.findReachableEndEvents(definitionId, "nodeA", new HashMap<>()))
+                .thenReturn(Collections.singletonList("endEvent1"));
+
+        List<NextTaskNodeVO> result = nodePreviewWorkflow.getAdjacentTaskNodes(processInstanceId, taskId);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).getTaskCode()).isEqualTo("nodeB");
+        assertThat(result.get(0).getTaskName()).isEqualTo("部门经理");
+        assertThat(result.get(1).getTaskCode()).isEqualTo(NextTaskNodeVO.END_TASK_CODE);
+        assertThat(result.get(1).getTaskName()).isEqualTo("流程结束");
+        assertThat(result.get(1).isEnd()).isTrue();
     }
 
     // ======================== getNextTaskNodes EndSignal ========================
@@ -612,7 +646,7 @@ public class NodePreviewOperationsTest {
 
         when(mockNodeFinder.findNextUserTasks(definitionId, "nodeA", processInstanceId, new HashMap<>()))
                 .thenReturn(Collections.emptyList());
-        when(mockNodeFinder.findForwardEndEvents(definitionId, "nodeA", new HashMap<>()))
+        when(mockNodeFinder.findReachableEndEvents(definitionId, "nodeA", new HashMap<>()))
                 .thenReturn(Collections.singletonList("endEvent1"));
 
         List<NextTaskNodeVO> result = nodePreviewWorkflow.getNextTaskNodes(processInstanceId, taskId);
@@ -621,6 +655,36 @@ public class NodePreviewOperationsTest {
         assertThat(result.get(0).getTaskCode()).isEqualTo(NextTaskNodeVO.END_TASK_CODE);
         assertThat(result.get(0).getTaskName()).isEqualTo("流程结束");
         assertThat(result.get(0).isEnd()).isTrue();
+    }
+
+    /**
+     * 全遍历：下游 UserTask 与 EndEvent 并存（如网关分支场景）→ 两者都应返回。
+     */
+    @Test
+    public void testGetNextTaskNodesWithEndEventBranch() {
+        String taskId = "task-001";
+        String processInstanceId = "pi-001";
+        String definitionId = "leave:1:abc";
+
+        Task task = mockTask(taskId, definitionId, processInstanceId, "nodeA");
+        when(mockRuntimeService.getVariables(processInstanceId)).thenReturn(new HashMap<>());
+
+        UserTask downstreamA = buildUserTask("nodeB", "部门经理", "manager1", null, null);
+        BpmnModel model = buildBpmnModel(downstreamA);
+        when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
+        when(mockNodeFinder.findNextUserTasks(definitionId, "nodeA", processInstanceId, new HashMap<>()))
+                .thenReturn(Collections.singletonList("nodeB"));
+        when(mockNodeFinder.findReachableEndEvents(definitionId, "nodeA", new HashMap<>()))
+                .thenReturn(Collections.singletonList("endEvent1"));
+
+        List<NextTaskNodeVO> result = nodePreviewWorkflow.getNextTaskNodes(processInstanceId, taskId);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).getTaskCode()).isEqualTo("nodeB");
+        assertThat(result.get(0).getTaskName()).isEqualTo("部门经理");
+        assertThat(result.get(1).getTaskCode()).isEqualTo(NextTaskNodeVO.END_TASK_CODE);
+        assertThat(result.get(1).getTaskName()).isEqualTo("流程结束");
+        assertThat(result.get(1).isEnd()).isTrue();
     }
 
     // ======================== getAdjacentTaskApprovers ========================

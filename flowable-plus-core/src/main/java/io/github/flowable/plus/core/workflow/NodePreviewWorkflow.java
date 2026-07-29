@@ -19,7 +19,6 @@ import org.flowable.engine.repository.ProcessDefinition;
 import org.flowable.task.api.Task;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -225,19 +224,7 @@ public class NodePreviewWorkflow {
         List<ResolvedNode> nodes = resolveDownstreamNodes(
                 task.getProcessDefinitionId(), task.getTaskDefinitionKey(), processInstanceId);
 
-        if (nodes.isEmpty()) {
-            // 下游无 UserTask → 检查是否到达 EndEvent
-            Map<String, Object> variables = runtimeService.getVariables(processInstanceId);
-            List<String> endIds = nodeFinder.findForwardEndEvents(
-                    task.getProcessDefinitionId(), task.getTaskDefinitionKey(), variables);
-            if (!endIds.isEmpty()) {
-                return Collections.singletonList(NextTaskNodeVO.builder()
-                        .taskCode(NextTaskNodeVO.END_TASK_CODE)
-                        .taskName("流程结束")
-                        .end(true)
-                        .build());
-            }
-        }
+        Map<String, Object> variables = runtimeService.getVariables(processInstanceId);
 
         List<NextTaskNodeVO> result = new ArrayList<>();
         for (ResolvedNode node : nodes) {
@@ -246,6 +233,17 @@ public class NodePreviewWorkflow {
                     .taskCode(node.nodeId)
                     .taskName(node.nodeName)
                     .formData(formData)
+                    .build());
+        }
+
+        // 检查是否有 EndEvent 分支（与下游 UserTask 并列）
+        List<String> endIds = nodeFinder.findReachableEndEvents(
+                task.getProcessDefinitionId(), task.getTaskDefinitionKey(), variables);
+        if (!endIds.isEmpty()) {
+            result.add(NextTaskNodeVO.builder()
+                    .taskCode(NextTaskNodeVO.END_TASK_CODE)
+                    .taskName("流程结束")
+                    .end(true)
                     .build());
         }
         return result;
@@ -279,19 +277,6 @@ public class NodePreviewWorkflow {
 
         BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(task.getProcessDefinitionId());
 
-        if (nodeIds.isEmpty()) {
-            // 紧邻遍历无 UserTask → 检查是否到达 EndEvent
-            List<String> endIds = nodeFinder.findForwardEndEvents(
-                    task.getProcessDefinitionId(), task.getTaskDefinitionKey(), variables);
-            if (!endIds.isEmpty()) {
-                return Collections.singletonList(NextTaskNodeVO.builder()
-                        .taskCode(NextTaskNodeVO.END_TASK_CODE)
-                        .taskName("流程结束")
-                        .end(true)
-                        .build());
-            }
-        }
-
         List<NextTaskNodeVO> result = new ArrayList<>();
         for (String nodeId : nodeIds) {
             FlowElement element = bpmnModel.getFlowElement(nodeId);
@@ -303,6 +288,17 @@ public class NodePreviewWorkflow {
                     .taskCode(nodeId)
                     .taskName(element.getName())
                     .formData(formData)
+                    .build());
+        }
+
+        // 检查是否有 EndEvent 分支（与 UserTask 并列）
+        List<String> endIds = nodeFinder.findReachableEndEvents(
+                task.getProcessDefinitionId(), task.getTaskDefinitionKey(), variables);
+        if (!endIds.isEmpty()) {
+            result.add(NextTaskNodeVO.builder()
+                    .taskCode(NextTaskNodeVO.END_TASK_CODE)
+                    .taskName("流程结束")
+                    .end(true)
                     .build());
         }
         return result;

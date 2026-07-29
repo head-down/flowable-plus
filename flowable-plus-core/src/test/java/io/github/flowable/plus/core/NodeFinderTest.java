@@ -1088,13 +1088,13 @@ public class NodeFinderTest {
         assertThat(adjacentResult).containsExactlyInAnyOrder("taskA", "taskSub");
     }
 
-    // ======================== findForwardEndEvents ========================
+    // ======================== findReachableEndEvents ========================
 
     /**
      * 简单：task → EndEvent，应返回 EndEvent ID。
      */
     @Test
-    public void testFindForwardEndEventsSimple() {
+    public void testFindReachableEndEventsSimple() {
         TestModelBuilder builder = new TestModelBuilder();
         UserTask task = builder.addUserTask("task");
         EndEvent end = builder.addEndEvent("end");
@@ -1103,7 +1103,7 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-end-simple")).thenReturn(model);
 
-        List<String> result = nodeFinder.findForwardEndEvents("proc-end-simple", "task", null);
+        List<String> result = nodeFinder.findReachableEndEvents("proc-end-simple", "task", null);
 
         assertThat(result).containsExactly("end");
     }
@@ -1112,7 +1112,7 @@ public class NodeFinderTest {
      * task → UserTask，应返回空（下游有审批节点）。
      */
     @Test
-    public void testFindForwardEndEventsWithUserTask() {
+    public void testFindReachableEndEventsWithUserTask() {
         TestModelBuilder builder = new TestModelBuilder();
         UserTask task = builder.addUserTask("task");
         UserTask nextTask = builder.addUserTask("nextTask");
@@ -1121,16 +1121,17 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-end-ut")).thenReturn(model);
 
-        List<String> result = nodeFinder.findForwardEndEvents("proc-end-ut", "task", null);
+        List<String> result = nodeFinder.findReachableEndEvents("proc-end-ut", "task", null);
 
         assertThat(result).isEmpty();
     }
 
     /**
-     * task → Gateway → {UserTask, EndEvent}，任一分支有 UserTask 应返回空。
+     * task → Gateway → {UserTask, EndEvent}，EndEvent 分支应被收集。
+     * 遇到 UserTask 时仅停止当前分支，不阻断其他分支的 EndEvent 收集。
      */
     @Test
-    public void testFindForwardEndEventsWithGatewayBranch() {
+    public void testFindReachableEndEventsWithGatewayBranch() {
         TestModelBuilder builder = new TestModelBuilder();
         UserTask task = builder.addUserTask("task");
         ExclusiveGateway egw = builder.addExclusiveGateway("egw");
@@ -1144,17 +1145,17 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-end-gw")).thenReturn(model);
 
-        List<String> result = nodeFinder.findForwardEndEvents("proc-end-gw", "task", null);
+        List<String> result = nodeFinder.findReachableEndEvents("proc-end-gw", "task", null);
 
-        // 分支 2a 有 UserTask → 整体不终止
-        assertThat(result).isEmpty();
+        // 分支 2b 有 EndEvent → 应被收集
+        assertThat(result).containsExactly("end");
     }
 
     /**
      * task → ParallelGateway → {EndEvent1, EndEvent2}，所有分支均为 EndEvent。
      */
     @Test
-    public void testFindForwardEndEventsAllBranchesToEnd() {
+    public void testFindReachableEndEventsAllBranchesToEnd() {
         TestModelBuilder builder = new TestModelBuilder();
         UserTask task = builder.addUserTask("task");
         ParallelGateway pgw = builder.addParallelGateway("pgw");
@@ -1168,7 +1169,7 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-end-all")).thenReturn(model);
 
-        List<String> result = nodeFinder.findForwardEndEvents("proc-end-all", "task", null);
+        List<String> result = nodeFinder.findReachableEndEvents("proc-end-all", "task", null);
 
         assertThat(result).containsExactlyInAnyOrder("end1", "end2");
     }
@@ -1178,7 +1179,7 @@ public class NodeFinderTest {
      * 子流程内部 EndEvent 不收集，流程级 EndEvent 应被收集。
      */
     @Test
-    public void testFindForwardEndEventsSubProcess() {
+    public void testFindReachableEndEventsSubProcess() {
         TestModelBuilder builder = new TestModelBuilder();
         UserTask task = builder.addUserTask("task");
         SubProcess sub = builder.addSubProcess("sub");
@@ -1211,7 +1212,7 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-end-sub")).thenReturn(model);
 
-        List<String> result = nodeFinder.findForwardEndEvents("proc-end-sub", "task", null);
+        List<String> result = nodeFinder.findReachableEndEvents("proc-end-sub", "task", null);
 
         // 子流程内部 sub_end 不收集，只收集流程级 proc_end
         assertThat(result).containsExactly("proc_end");
@@ -1219,10 +1220,10 @@ public class NodeFinderTest {
 
     /**
      * task → SubProcess[内部有 UserTask] → EndEvent。
-     * 子流程内部有 UserTask → 整体不终止。
+     * 子流程内部有 UserTask 但不阻断外部 EndEvent 收集。
      */
     @Test
-    public void testFindForwardEndEventsSubProcessWithTask() {
+    public void testFindReachableEndEventsSubProcessWithTask() {
         TestModelBuilder builder = new TestModelBuilder();
         UserTask task = builder.addUserTask("task");
         SubProcess sub = builder.addSubProcess("sub");
@@ -1235,17 +1236,17 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-end-sub-task")).thenReturn(model);
 
-        List<String> result = nodeFinder.findForwardEndEvents("proc-end-sub-task", "task", null);
+        List<String> result = nodeFinder.findReachableEndEvents("proc-end-sub-task", "task", null);
 
-        // 子流程内 taskInner 是 UserTask → 不终止
-        assertThat(result).isEmpty();
+        // 子流程内部 UserTask 不阻断外部 EndEvent 收集
+        assertThat(result).containsExactly("proc_end");
     }
 
     /**
      * task → ServiceTask → EndEvent，中间节点应继续穿越。
      */
     @Test
-    public void testFindForwardEndEventsServiceTaskMiddle() {
+    public void testFindReachableEndEventsServiceTaskMiddle() {
         TestModelBuilder builder = new TestModelBuilder();
         UserTask task = builder.addUserTask("task");
         ServiceTask svc = builder.addServiceTask("svc");
@@ -1257,17 +1258,17 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-end-svc")).thenReturn(model);
 
-        List<String> result = nodeFinder.findForwardEndEvents("proc-end-svc", "task", null);
+        List<String> result = nodeFinder.findReachableEndEvents("proc-end-svc", "task", null);
 
         assertThat(result).containsExactly("end");
     }
 
     /**
      * 回环场景：task → Gateway → {UserTask → Gateway(回环), EndEvent}。
-     * UserTask 必须在 visited 之前检测，防止漏判。
+     * UserTask 分支停止遍历，EndEvent 分支应被收集。visited 防无限循环。
      */
     @Test
-    public void testFindForwardEndEventsCycle() {
+    public void testFindReachableEndEventsCycle() {
         TestModelBuilder builder = new TestModelBuilder();
         UserTask task = builder.addUserTask("task");
         ExclusiveGateway egw = builder.addExclusiveGateway("egw");
@@ -1282,17 +1283,17 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-end-cycle")).thenReturn(model);
 
-        List<String> result = nodeFinder.findForwardEndEvents("proc-end-cycle", "task", null);
+        List<String> result = nodeFinder.findReachableEndEvents("proc-end-cycle", "task", null);
 
-        // 回环分支中有 UserTask → 整体不终止
-        assertThat(result).isEmpty();
+        // 回环分支 UserTask 已遍历过 → visited 截断；EndEvent 分支仍可到达
+        assertThat(result).containsExactly("end");
     }
 
     /**
      * task 无 outgoing flow → 返回空列表。
      */
     @Test
-    public void testFindForwardEndEventsNoOutgoing() {
+    public void testFindReachableEndEventsNoOutgoing() {
         TestModelBuilder builder = new TestModelBuilder();
         builder.addUserTask("task");
         // 无 outgoing
@@ -1300,7 +1301,7 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-end-nof")).thenReturn(model);
 
-        List<String> result = nodeFinder.findForwardEndEvents("proc-end-nof", "task", null);
+        List<String> result = nodeFinder.findReachableEndEvents("proc-end-nof", "task", null);
 
         assertThat(result).isEmpty();
     }
@@ -1309,7 +1310,7 @@ public class NodeFinderTest {
      * 排他网关：无变量上下文，所有条件被跳过（无 default），返回空。
      */
     @Test
-    public void testFindForwardEndEventsGatewayNoDefault() {
+    public void testFindReachableEndEventsGatewayNoDefault() {
         TestModelBuilder builder = new TestModelBuilder();
         UserTask task = builder.addUserTask("task");
         ExclusiveGateway egw = builder.addExclusiveGateway("egw");
@@ -1322,7 +1323,7 @@ public class NodeFinderTest {
         when(repositoryService.getBpmnModel("proc-end-nodflt")).thenReturn(model);
 
         // variables 为 null → 不评估条件 → 全部展开
-        List<String> result1 = nodeFinder.findForwardEndEvents("proc-end-nodflt", "task", null);
+        List<String> result1 = nodeFinder.findReachableEndEvents("proc-end-nodflt", "task", null);
         assertThat(result1).containsExactly("end");
 
         // variables 不匹配且无 default → 不判定
@@ -1337,7 +1338,7 @@ public class NodeFinderTest {
         DefaultNodeFinder nodeFinderWithExpr = new DefaultNodeFinder(bpmnModelCache, historyService,
                 mockExprMgr, null);
 
-        List<String> result2 = nodeFinderWithExpr.findForwardEndEvents("proc-end-nodflt", "task", vars);
+        List<String> result2 = nodeFinderWithExpr.findReachableEndEvents("proc-end-nodflt", "task", vars);
         assertThat(result2).isEmpty();
     }
 
@@ -1345,7 +1346,7 @@ public class NodeFinderTest {
      * 排他网关条件匹配：task → egw → EndEvent(amount>5000)，条件不匹配 → 空列表。
      */
     @Test
-    public void testFindForwardEndEventsGatewayConditionMismatch() {
+    public void testFindReachableEndEventsGatewayConditionMismatch() {
         TestModelBuilder builder = new TestModelBuilder();
         UserTask task = builder.addUserTask("task");
         ExclusiveGateway egw = builder.addExclusiveGateway("egw");
@@ -1374,7 +1375,7 @@ public class NodeFinderTest {
         vars.put("amount", 6000);
 
         // 走 amount>5000 分支 → EndEvent → 终止
-        List<String> result = nodeFinderWithExpr.findForwardEndEvents("proc-end-gwcond", "task", vars);
+        List<String> result = nodeFinderWithExpr.findReachableEndEvents("proc-end-gwcond", "task", vars);
         assertThat(result).containsExactly("end");
 
         // 走 amount<=5000: 换个条件
@@ -1382,7 +1383,7 @@ public class NodeFinderTest {
         when(mockExprMgr.createExpression("amount <= 5000")).thenReturn(exprTrue);
 
         // 走 altTask 分支 → UserTask → 不终止
-        List<String> result2 = nodeFinderWithExpr.findForwardEndEvents("proc-end-gwcond", "task", vars);
+        List<String> result2 = nodeFinderWithExpr.findReachableEndEvents("proc-end-gwcond", "task", vars);
         assertThat(result2).isEmpty();
     }
 
