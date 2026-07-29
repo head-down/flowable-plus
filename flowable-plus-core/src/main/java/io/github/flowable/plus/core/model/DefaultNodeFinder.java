@@ -5,6 +5,7 @@ import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.spi.UserTaskTraversalFilter;
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.bpmn.model.CallActivity;
+import org.flowable.bpmn.model.EndEvent;
 import org.flowable.bpmn.model.ExclusiveGateway;
 import org.flowable.bpmn.model.FlowElement;
 import org.flowable.bpmn.model.FlowNode;
@@ -491,6 +492,228 @@ public class DefaultNodeFinder implements NodeFinder {
             return null;
         }
         return element.getName();
+    }
+
+    // ======================== findForwardEndEvents ========================
+
+    @Override
+    public List<String> findForwardEndEvents(String processDefinitionId, String nodeId,
+                                              Map<String, Object> variables) {
+        if (processDefinitionId == null || processDefinitionId.isEmpty()) {
+            throw new IllegalArgumentException("processDefinitionId 不可为 null 或空");
+        }
+        if (nodeId == null || nodeId.isEmpty()) {
+            throw new IllegalArgumentException("nodeId 不可为 null 或空");
+        }
+
+        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(processDefinitionId);
+        if (bpmnModel == null) {
+            throw new NotFoundException("流程定义 " + processDefinitionId + " 不存在");
+        }
+
+        FlowElement startElement = bpmnModel.getFlowElement(nodeId);
+        if (startElement == null) {
+            throw new NotFoundException("节点 " + nodeId + " 不存在");
+        }
+
+        if (!(startElement instanceof FlowNode)) {
+            return Collections.emptyList();
+        }
+
+        FlowNode startFlowNode = (FlowNode) startElement;
+        List<SequenceFlow> outgoingFlows = startFlowNode.getOutgoingFlows();
+        if (outgoingFlows == null || outgoingFlows.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<FlowElement> targets = resolveOutgoingTargets(bpmnModel, outgoingFlows, variables);
+        if (targets.isEmpty()) {
+            return Collections.emptyList(); // gateway 无匹配且无 default → 不判定
+        }
+
+        Set<String> visited = new HashSet<>();
+        List<String> endEventIds = new ArrayList<>();
+        boolean allTerminal = true;
+
+        for (FlowElement target : targets) {
+            if (!traverseForEndEvent(bpmnModel, target, variables, visited, endEventIds, false)) {
+                allTerminal = false;
+                break;
+            }
+        }
+
+        return allTerminal ? endEventIds : Collections.emptyList();
+    }
+
+    /**
+     * 沿 BPMN 图正向深度遍历，检测从 {@code element} 出发的所有路径是否均以 EndEvent 终止。
+     *
+     * <p>返回 false 表示该路径上存在 UserTask（不终止）；返回 true 表示该路径以 EndEvent 终止
+     * 或无法判定（模型断裂 / 无 outgoing 的非 EndEvent 节点）。</p>
+     *
+     * <p><b>UserTask 检测在 visited 之前执行</b>，防止回环场景下因 visited 截断导致漏判。</p>
+     *
+     * @param bpmnModel      当前 BPMN 模型
+     * @param element        当前遍历到的元素
+     * @param variables      变量上下文，用于评估网关条件
+     * @param visited        已访问节点 ID 集合（防无限循环）
+     * @param endEventIds    已收集的流程级 EndEvent ID（仅流程级 EndEvent 被收集）
+     * @param inSubProcess   是否在子流程内部遍历（子流程内部 EndEvent 不视为流程级终止）
+     * @return true 该路径上无 UserTask；false 该路径上存在 UserTask
+     */
+    private boolean traverseForEndEvent(BpmnModel bpmnModel, FlowElement element,
+                                         Map<String, Object> variables,
+                                         Set<String> visited, List<String> endEventIds,
+                                         boolean inSubProcess) {
+        // UserTask 必须在 visited 之前检查，防止回环漏判
+        if (element instanceof UserTask) {
+            return false;
+        }
+
+        // EndEvent: 流程级收集；子流程内部不收集
+        if (element instanceof EndEvent) {
+            if (!inSubProcess && !endEventIds.contains(element.getId())) {
+                endEventIds.add(element.getId());
+            }
+            return true;
+        }
+
+        // 防无限循环（在 UserTask/EndEvent 检查之后）
+        if (!visited.add(element.getId())) {
+            return true;
+        }
+
+        // SubProcess: 进入内部遍历，内部 EndEvent 仅表示子流程结束
+        if (element instanceof SubProcess) {
+            SubProcess subProcess = (SubProcess) element;
+            boolean foundUserTaskInSub = traverseSubProcessInternals(
+                    bpmnModel, subProcess, variables, visited, endEventIds);
+            if (foundUserTaskInSub) {
+                return false;
+            }
+            // 继续走 SubProcess 的 outgoing（由后续 FlowNode 块处理）
+        }
+
+        // CallActivity: 加载被调用流程定义并进入遍历
+        if (element instanceof CallActivity) {
+            CallActivity callActivity = (CallActivity) element;
+            String calledElement = callActivity.getCalledElement();
+            if (calledElement != null && !calledElement.isEmpty()) {
+                BpmnModel calledModel = bpmnModelCache.getBpmnModelByProcessKey(calledElement);
+                if (calledModel != null) {
+                    StartEvent calledStartEvent = findStartEvent(calledModel);
+                    if (calledStartEvent != null) {
+                        // CallActivity 内部 EndEvent 非流程级终止，需继续走后续节点
+                        boolean foundUserTaskInCall = traverseCallActivityInternals(
+                                bpmnModel, calledModel, calledStartEvent, variables, visited, endEventIds);
+                        if (foundUserTaskInCall) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+
+        // FlowNode: 遍历 outgoing flows
+        if (element instanceof FlowNode) {
+            FlowNode flowNode = (FlowNode) element;
+            List<SequenceFlow> outgoingFlows = flowNode.getOutgoingFlows();
+            if (outgoingFlows == null || outgoingFlows.isEmpty()) {
+                // 无 outgoing 且非 EndEvent → 无法判定，不阻断
+                return true;
+            }
+
+            List<FlowElement> targets = resolveOutgoingTargets(bpmnModel, outgoingFlows, variables);
+
+            for (FlowElement target : targets) {
+                if (!traverseForEndEvent(bpmnModel, target, variables, visited, endEventIds, inSubProcess)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // 非 FlowNode（理论不应到达）
+        return true;
+    }
+
+    /**
+     * 遍历 SubProcess 内部节点。返回 true 表示内部发现 UserTask。
+     */
+    private boolean traverseSubProcessInternals(BpmnModel bpmnModel, SubProcess subProcess,
+                                                  Map<String, Object> variables,
+                                                  Set<String> visited, List<String> endEventIds) {
+        if (subProcess.getFlowElements() == null) {
+            return false;
+        }
+        for (FlowElement subElement : subProcess.getFlowElements()) {
+            if (subElement instanceof StartEvent && subElement instanceof FlowNode) {
+                FlowNode subStart = (FlowNode) subElement;
+                List<SequenceFlow> subOutgoing = subStart.getOutgoingFlows();
+                if (subOutgoing != null) {
+                    for (SequenceFlow flow : subOutgoing) {
+                        FlowElement target = bpmnModel.getFlowElement(flow.getTargetRef());
+                        if (target != null) {
+                            // inSubProcess=true: 子流程内部 EndEvent 不收集
+                            if (!traverseForEndEvent(bpmnModel, target, variables, visited, endEventIds, true)) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 遍历 CallActivity 引用的流程定义内部节点。返回 true 表示内部发现 UserTask。
+     */
+    private boolean traverseCallActivityInternals(BpmnModel parentModel, BpmnModel calledModel,
+                                                    StartEvent startEvent,
+                                                    Map<String, Object> variables,
+                                                    Set<String> visited, List<String> endEventIds) {
+        if (startEvent instanceof FlowNode) {
+            FlowNode startFlowNode = (FlowNode) startEvent;
+            List<SequenceFlow> outgoing = startFlowNode.getOutgoingFlows();
+            if (outgoing != null) {
+                for (SequenceFlow flow : outgoing) {
+                    FlowElement target = calledModel.getFlowElement(flow.getTargetRef());
+                    if (target != null) {
+                        // 被调用流程内部 EndEvent 不视为流程级终止
+                        if (!traverseForEndEvent(calledModel, target, variables, visited, endEventIds, true)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 从 outgoing flows 解析目标元素，支持条件表达式过滤。
+     * 当 variables 为非 null 时评估条件；为 null 时不评估，全部返回。
+     *
+     * @return 过滤后的目标元素列表；全部被过滤掉时返回空列表
+     */
+    private List<FlowElement> resolveOutgoingTargets(BpmnModel model,
+                                                       List<SequenceFlow> outgoingFlows,
+                                                       Map<String, Object> variables) {
+        List<FlowElement> result = new ArrayList<>();
+        for (SequenceFlow flow : outgoingFlows) {
+            if (variables != null && flow.getConditionExpression() != null
+                    && !flow.getConditionExpression().isEmpty()) {
+                if (!evaluateCondition(flow.getConditionExpression(), variables)) {
+                    continue;
+                }
+            }
+            FlowElement target = model.getFlowElement(flow.getTargetRef());
+            if (target != null) {
+                result.add(target);
+            }
+        }
+        return result;
     }
 
     /**

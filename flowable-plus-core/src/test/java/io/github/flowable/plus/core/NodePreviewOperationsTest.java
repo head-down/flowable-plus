@@ -549,6 +549,80 @@ public class NodePreviewOperationsTest {
                 .hasMessageContaining("taskId");
     }
 
+    /**
+     * 紧邻遍历无 UserTask 但下游为 EndEvent → 应返回 end=true 的 VO。
+     */
+    @Test
+    public void testGetAdjacentTaskNodesEndSignal() {
+        String taskId = "task-001";
+        String processInstanceId = "pi-001";
+        String definitionId = "leave:1:abc";
+
+        Task task = mockTask(taskId, definitionId, processInstanceId, "nodeA");
+        when(mockRuntimeService.getVariables(processInstanceId)).thenReturn(new HashMap<>());
+
+        when(mockNodeFinder.findAdjacentUserTasks(definitionId, "nodeA", new HashMap<>()))
+                .thenReturn(Collections.emptyList());
+        when(mockNodeFinder.findForwardEndEvents(definitionId, "nodeA", new HashMap<>()))
+                .thenReturn(Collections.singletonList("endEvent1"));
+
+        List<NextTaskNodeVO> result = nodePreviewWorkflow.getAdjacentTaskNodes(processInstanceId, taskId);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getTaskCode()).isEqualTo(NextTaskNodeVO.END_TASK_CODE);
+        assertThat(result.get(0).getTaskName()).isEqualTo("流程结束");
+        assertThat(result.get(0).isEnd()).isTrue();
+    }
+
+    /**
+     * 紧邻遍历无 UserTask 且 findForwardEndEvents 也返回空 → 返回空列表。
+     */
+    @Test
+    public void testGetAdjacentTaskNodesEmptyNoEndSignal() {
+        String taskId = "task-001";
+        String processInstanceId = "pi-001";
+        String definitionId = "leave:1:abc";
+
+        Task task = mockTask(taskId, definitionId, processInstanceId, "nodeA");
+        when(mockRuntimeService.getVariables(processInstanceId)).thenReturn(new HashMap<>());
+
+        when(mockNodeFinder.findAdjacentUserTasks(definitionId, "nodeA", new HashMap<>()))
+                .thenReturn(Collections.emptyList());
+        when(mockNodeFinder.findForwardEndEvents(definitionId, "nodeA", new HashMap<>()))
+                .thenReturn(Collections.emptyList());
+
+        List<NextTaskNodeVO> result = nodePreviewWorkflow.getAdjacentTaskNodes(processInstanceId, taskId);
+
+        assertThat(result).isEmpty();
+    }
+
+    // ======================== getNextTaskNodes EndSignal ========================
+
+    /**
+     * 全遍历无 UserTask 但下游为 EndEvent → 应返回 end=true 的 VO。
+     */
+    @Test
+    public void testGetNextTaskNodesEndSignal() {
+        String taskId = "task-001";
+        String processInstanceId = "pi-001";
+        String definitionId = "leave:1:abc";
+
+        Task task = mockTask(taskId, definitionId, processInstanceId, "nodeA");
+        when(mockRuntimeService.getVariables(processInstanceId)).thenReturn(new HashMap<>());
+
+        when(mockNodeFinder.findNextUserTasks(definitionId, "nodeA", processInstanceId, new HashMap<>()))
+                .thenReturn(Collections.emptyList());
+        when(mockNodeFinder.findForwardEndEvents(definitionId, "nodeA", new HashMap<>()))
+                .thenReturn(Collections.singletonList("endEvent1"));
+
+        List<NextTaskNodeVO> result = nodePreviewWorkflow.getNextTaskNodes(processInstanceId, taskId);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getTaskCode()).isEqualTo(NextTaskNodeVO.END_TASK_CODE);
+        assertThat(result.get(0).getTaskName()).isEqualTo("流程结束");
+        assertThat(result.get(0).isEnd()).isTrue();
+    }
+
     // ======================== getAdjacentTaskApprovers ========================
 
     @Test

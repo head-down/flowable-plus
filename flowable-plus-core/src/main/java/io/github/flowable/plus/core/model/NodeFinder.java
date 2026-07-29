@@ -91,6 +91,22 @@ public interface NodeFinder {
                                         String processInstanceId);
 
     /**
+     * 从指定节点正向遍历，检查是否所有可达路径均以 EndEvent 终止且中途不经由 UserTask。
+     * 若任一可达分支存在 UserTask，则返回空列表；否则返回可达的 EndEvent 节点 ID 列表。
+     *
+     * <p>空列表表示"未检测到终止路径"，可能是存在下游 UserTask 或遍历无法判定。
+     * 调用方可据此判断当前节点是否为流程最后一个审批节点。</p>
+     *
+     * @param processDefinitionId 流程定义 ID，不可为 null
+     * @param nodeId              起始节点 ID（当前任务的 definitionKey），不可为 null
+     * @param variables           变量上下文（用于评估网关条件），为 null 时不评估，全部展开
+     * @return 可达的 EndEvent ID 列表；无终止路径或无法判定时返回空列表
+     * @throws NotFoundException 流程定义或节点不存在时抛出
+     */
+    List<String> findForwardEndEvents(String processDefinitionId, String nodeId,
+                                       Map<String, Object> variables);
+
+    /**
      * 根据节点 ID 获取 BPMN 模型中的节点名称。
      *
      * @param processDefinitionId 流程定义 ID，不可为 null
