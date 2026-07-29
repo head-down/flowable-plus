@@ -95,19 +95,19 @@ class EventObjectsTest {
         assertThat(e.getWithdrawTime()).isEqualTo(NOW);
     }
 
-    // ======================== ProcessRevokedEvent ========================
+    // ======================== ProcessInvalidatedEvent ========================
 
     @Test
-    void processRevokedEvent_shouldExposeAllFields() {
-        ProcessRevokedEvent e = ProcessRevokedEvent.of(PID, "leave", "biz-1", "userA", "撤销原因", NOW);
+    void processInvalidatedEvent_shouldExposeAllFields() {
+        ProcessInvalidatedEvent e = ProcessInvalidatedEvent.of(PID, "leave", "biz-1", "userA", "作废原因", NOW);
 
         assertThat(e.getProcessInstanceId()).isEqualTo(PID);
         assertThat(e.getProcessDefinitionKey()).isEqualTo("leave");
         assertThat(e.getBusinessKey()).isEqualTo("biz-1");
         assertThat(e.getOperator()).isEqualTo("userA");
-        assertThat(e.getReason()).isEqualTo("撤销原因");
+        assertThat(e.getReason()).isEqualTo("作废原因");
         assertThat(e.getEventTime()).isEqualTo(NOW);
-        assertThat(e.getRevokeTime()).isEqualTo(NOW);
+        assertThat(e.getInvalidateTime()).isEqualTo(NOW);
     }
 
     // ======================== TaskDelegatedEvent ========================

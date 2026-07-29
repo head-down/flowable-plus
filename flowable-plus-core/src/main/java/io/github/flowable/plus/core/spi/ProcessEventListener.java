@@ -1,7 +1,7 @@
 package io.github.flowable.plus.core.spi;
 
 import io.github.flowable.plus.core.event.ProcessEndedEvent;
-import io.github.flowable.plus.core.event.ProcessRevokedEvent;
+import io.github.flowable.plus.core.event.ProcessInvalidatedEvent;
 import io.github.flowable.plus.core.event.ProcessStartedEvent;
 import io.github.flowable.plus.core.event.TaskCompletedEvent;
 import io.github.flowable.plus.core.event.TaskDelegatedEvent;
@@ -34,7 +34,12 @@ public interface ProcessEventListener {
 
     default void onTaskWithdrawn(TaskWithdrawnEvent event) {}
 
-    default void onProcessRevoked(ProcessRevokedEvent event) {}
+    /**
+     * 流程作废事件回调。流程发起人作废整个流程实例时触发。
+     *
+     * @param event 作废事件
+     */
+    default void onProcessInvalidated(ProcessInvalidatedEvent event) {}
 
     default void onTaskDelegated(TaskDelegatedEvent event) {}
 

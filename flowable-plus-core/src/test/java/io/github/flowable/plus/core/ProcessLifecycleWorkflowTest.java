@@ -486,15 +486,15 @@ public class ProcessLifecycleWorkflowTest {
         when(taskQuery.active()).thenReturn(taskQuery);
         when(taskQuery.singleResult()).thenReturn(activeTask);
 
-        workflow.revokeProcess("pi-001", "发起人撤销");
+        workflow.invalidateProcess("pi-001", "发起人作废");
 
-        verify(mockRuntimeService).deleteProcessInstance("pi-001", "发起人撤销");
-        verify(mockTaskService).addComment("task-001", "pi-001", CommentType.REVOKE.name(), "发起人撤销");
+        verify(mockRuntimeService).deleteProcessInstance("pi-001", "发起人作废");
+        verify(mockTaskService).addComment("task-001", "pi-001", CommentType.REVOKE.name(), "发起人作废");
     }
 
     @Test
     void testRevokeProcessRejectsNullProcessInstanceId() {
-        assertThatThrownBy(() -> workflow.revokeProcess(null, "撤销"))
+        assertThatThrownBy(() -> workflow.invalidateProcess(null, "作废"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("processInstanceId");
     }
@@ -506,7 +506,7 @@ public class ProcessLifecycleWorkflowTest {
         when(histPiQuery.processInstanceId("pi-nope")).thenReturn(histPiQuery);
         when(histPiQuery.singleResult()).thenReturn(null);
 
-        assertThatThrownBy(() -> workflow.revokeProcess("pi-nope", "撤销"))
+        assertThatThrownBy(() -> workflow.invalidateProcess("pi-nope", "作废"))
                 .isInstanceOf(NotFoundException.class)
                 .hasMessageContaining("不存在");
     }
@@ -520,9 +520,9 @@ public class ProcessLifecycleWorkflowTest {
         when(histPiQuery.processInstanceId("pi-001")).thenReturn(histPiQuery);
         when(histPiQuery.singleResult()).thenReturn(hpi);
 
-        assertThatThrownBy(() -> workflow.revokeProcess("pi-001", "撤销"))
+        assertThatThrownBy(() -> workflow.invalidateProcess("pi-001", "作废"))
                 .isInstanceOf(PermissionDeniedException.class)
-                .hasMessageContaining("无权撤销");
+                .hasMessageContaining("无权作废");
     }
 
     @Test
@@ -539,7 +539,7 @@ public class ProcessLifecycleWorkflowTest {
         when(mockPiQuery.processInstanceId("pi-001")).thenReturn(mockPiQuery);
         when(mockPiQuery.singleResult()).thenReturn(null);
 
-        assertThatThrownBy(() -> workflow.revokeProcess("pi-001", "撤销"))
+        assertThatThrownBy(() -> workflow.invalidateProcess("pi-001", "作废"))
                 .isInstanceOf(TaskAlreadyCompletedException.class)
                 .hasMessageContaining("已结束");
     }
@@ -568,7 +568,7 @@ public class ProcessLifecycleWorkflowTest {
         when(taskQuery.active()).thenReturn(taskQuery);
         when(taskQuery.singleResult()).thenReturn(activeTask);
 
-        assertThatThrownBy(() -> workflow.revokeProcess("pi-001", "撤销"))
+        assertThatThrownBy(() -> workflow.invalidateProcess("pi-001", "作废"))
                 .isInstanceOf(TaskAlreadyCompletedException.class)
                 .hasMessageContaining("已推进后续节点");
     }
@@ -598,7 +598,7 @@ public class ProcessLifecycleWorkflowTest {
     }
 
     @Test
-    void revokeProcessShouldPublishProcessRevokedAndEndedEvents() {
+    void invalidateProcessShouldPublishOnlyProcessInvalidatedEvent() {
         EventPublisher mockEp = mock(EventPublisher.class);
         ProcessLifecycleWorkflow wf = createWorkflowWithEventPublisher(mockEp);
 
@@ -627,10 +627,11 @@ public class ProcessLifecycleWorkflowTest {
         when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
         when(mockTask.getTaskDefinitionKey()).thenReturn("initNode");
 
-        wf.revokeProcess("pi-001", "撤销原因");
+        wf.invalidateProcess("pi-001", "作废原因");
 
-        verify(mockEp).publish(any(io.github.flowable.plus.core.event.ProcessRevokedEvent.class));
-        verify(mockEp).publish(any(io.github.flowable.plus.core.event.ProcessEndedEvent.class));
+        verify(mockEp).publish(any(io.github.flowable.plus.core.event.ProcessInvalidatedEvent.class));
+        // 验证撤销不会触发流程结束事件
+        verify(mockEp, never()).publish(any(io.github.flowable.plus.core.event.ProcessEndedEvent.class));
     }
 
     // ======================== Test Helpers ========================

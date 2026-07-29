@@ -45,7 +45,7 @@ class DefaultEventPublisherTest {
         assertThat(l1.startedCount).isEqualTo(0);
         assertThat(l1.rejectedCount).isEqualTo(0);
         assertThat(l1.withdrawnCount).isEqualTo(0);
-        assertThat(l1.revokedCount).isEqualTo(0);
+        assertThat(l1.invalidatedCount).isEqualTo(0);
         assertThat(l1.delegatedCount).isEqualTo(0);
         assertThat(l1.transferredCount).isEqualTo(0);
         assertThat(l1.endedCount).isEqualTo(0);
@@ -60,7 +60,7 @@ class DefaultEventPublisherTest {
         publisher.publish(TaskCompletedEvent.of("t1", "pi-1", "审批", "n1", "userA", null, NOW));
         publisher.publish(TaskRejectedEvent.of("t2", "pi-1", "审批", "n2", "userB", "不同意", NOW));
         publisher.publish(TaskWithdrawnEvent.of("t3", "pi-1", "审批", "n3", "userC", "userD", "撤回", NOW));
-        publisher.publish(ProcessRevokedEvent.of("pi-1", "leave", "biz-1", "userA", "撤销", NOW));
+        publisher.publish(ProcessInvalidatedEvent.of("pi-1", "leave", "biz-1", "userA", "作废", NOW));
         publisher.publish(TaskDelegatedEvent.of("t4", "pi-1", "审批", "n4", "userE", "userF", null, NOW));
         publisher.publish(TaskTransferredEvent.of("t5", "pi-1", "审批", "n5", "userG", "userH", null, NOW));
         publisher.publish(ProcessEndedEvent.of("pi-1", "leave", "biz-1", NOW));
@@ -69,7 +69,7 @@ class DefaultEventPublisherTest {
         assertThat(l.completedCount).isEqualTo(1);
         assertThat(l.rejectedCount).isEqualTo(1);
         assertThat(l.withdrawnCount).isEqualTo(1);
-        assertThat(l.revokedCount).isEqualTo(1);
+        assertThat(l.invalidatedCount).isEqualTo(1);
         assertThat(l.delegatedCount).isEqualTo(1);
         assertThat(l.transferredCount).isEqualTo(1);
         assertThat(l.endedCount).isEqualTo(1);
@@ -122,7 +122,7 @@ class DefaultEventPublisherTest {
         int completedCount;
         int rejectedCount;
         int withdrawnCount;
-        int revokedCount;
+        int invalidatedCount;
         int delegatedCount;
         int transferredCount;
         int endedCount;
@@ -140,7 +140,7 @@ class DefaultEventPublisherTest {
         public void onTaskWithdrawn(TaskWithdrawnEvent e) { withdrawnCount++; }
 
         @Override
-        public void onProcessRevoked(ProcessRevokedEvent e) { revokedCount++; }
+        public void onProcessInvalidated(ProcessInvalidatedEvent e) { invalidatedCount++; }
 
         @Override
         public void onTaskDelegated(TaskDelegatedEvent e) { delegatedCount++; }

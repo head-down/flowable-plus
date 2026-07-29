@@ -5,35 +5,35 @@ import io.github.flowable.plus.core.spi.ProcessEventListener;
 import java.util.Date;
 
 /**
- * 流程撤销事件。
+ * 流程作废事件。
  *
  * @author flowable-plus
  */
-public class ProcessRevokedEvent implements DispatchableEvent {
+public class ProcessInvalidatedEvent implements DispatchableEvent {
 
     private final String processInstanceId;
     private final String processDefinitionKey;
     private final String businessKey;
     private final String operator;
     private final String reason;
-    private final Date revokeTime;
+    private final Date invalidateTime;
 
-    private ProcessRevokedEvent(String processInstanceId, String processDefinitionKey,
-                                String businessKey, String operator, String reason,
-                                Date revokeTime) {
+    protected ProcessInvalidatedEvent(String processInstanceId, String processDefinitionKey,
+                                       String businessKey, String operator, String reason,
+                                       Date invalidateTime) {
         this.processInstanceId = processInstanceId;
         this.processDefinitionKey = processDefinitionKey;
         this.businessKey = businessKey;
         this.operator = operator;
         this.reason = reason;
-        this.revokeTime = revokeTime;
+        this.invalidateTime = invalidateTime;
     }
 
-    public static ProcessRevokedEvent of(String processInstanceId, String processDefinitionKey,
-                                          String businessKey, String operator, String reason,
-                                          Date revokeTime) {
-        return new ProcessRevokedEvent(processInstanceId, processDefinitionKey,
-                businessKey, operator, reason, revokeTime);
+    public static ProcessInvalidatedEvent of(String processInstanceId, String processDefinitionKey,
+                                              String businessKey, String operator, String reason,
+                                              Date invalidateTime) {
+        return new ProcessInvalidatedEvent(processInstanceId, processDefinitionKey,
+                businessKey, operator, reason, invalidateTime);
     }
 
     @Override
@@ -43,7 +43,7 @@ public class ProcessRevokedEvent implements DispatchableEvent {
 
     @Override
     public Date getEventTime() {
-        return revokeTime;
+        return invalidateTime;
     }
 
     public String getProcessDefinitionKey() {
@@ -62,18 +62,18 @@ public class ProcessRevokedEvent implements DispatchableEvent {
         return reason;
     }
 
-    public Date getRevokeTime() {
-        return revokeTime;
+    public Date getInvalidateTime() {
+        return invalidateTime;
     }
 
     @Override
     public void accept(ProcessEventListener listener) {
-        listener.onProcessRevoked(this);
+        listener.onProcessInvalidated(this);
     }
 
     @Override
     public String toString() {
-        return "ProcessRevokedEvent{processInstanceId='" + processInstanceId
+        return "ProcessInvalidatedEvent{processInstanceId='" + processInstanceId
                 + "', processDefinitionKey='" + processDefinitionKey
                 + "', operator='" + operator + "'}";
     }

@@ -6,8 +6,7 @@ import io.github.flowable.plus.core.domain.PlusProcessInstance;
 import io.github.flowable.plus.core.domain.PlusTask;
 import io.github.flowable.plus.core.enums.CommentType;
 import io.github.flowable.plus.core.event.EventPublisher;
-import io.github.flowable.plus.core.event.ProcessEndedEvent;
-import io.github.flowable.plus.core.event.ProcessRevokedEvent;
+import io.github.flowable.plus.core.event.ProcessInvalidatedEvent;
 import io.github.flowable.plus.core.event.ProcessStartedEvent;
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
@@ -95,7 +94,7 @@ public class ProcessLifecycleWorkflow implements ProcessLifecycleOperations {
     }
 
     @Override
-    public void revokeProcess(String processInstanceId, String reason) {
+    public void invalidateProcess(String processInstanceId, String reason) {
         if (processInstanceId == null) {
             throw new IllegalArgumentException("processInstanceId 不可为 null");
         }
@@ -111,14 +110,14 @@ public class ProcessLifecycleWorkflow implements ProcessLifecycleOperations {
 
         if (!currentUserId.equals(historicPi.getStartUserId())) {
             throw new PermissionDeniedException(
-                    "用户 " + currentUserId + " 不是流程实例 " + processInstanceId + " 的发起人，无权撤销");
+                    "用户 " + currentUserId + " 不是流程实例 " + processInstanceId + " 的发起人，无权作废");
         }
 
         ProcessInstance runtimePi = runtimeService.createProcessInstanceQuery()
                 .processInstanceId(processInstanceId).singleResult();
         if (runtimePi == null) {
             throw new TaskAlreadyCompletedException(
-                    "流程实例 " + processInstanceId + " 已结束，无法撤销");
+                    "流程实例 " + processInstanceId + " 已结束，无法作废");
         }
 
         String initiatorNode = nodeFinder.findInitiatorNode(historicPi.getProcessDefinitionId());
@@ -127,22 +126,18 @@ public class ProcessLifecycleWorkflow implements ProcessLifecycleOperations {
         PlusTask activeTask = activeTaskObj != null ? PlusTask.from(activeTaskObj) : null;
         if (activeTask == null || !initiatorNode.equals(activeTask.getTaskDefinitionKey())) {
             throw new TaskAlreadyCompletedException(
-                    "流程实例 " + processInstanceId + " 已推进后续节点，无法撤销");
+                    "流程实例 " + processInstanceId + " 已推进后续节点，无法作废");
         }
 
-        String commentText = StrUtil.isNotBlank(reason) ? reason : "撤销流程实例";
+        String commentText = StrUtil.isNotBlank(reason) ? reason : "作废流程实例";
         taskService.addComment(activeTask.getId(), processInstanceId, CommentType.REVOKE.name(), commentText);
 
         runtimeService.deleteProcessInstance(processInstanceId, reason);
 
         if (eventPublisher != null) {
-            eventPublisher.publish(ProcessRevokedEvent.of(processInstanceId,
+            eventPublisher.publish(ProcessInvalidatedEvent.of(processInstanceId,
                     historicPi.getProcessDefinitionKey(), historicPi.getBusinessKey(),
                     currentUserId, reason, new java.util.Date()));
-            // 撤销后流程已确定结束
-            eventPublisher.publish(ProcessEndedEvent.of(processInstanceId,
-                    historicPi.getProcessDefinitionKey(), historicPi.getBusinessKey(),
-                    new java.util.Date()));
         }
     }
 

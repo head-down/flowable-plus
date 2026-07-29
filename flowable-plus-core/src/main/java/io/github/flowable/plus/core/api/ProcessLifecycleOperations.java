@@ -26,16 +26,16 @@ public interface ProcessLifecycleOperations {
     PlusProcessInstance startProcess(String processDefinitionKey, String businessKey, Map<String, Object> variables);
 
     /**
-     * 撤销整个流程实例。
+     * 作废整个流程实例。
      *
-     * <p>流程发起人撤销运行中的流程实例，采用软删除策略——
+     * <p>流程发起人作废运行中的流程实例，采用软删除策略——
      * 删除运行时实例但保留历史记录供审计。</p>
      *
      * @param processInstanceId 流程实例 ID，不可为 null
-     * @param reason            撤销原因，可为 null
+     * @param reason            作废原因，可为 null
      * @throws NotFoundException            流程实例不存在时抛出
      * @throws TaskAlreadyCompletedException 流程已结束或已推进后续节点时抛出
      * @throws PermissionDeniedException     调用者不是流程发起人时抛出
      */
-    void revokeProcess(String processInstanceId, String reason);
+    void invalidateProcess(String processInstanceId, String reason);
 }

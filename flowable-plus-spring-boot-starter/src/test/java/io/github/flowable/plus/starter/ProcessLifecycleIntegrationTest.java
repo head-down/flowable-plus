@@ -35,8 +35,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * Layer 4 集成测试：流程生命周期操作。
  *
- * <p>使用 test-simple-linear.bpmn20.xml 测试 startProcess / revokeProcess。
- * 验证发起流程、撤销流程（权限校验和状态校验）。</p>
+ * <p>使用 test-simple-linear.bpmn20.xml 测试 startProcess / invalidateProcess。
+ * 验证发起流程、作废流程（权限校验和状态校验）。</p>
  */
 @SpringBootTest(classes = BpmnQueryIntegrationTestApplication.class)
 @Import(SharedTestConfiguration.class)
@@ -143,10 +143,10 @@ class ProcessLifecycleIntegrationTest extends AbstractIntegrationTest {
         assertThat(result.getBusinessKey()).isNull();
     }
 
-    // ======================== 撤销流程 ========================
+    // ======================== 作废流程 ========================
 
     @Test
-    void testRevokeProcessAtFirstNode() {
+    void testInvalidateProcessAtFirstNode() {
         DynamicUserContext.set(INITIATOR);
 
         Map<String, Object> variables = new HashMap<>();
@@ -154,12 +154,12 @@ class ProcessLifecycleIntegrationTest extends AbstractIntegrationTest {
         variables.put("approver", APPROVER);
 
         PlusProcessInstance result = processLifecycleWorkflow.startProcess(
-                PROCESS_KEY, "biz-revoke-001", variables);
+                PROCESS_KEY, "biz-invalidate-001", variables);
 
         processInstanceIds.add(result.getProcessInstanceId());
 
-        // 撤销流程（仍在首个节点）
-        processLifecycleWorkflow.revokeProcess(result.getProcessInstanceId(), "发起人撤销");
+        // 作废流程（仍在首个节点）
+        processLifecycleWorkflow.invalidateProcess(result.getProcessInstanceId(), "发起人作废");
 
         // 验证流程已结束
         ProcessInstance pi = runtimeService.createProcessInstanceQuery()
@@ -168,7 +168,7 @@ class ProcessLifecycleIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void testRevokeProcessAfterAdvanceShouldFail() {
+    void testInvalidateProcessAfterAdvanceShouldFail() {
         DynamicUserContext.set(INITIATOR);
 
         Map<String, Object> variables = new HashMap<>();
@@ -176,7 +176,7 @@ class ProcessLifecycleIntegrationTest extends AbstractIntegrationTest {
         variables.put("approver", APPROVER);
 
         PlusProcessInstance result = processLifecycleWorkflow.startProcess(
-                PROCESS_KEY, "biz-revoke-002", variables);
+                PROCESS_KEY, "biz-invalidate-002", variables);
 
         processInstanceIds.add(result.getProcessInstanceId());
 
@@ -188,14 +188,14 @@ class ProcessLifecycleIntegrationTest extends AbstractIntegrationTest {
         taskService.claim(draftTask.getId(), INITIATOR);
         taskService.complete(draftTask.getId());
 
-        // 此时流程已推进到 deptApprove → 撤销应失败
-        assertThatThrownBy(() -> processLifecycleWorkflow.revokeProcess(
-                result.getProcessInstanceId(), "试图撤销已推进的流程"))
+        // 此时流程已推进到 deptApprove → 作废应失败
+        assertThatThrownBy(() -> processLifecycleWorkflow.invalidateProcess(
+                result.getProcessInstanceId(), "试图作废已推进的流程"))
                 .isInstanceOf(TaskAlreadyCompletedException.class);
     }
 
     @Test
-    void testRevokeProcessByWrongUserShouldFail() {
+    void testInvalidateProcessByWrongUserShouldFail() {
         DynamicUserContext.set(INITIATOR);
 
         Map<String, Object> variables = new HashMap<>();
@@ -203,14 +203,14 @@ class ProcessLifecycleIntegrationTest extends AbstractIntegrationTest {
         variables.put("approver", APPROVER);
 
         PlusProcessInstance result = processLifecycleWorkflow.startProcess(
-                PROCESS_KEY, "biz-revoke-003", variables);
+                PROCESS_KEY, "biz-invalidate-003", variables);
 
         processInstanceIds.add(result.getProcessInstanceId());
 
-        // 其他用户尝试撤销 → 应失败
+        // 其他用户尝试作废 → 应失败
         DynamicUserContext.set(OTHER_USER);
-        assertThatThrownBy(() -> processLifecycleWorkflow.revokeProcess(
-                result.getProcessInstanceId(), "非发起人撤销"))
+        assertThatThrownBy(() -> processLifecycleWorkflow.invalidateProcess(
+                result.getProcessInstanceId(), "非发起人作废"))
                 .isInstanceOf(PermissionDeniedException.class);
     }
 
