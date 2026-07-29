@@ -4,6 +4,7 @@ import io.github.flowable.plus.core.api.HistoryOperations;
 import io.github.flowable.plus.core.workflow.DiagramWorkflow;
 import io.github.flowable.plus.core.workflow.HistoryWorkflow;
 import io.github.flowable.plus.core.workflow.NodePreviewWorkflow;
+import io.github.flowable.plus.core.workflow.PersonnelWorkflow;
 import io.github.flowable.plus.core.workflow.ProcessQueryWorkflow;
 import io.github.flowable.plus.core.workflow.TaskQueryModule;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,7 +21,8 @@ import static org.mockito.Mockito.mock;
  * 节点预览委托给 {@link NodePreviewWorkflow}，
  * 流程追踪委托给 {@link ProcessQueryWorkflow}，
  * 流程图委托给 {@link DiagramWorkflow}，
- * 审批历史委托给 {@link HistoryWorkflow}（{@link HistoryOperations}）。</p>
+ * 审批历史委托给 {@link HistoryWorkflow}（{@link HistoryOperations}），
+ * 审批人员委托给 {@link PersonnelWorkflow}。</p>
  */
 public class FlowablePlusTest {
 
@@ -29,6 +31,7 @@ public class FlowablePlusTest {
     private NodePreviewWorkflow mockNodePreviewWorkflow;
     private DiagramWorkflow mockDiagramWorkflow;
     private HistoryWorkflow mockHistoryWorkflow;
+    private PersonnelWorkflow mockPersonnelWorkflow;
 
     @BeforeEach
     public void setUp() {
@@ -37,12 +40,13 @@ public class FlowablePlusTest {
         mockNodePreviewWorkflow = mock(NodePreviewWorkflow.class);
         mockDiagramWorkflow = mock(DiagramWorkflow.class);
         mockHistoryWorkflow = mock(HistoryWorkflow.class);
+        mockPersonnelWorkflow = mock(PersonnelWorkflow.class);
     }
 
     @Test
     public void testConstructorRejectsNullTaskQueryModule() {
         assertThatThrownBy(() -> new FlowablePlus(null, mockProcessQueryWorkflow, mockNodePreviewWorkflow,
-                mockDiagramWorkflow, mockHistoryWorkflow))
+                mockDiagramWorkflow, mockHistoryWorkflow, mockPersonnelWorkflow))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("TaskQueryModule 不可为 null");
     }
@@ -50,7 +54,7 @@ public class FlowablePlusTest {
     @Test
     public void testConstructorRejectsNullProcessQueryWorkflow() {
         assertThatThrownBy(() -> new FlowablePlus(mockTaskQueryModule, null, mockNodePreviewWorkflow,
-                mockDiagramWorkflow, mockHistoryWorkflow))
+                mockDiagramWorkflow, mockHistoryWorkflow, mockPersonnelWorkflow))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("ProcessQueryWorkflow 不可为 null");
     }
@@ -58,7 +62,7 @@ public class FlowablePlusTest {
     @Test
     public void testConstructorRejectsNullNodePreviewWorkflow() {
         assertThatThrownBy(() -> new FlowablePlus(mockTaskQueryModule, mockProcessQueryWorkflow, null,
-                mockDiagramWorkflow, mockHistoryWorkflow))
+                mockDiagramWorkflow, mockHistoryWorkflow, mockPersonnelWorkflow))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("NodePreviewWorkflow 不可为 null");
     }
@@ -66,7 +70,7 @@ public class FlowablePlusTest {
     @Test
     public void testConstructorRejectsNullDiagramWorkflow() {
         assertThatThrownBy(() -> new FlowablePlus(mockTaskQueryModule, mockProcessQueryWorkflow,
-                mockNodePreviewWorkflow, null, mockHistoryWorkflow))
+                mockNodePreviewWorkflow, null, mockHistoryWorkflow, mockPersonnelWorkflow))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("DiagramWorkflow 不可为 null");
     }
@@ -74,8 +78,16 @@ public class FlowablePlusTest {
     @Test
     public void testConstructorRejectsNullHistoryWorkflow() {
         assertThatThrownBy(() -> new FlowablePlus(mockTaskQueryModule, mockProcessQueryWorkflow,
-                mockNodePreviewWorkflow, mockDiagramWorkflow, null))
+                mockNodePreviewWorkflow, mockDiagramWorkflow, null, mockPersonnelWorkflow))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("HistoryWorkflow 不可为 null");
+    }
+
+    @Test
+    public void testConstructorRejectsNullPersonnelWorkflow() {
+        assertThatThrownBy(() -> new FlowablePlus(mockTaskQueryModule, mockProcessQueryWorkflow,
+                mockNodePreviewWorkflow, mockDiagramWorkflow, mockHistoryWorkflow, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("PersonnelWorkflow 不可为 null");
     }
 }

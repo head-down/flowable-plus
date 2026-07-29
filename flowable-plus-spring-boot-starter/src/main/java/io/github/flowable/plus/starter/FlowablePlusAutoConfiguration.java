@@ -16,6 +16,7 @@ import io.github.flowable.plus.core.FlowablePlus;
 import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.model.NodeFinder;
 import io.github.flowable.plus.core.workflow.NodePreviewWorkflow;
+import io.github.flowable.plus.core.workflow.PersonnelWorkflow;
 import io.github.flowable.plus.core.workflow.ProcessQueryWorkflow;
 import io.github.flowable.plus.core.workflow.TaskQueryModule;
 import io.github.flowable.plus.core.workflow.ProcessLifecycleWorkflow;
@@ -33,6 +34,7 @@ import io.github.flowable.plus.core.spi.IdentityResolver;
 import io.github.flowable.plus.core.spi.ProcessEventListener;
 import io.github.flowable.plus.core.spi.SkipInitiatorNodeFilter;
 import io.github.flowable.plus.core.spi.UserTaskTraversalFilter;
+import io.github.flowable.plus.core.spi.UserInfoResolver;
 
 import io.github.flowable.plus.core.spi.UserContext;
 import org.flowable.common.engine.impl.el.ExpressionManager;
@@ -499,18 +501,38 @@ public class FlowablePlusAutoConfiguration {
     }
 
     /**
+     * 注册 PersonnelWorkflow Bean。
+     *
+     * <p>封装审批人员分组查询（已审批/未审批）和用户信息补全。
+     * 应用可通过声明同名 Bean 替换默认实现。</p>
+     *
+     * @param taskService      Flowable 任务服务
+     * @param historyService   Flowable 历史服务
+     * @param userInfoResolver 用户信息解析器（可选，null 时人员信息字段不补全）
+     * @return PersonnelWorkflow 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public PersonnelWorkflow personnelWorkflow(TaskService taskService,
+                                                HistoryService historyService,
+                                                @Autowired(required = false) UserInfoResolver userInfoResolver) {
+        return new PersonnelWorkflow(taskService, historyService, userInfoResolver);
+    }
+
+    /**
      * 注册 FlowablePlus Bean。
      *
      * <p>当 {@code flowable.plus.enabled=true}（默认）时生效。
      * 待办/已办查询委托给 TaskQueryModule，节点预览委托给 NodePreviewWorkflow，
      * 流程追踪委托给 ProcessQueryWorkflow，流程图委托给 DiagramWorkflow，
-     * 审批历史委托给 HistoryWorkflow。</p>
+     * 审批历史委托给 HistoryWorkflow，审批人员委托给 PersonnelWorkflow。</p>
      *
      * @param taskQueryModule      待办/已办查询模块
      * @param processQueryWorkflow 流程追踪模块
      * @param nodePreviewWorkflow  节点预览模块
      * @param diagramWorkflow      流程图生成模块
      * @param historyWorkflow      审批历史查询模块
+     * @param personnelWorkflow    审批人员查询模块
      * @return FlowablePlus 实例
      */
     @Bean
@@ -520,9 +542,10 @@ public class FlowablePlusAutoConfiguration {
                                      ProcessQueryWorkflow processQueryWorkflow,
                                      NodePreviewWorkflow nodePreviewWorkflow,
                                      DiagramWorkflow diagramWorkflow,
-                                     HistoryWorkflow historyWorkflow) {
+                                     HistoryWorkflow historyWorkflow,
+                                     PersonnelWorkflow personnelWorkflow) {
         return new FlowablePlus(taskQueryModule, processQueryWorkflow, nodePreviewWorkflow,
-                diagramWorkflow, historyWorkflow);
+                diagramWorkflow, historyWorkflow, personnelWorkflow);
     }
 
     /**

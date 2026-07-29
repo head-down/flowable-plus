@@ -1,5 +1,6 @@
 package io.github.flowable.plus.core;
 
+import io.github.flowable.plus.core.vo.ApprovalPersonnelVO;
 import io.github.flowable.plus.core.vo.ApprovalRecordVO;
 import io.github.flowable.plus.core.vo.ApprovalTraceVO;
 import io.github.flowable.plus.core.vo.ApproverInfoVO;
@@ -16,6 +17,7 @@ import io.github.flowable.plus.core.domain.PageResult;
 import io.github.flowable.plus.core.dto.TaskQueryDTO;
 import io.github.flowable.plus.core.workflow.DiagramWorkflow;
 import io.github.flowable.plus.core.workflow.HistoryWorkflow;
+import io.github.flowable.plus.core.workflow.PersonnelWorkflow;
 import io.github.flowable.plus.core.workflow.ProcessQueryWorkflow;
 import io.github.flowable.plus.core.workflow.TaskQueryModule;
 import io.github.flowable.plus.core.workflow.NodePreviewWorkflow;
@@ -46,6 +48,7 @@ public class FlowablePlus implements QueryOperations, DiagramOperations, History
     private final NodePreviewWorkflow nodePreviewWorkflow;
     private final DiagramWorkflow diagramWorkflow;
     private final HistoryWorkflow historyWorkflow;
+    private final PersonnelWorkflow personnelWorkflow;
 
     /**
      * 构造器注入所有依赖。
@@ -55,12 +58,14 @@ public class FlowablePlus implements QueryOperations, DiagramOperations, History
      * @param nodePreviewWorkflow  节点预览模块，不可为 null
      * @param diagramWorkflow      流程图生成模块，不可为 null
      * @param historyWorkflow      审批历史查询模块，不可为 null
+     * @param personnelWorkflow    审批人员查询模块，不可为 null
      */
     public FlowablePlus(TaskQueryModule taskQueryModule,
                         ProcessQueryWorkflow processQueryWorkflow,
                         NodePreviewWorkflow nodePreviewWorkflow,
                         DiagramWorkflow diagramWorkflow,
-                        HistoryWorkflow historyWorkflow) {
+                        HistoryWorkflow historyWorkflow,
+                        PersonnelWorkflow personnelWorkflow) {
         if (taskQueryModule == null) {
             throw new IllegalArgumentException("TaskQueryModule 不可为 null");
         }
@@ -76,11 +81,15 @@ public class FlowablePlus implements QueryOperations, DiagramOperations, History
         if (historyWorkflow == null) {
             throw new IllegalArgumentException("HistoryWorkflow 不可为 null");
         }
+        if (personnelWorkflow == null) {
+            throw new IllegalArgumentException("PersonnelWorkflow 不可为 null");
+        }
         this.taskQueryModule = taskQueryModule;
         this.processQueryWorkflow = processQueryWorkflow;
         this.nodePreviewWorkflow = nodePreviewWorkflow;
         this.diagramWorkflow = diagramWorkflow;
         this.historyWorkflow = historyWorkflow;
+        this.personnelWorkflow = personnelWorkflow;
     }
 
     // ======================== QueryOperations: 待办/已办 (委托给 TaskQueryModule) ========================
@@ -173,6 +182,11 @@ public class FlowablePlus implements QueryOperations, DiagramOperations, History
     @Override
     public String getBusinessKeyByProcessInstanceId(String processInstanceId) {
         return processQueryWorkflow.getBusinessKeyByProcessInstanceId(processInstanceId);
+    }
+
+    @Override
+    public ApprovalPersonnelVO getApprovalPersonnel(String processInstanceId) {
+        return personnelWorkflow.getApprovalPersonnel(processInstanceId);
     }
 
     // ======================== DiagramOperations: 流程图 (委托给 DiagramWorkflow) ========================

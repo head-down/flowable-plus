@@ -22,6 +22,7 @@ import io.github.flowable.plus.core.support.VOAssembler;
 import io.github.flowable.plus.core.workflow.DiagramWorkflow;
 import io.github.flowable.plus.core.workflow.HistoryWorkflow;
 import io.github.flowable.plus.core.workflow.NodePreviewWorkflow;
+import io.github.flowable.plus.core.workflow.PersonnelWorkflow;
 import io.github.flowable.plus.core.workflow.ProcessQueryWorkflow;
 import io.github.flowable.plus.core.workflow.TaskQueryModule;
 
@@ -85,9 +86,10 @@ public class TaskListOperationsTest {
         NodePreviewWorkflow nodePreviewWorkflow = mock(NodePreviewWorkflow.class);
         DiagramWorkflow diagramWorkflow = mock(DiagramWorkflow.class);
         HistoryWorkflow historyWorkflow = mock(HistoryWorkflow.class);
+        PersonnelWorkflow personnelWorkflow = mock(PersonnelWorkflow.class);
 
         flowablePlus = new FlowablePlus(taskQueryModule, processQueryWorkflow, nodePreviewWorkflow,
-                diagramWorkflow, historyWorkflow);
+                diagramWorkflow, historyWorkflow, personnelWorkflow);
     }
 
     // ======================== 参数校验 ========================

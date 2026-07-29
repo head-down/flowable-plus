@@ -1,6 +1,7 @@
 package io.github.flowable.plus.core.api;
 
 import io.github.flowable.plus.core.exception.NotFoundException;
+import io.github.flowable.plus.core.vo.ApprovalPersonnelVO;
 import io.github.flowable.plus.core.vo.ApprovalTraceVO;
 import io.github.flowable.plus.core.vo.ApproverInfoVO;
 import io.github.flowable.plus.core.vo.DoneTaskVO;
@@ -265,6 +266,25 @@ public interface QueryOperations {
      * @throws NotFoundException 如果流程实例不存在
      */
     List<ApprovalTraceVO> getApprovalTrace(String processInstanceId);
+
+    /**
+     * 获取流程实例的审批人员详情（已审批/未审批分组，含用户信息补全）。
+     *
+     * <p>已审批 = 流程实例中已完成的所有历史任务的处理人（按审批时间升序，同 userId 去重）。
+     * 未审批 = 当前活跃的运行时任务的 assignee（同 userId 去重）。</p>
+     *
+     * <p>返回的 PersonnelInfo 中 nickName/deptId/deptName 字段由
+     * {@link io.github.flowable.plus.core.spi.UserInfoResolver} 补全。
+     * 若应用未注入 UserInfoResolver Bean，相应字段为 null（降级兼容）。</p>
+     *
+     * <p>与 {@link #getApprovalTrace(String)} 的区别：
+     * 本方法按"人员"维度分组输出，getApprovalTrace 按"节点时间线"维度输出。</p>
+     *
+     * @param processInstanceId 流程实例 ID，不可为 null 或空
+     * @return 审批人员分组（各列表为空时 size=0 而非 null）
+     * @throws IllegalArgumentException 如果 processInstanceId 为 null 或空
+     */
+    ApprovalPersonnelVO getApprovalPersonnel(String processInstanceId);
 
     /**
      * 根据流程实例 ID 获取 businessKey。
