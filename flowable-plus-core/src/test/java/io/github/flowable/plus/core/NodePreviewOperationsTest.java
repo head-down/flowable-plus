@@ -549,6 +549,74 @@ public class NodePreviewOperationsTest {
                 .hasMessageContaining("taskId");
     }
 
+    // ======================== getAdjacentTaskApprovers ========================
+
+    @Test
+    public void testGetAdjacentTaskApproversFlatList() {
+        String taskId = "task-001";
+        String processInstanceId = "pi-001";
+        String definitionId = "leave:1:abc";
+
+        Task task = mockTask(taskId, definitionId, processInstanceId, "nodeA");
+        when(mockRuntimeService.getVariables(processInstanceId)).thenReturn(new HashMap<>());
+
+        UserTask adjacentA = buildUserTask("nodeB", "部门经理", "manager1", null, null);
+        UserTask adjacentB = buildUserTask("nodeC", "总经理", "ceo1", null, null);
+        BpmnModel model = buildBpmnModel(adjacentA, adjacentB);
+        when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
+        when(mockNodeFinder.findAdjacentUserTasks(definitionId, "nodeA", new HashMap<>()))
+                .thenReturn(Arrays.asList("nodeB", "nodeC"));
+
+        List<ApproverInfoVO> result = nodePreviewWorkflow.getAdjacentTaskApprovers(taskId);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).getId()).isEqualTo("manager1");
+        assertThat(result.get(0).getNodeId()).isEqualTo("nodeB");
+        assertThat(result.get(0).getNodeName()).isEqualTo("部门经理");
+        assertThat(result.get(1).getId()).isEqualTo("ceo1");
+        assertThat(result.get(1).getNodeId()).isEqualTo("nodeC");
+        assertThat(result.get(1).getNodeName()).isEqualTo("总经理");
+    }
+
+    @Test
+    public void testGetAdjacentTaskApproversCandidateUser() {
+        String taskId = "task-001";
+        String processInstanceId = "pi-001";
+        String definitionId = "leave:1:abc";
+
+        Task task = mockTask(taskId, definitionId, processInstanceId, "nodeA");
+        when(mockRuntimeService.getVariables(processInstanceId)).thenReturn(new HashMap<>());
+
+        UserTask adjacentA = buildUserTask("nodeB", "审批节点", null,
+                Arrays.asList("user1", "user2"), null);
+        BpmnModel model = buildBpmnModel(adjacentA);
+        when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
+        when(mockNodeFinder.findAdjacentUserTasks(definitionId, "nodeA", new HashMap<>()))
+                .thenReturn(Collections.singletonList("nodeB"));
+
+        List<ApproverInfoVO> result = nodePreviewWorkflow.getAdjacentTaskApprovers(taskId);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).getType()).isEqualTo("candidateUser");
+        assertThat(result.get(0).getId()).isEqualTo("user1");
+        assertThat(result.get(1).getType()).isEqualTo("candidateUser");
+        assertThat(result.get(1).getId()).isEqualTo("user2");
+    }
+
+    @Test
+    public void testGetAdjacentTaskApproversRejectNullTaskId() {
+        assertThatThrownBy(() -> nodePreviewWorkflow.getAdjacentTaskApprovers(null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("taskId");
+    }
+
+    @Test
+    public void testGetAdjacentTaskApproversRejectEmptyTaskId() {
+        assertThatThrownBy(() -> nodePreviewWorkflow.getAdjacentTaskApprovers(""))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("taskId");
+    }
+
     // ======================== 辅助方法 ========================
 
     private Task mockTask(String taskId, String definitionId, String processInstanceId, String taskDefinitionKey) {

@@ -214,6 +214,22 @@ public interface QueryOperations {
      */
     List<NextTaskNodeVO> getAdjacentTaskNodes(String processInstanceId, String taskId);
 
+    /**
+     * 获取当前任务紧邻节点的审批人（扁平列表）。
+     *
+     * <p>与 {@link #getNextTaskApprovers(String)} 的区别：仅返回零阶邻接
+     * UserTask 的审批人（遇 UserTask 即停止深入），而非贯穿式的所有下游审批人。</p>
+     *
+     * <p>与 {@link #getAdjacentTaskNodes(String, String)} 的区别：
+     * 返回带审批人的 {@link ApproverInfoVO}，而非仅节点结构信息。</p>
+     *
+     * <p>典型场景：审批页面展示"紧邻的下一步审批人"。</p>
+     *
+     * @param taskId 当前任务 ID，不可为 null 或空
+     * @return 紧邻节点的审批人扁平列表，不做去重
+     */
+    List<ApproverInfoVO> getAdjacentTaskApprovers(String taskId);
+
     // ======================== 流程追踪 ========================
 
     /**

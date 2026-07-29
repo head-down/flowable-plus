@@ -281,6 +281,48 @@ public class NodePreviewWorkflow {
     }
 
     /**
+     * 获取当前任务紧邻节点的审批人（扁平列表）。
+     *
+     * <p>与 {@link #getAdjacentTaskNodes(String, String)} 遍历逻辑一致，
+     * 仅将 VO 映射从 {@link NextTaskNodeVO} 切换为 {@link ApproverInfoVO}。
+     * 返回零阶邻接 UserTask 的审批人，不做去重。</p>
+     */
+    public List<ApproverInfoVO> getAdjacentTaskApprovers(String taskId) {
+        if (taskId == null || taskId.isEmpty()) {
+            throw new IllegalArgumentException("taskId 不可为 null 或空");
+        }
+
+        Task task = taskService.createTaskQuery()
+                .taskId(taskId).singleResult();
+        if (task == null) {
+            throw new NotFoundException("任务 " + taskId + " 不存在");
+        }
+
+        Map<String, Object> variables = runtimeService.getVariables(task.getProcessInstanceId());
+
+        List<String> nodeIds = nodeFinder.findAdjacentUserTasks(
+                task.getProcessDefinitionId(), task.getTaskDefinitionKey(), variables);
+
+        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(task.getProcessDefinitionId());
+
+        List<ApproverInfoVO> result = new ArrayList<>();
+        for (String nodeId : nodeIds) {
+            FlowElement element = bpmnModel.getFlowElement(nodeId);
+            if (!(element instanceof UserTask)) {
+                continue;
+            }
+            UserTask userTask = (UserTask) element;
+            List<ApproverInfoVO> approvers = approverResolver.resolveApprovers(userTask);
+            for (ApproverInfoVO vo : approvers) {
+                vo.setNodeId(nodeId);
+                vo.setNodeName(userTask.getName());
+            }
+            result.addAll(approvers);
+        }
+        return result;
+    }
+
+    /**
      * 共享遍历逻辑：从当前任务节点出发，解析下游节点列表。
      */
     private List<ResolvedNode> resolveDownstreamNodes(String processDefinitionId,
