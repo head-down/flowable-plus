@@ -196,6 +196,24 @@ public interface QueryOperations {
      */
     List<NextTaskNodeVO> getNextTaskNodes(String processInstanceId, String taskId);
 
+    /**
+     * 获取当前任务可流转至的紧邻节点列表（仅返回第一个审批层级）。
+     *
+     * <p>与 {@link #getNextTaskNodes(String, String)} 的区别同
+     * {@link #getAdjacentNodeApproversByProcessKey(String, Map)} 与
+     * {@link #getNextNodeApproversByProcessKey(String, Map)} 的区别：
+     * 紧邻遍历遇 UserTask 即停止深入，不穿越其 outgoing 序列流；
+     * 全遍历则继续穿越所有下游节点。</p>
+     *
+     * <p>典型场景：当前审批节点需要展示"紧邻的下一审批人"
+     *（而非整条审批链路中所有下游节点）。</p>
+     *
+     * @param processInstanceId 流程实例 ID
+     * @param taskId            当前任务 ID
+     * @return 紧邻节点列表
+     */
+    List<NextTaskNodeVO> getAdjacentTaskNodes(String processInstanceId, String taskId);
+
     // ======================== 流程追踪 ========================
 
     /**

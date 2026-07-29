@@ -237,6 +237,50 @@ public class NodePreviewWorkflow {
     }
 
     /**
+     * 获取当前任务可流转至的紧邻节点列表（仅返回第一个审批层级）。
+     *
+     * <p>与 {@link #getNextTaskNodes(String, String)} 的区别：
+     * 紧邻遍历遇 UserTask 即停止深入，不穿越其 outgoing 序列流，
+     * 仅返回紧邻的下一个审批层级。适合"下一步审批人"展示场景。</p>
+     */
+    public List<NextTaskNodeVO> getAdjacentTaskNodes(String processInstanceId, String taskId) {
+        if (processInstanceId == null || processInstanceId.isEmpty()) {
+            throw new IllegalArgumentException("processInstanceId 不可为 null 或空");
+        }
+        if (taskId == null || taskId.isEmpty()) {
+            throw new IllegalArgumentException("taskId 不可为 null 或空");
+        }
+
+        Task task = taskService.createTaskQuery()
+                .taskId(taskId).singleResult();
+        if (task == null) {
+            throw new NotFoundException("任务 " + taskId + " 不存在");
+        }
+
+        Map<String, Object> variables = runtimeService.getVariables(processInstanceId);
+
+        List<String> nodeIds = nodeFinder.findAdjacentUserTasks(
+                task.getProcessDefinitionId(), task.getTaskDefinitionKey(), variables);
+
+        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(task.getProcessDefinitionId());
+
+        List<NextTaskNodeVO> result = new ArrayList<>();
+        for (String nodeId : nodeIds) {
+            FlowElement element = bpmnModel.getFlowElement(nodeId);
+            if (element == null) {
+                continue;
+            }
+            String formData = bpmnFormDataHelper.extractFormData(element);
+            result.add(NextTaskNodeVO.builder()
+                    .taskCode(nodeId)
+                    .taskName(element.getName())
+                    .formData(formData)
+                    .build());
+        }
+        return result;
+    }
+
+    /**
      * 共享遍历逻辑：从当前任务节点出发，解析下游节点列表。
      */
     private List<ResolvedNode> resolveDownstreamNodes(String processDefinitionId,

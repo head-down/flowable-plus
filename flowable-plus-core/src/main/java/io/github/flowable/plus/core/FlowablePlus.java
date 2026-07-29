@@ -143,6 +143,11 @@ public class FlowablePlus implements QueryOperations, DiagramOperations, History
         return nodePreviewWorkflow.getNextTaskNodes(processInstanceId, taskId);
     }
 
+    @Override
+    public List<NextTaskNodeVO> getAdjacentTaskNodes(String processInstanceId, String taskId) {
+        return nodePreviewWorkflow.getAdjacentTaskNodes(processInstanceId, taskId);
+    }
+
     // ======================== QueryOperations: 流程追踪 (委托给 ProcessQueryWorkflow) ========================
 
     @Override

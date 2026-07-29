@@ -510,6 +510,45 @@ public class NodePreviewOperationsTest {
                 .hasMessageContaining("taskId");
     }
 
+    // ======================== getAdjacentTaskNodes ========================
+
+    @Test
+    public void testGetAdjacentTaskNodes() {
+        String taskId = "task-001";
+        String processInstanceId = "pi-001";
+        String definitionId = "leave:1:abc";
+
+        Task task = mockTask(taskId, definitionId, processInstanceId, "nodeA");
+        when(mockRuntimeService.getVariables(processInstanceId)).thenReturn(new HashMap<>());
+
+        UserTask adjacentA = buildUserTask("nodeB", "部门经理", "manager1", null, null);
+        BpmnModel model = buildBpmnModel(adjacentA);
+        when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
+        when(mockNodeFinder.findAdjacentUserTasks(definitionId, "nodeA", new HashMap<>()))
+                .thenReturn(Collections.singletonList("nodeB"));
+
+        List<NextTaskNodeVO> result = nodePreviewWorkflow.getAdjacentTaskNodes(processInstanceId, taskId);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getTaskCode()).isEqualTo("nodeB");
+        assertThat(result.get(0).getTaskName()).isEqualTo("部门经理");
+        assertThat(result.get(0).getFormData()).isNull();
+    }
+
+    @Test
+    public void testGetAdjacentTaskNodesRejectNullProcessInstanceId() {
+        assertThatThrownBy(() -> nodePreviewWorkflow.getAdjacentTaskNodes(null, "task-001"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("processInstanceId");
+    }
+
+    @Test
+    public void testGetAdjacentTaskNodesRejectNullTaskId() {
+        assertThatThrownBy(() -> nodePreviewWorkflow.getAdjacentTaskNodes("pi-001", null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("taskId");
+    }
+
     // ======================== 辅助方法 ========================
 
     private Task mockTask(String taskId, String definitionId, String processInstanceId, String taskDefinitionKey) {
