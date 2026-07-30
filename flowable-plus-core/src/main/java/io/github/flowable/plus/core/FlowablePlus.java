@@ -7,6 +7,7 @@ import io.github.flowable.plus.core.vo.ApproverInfoVO;
 import io.github.flowable.plus.core.vo.DoneTaskVO;
 import io.github.flowable.plus.core.vo.NextTaskNodeVO;
 import io.github.flowable.plus.core.vo.NodeApproverVO;
+import io.github.flowable.plus.core.vo.DiagramStatesVO;
 import io.github.flowable.plus.core.vo.ProcessDiagramVO;
 import io.github.flowable.plus.core.vo.ProcessSummaryVO;
 import io.github.flowable.plus.core.vo.TodoTaskVO;
@@ -192,8 +193,13 @@ public class FlowablePlus implements QueryOperations, DiagramOperations, History
     // ======================== DiagramOperations: 流程图 (委托给 DiagramWorkflow) ========================
 
     @Override
-    public ProcessDiagramVO getProcessDiagram(String processInstanceId) {
-        return diagramWorkflow.getProcessDiagram(processInstanceId);
+    public ProcessDiagramVO getProcessDiagramXml(String processDefinitionId) {
+        return diagramWorkflow.getProcessDiagramXml(processDefinitionId);
+    }
+
+    @Override
+    public DiagramStatesVO getProcessDiagramStates(String processInstanceId) {
+        return diagramWorkflow.getProcessDiagramStates(processInstanceId);
     }
 
     // ======================== HistoryOperations: 审批历史 (委托给 HistoryWorkflow) ========================

@@ -72,7 +72,7 @@ import java.util.List;
  */
 @Configuration
 @ConditionalOnClass(name = "org.flowable.engine.ProcessEngine")
-@EnableConfigurationProperties({FlowablePlusCounterSignProperties.class, FlowablePlusEventProperties.class, FlowablePlusDiagramProperties.class})
+@EnableConfigurationProperties({FlowablePlusCounterSignProperties.class, FlowablePlusEventProperties.class})
 public class FlowablePlusAutoConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(FlowablePlusAutoConfiguration.class);
@@ -441,23 +441,19 @@ public class FlowablePlusAutoConfiguration {
     /**
      * 注册 DiagramWorkflow Bean。
      *
-     * <p>封装流程图生成逻辑，包含节点状态分类和 SVG 渲染。
-     * 应用可通过声明同名 Bean 替换默认实现。</p>
+     * <p>封装流程图 BPMN XML 获取和节点状态查询，供前端 bpmn.js 渲染。</p>
      *
-     * @param historyService  Flowable 历史服务
-     * @param bpmnModelCache  BPMN 模型缓存
-     * @param diagramProps    流程图配置属性
+     * @param historyService     Flowable 历史服务
+     * @param repositoryService  Flowable 仓储服务
+     * @param taskService        Flowable 任务服务
      * @return DiagramWorkflow 实例
      */
     @Bean
     @ConditionalOnMissingBean
     public DiagramWorkflow diagramWorkflow(HistoryService historyService,
-                                            BpmnModelCache bpmnModelCache,
-                                            FlowablePlusDiagramProperties diagramProps) {
-        return new DiagramWorkflow(historyService, bpmnModelCache,
-                diagramProps.getActivityFont(),
-                diagramProps.getLabelFont(),
-                diagramProps.getAnnotationFont());
+                                            RepositoryService repositoryService,
+                                            TaskService taskService) {
+        return new DiagramWorkflow(historyService, repositoryService, taskService);
     }
 
     /**

@@ -40,6 +40,10 @@ skills-lock.json
 .scratch/
 *.txt
 
+### Node.js （防止前端依赖误提交） ###
+node_modules/
+package-lock.json
+
 ### Production BPMN models (should not be committed) ###
 flowable-plus-spring-boot-starter/src/test/resources/bpmn/carUseApply.bpmn
 flowable-plus-spring-boot-starter/src/test/resources/bpmn/hospitalitySupplies.bpmn

@@ -1,11 +1,11 @@
 package io.github.flowable.plus.starter;
 
 import io.github.flowable.plus.core.FlowablePlus;
+import io.github.flowable.plus.core.vo.DiagramStatesVO;
 import io.github.flowable.plus.core.vo.ProcessDiagramVO;
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.bpmn.model.FlowElement;
 import org.flowable.bpmn.model.FlowNode;
-import org.flowable.bpmn.model.GraphicInfo;
 import org.flowable.bpmn.model.Process;
 import org.flowable.bpmn.model.SequenceFlow;
 import org.flowable.bpmn.model.StartEvent;
@@ -25,25 +25,19 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 流程图集成测试：使用真实嵌入式 Flowable 引擎验证 getProcessDiagram。
+ * 流程图集成测试。
  *
- * <p>测试多节点 BPMN 模型（含 serviceTask 自动节点），
- * 验证 SVG 输出含正确的 data-state 标注和 CSS 样式。</p>
+ * @author flowable-plus
  */
 @SpringBootTest(classes = BpmnQueryIntegrationTestApplication.class)
 class DiagramIntegrationTest extends AbstractIntegrationTest {
 
     private static final String PROCESS_KEY = "testDiagramProcess";
-    private static final String PROCESS_KEY_ALIGNMENT = "testDiagramAlignment";
     private static final String INITIATOR = "initiator";
     private static final String APPROVER = "approver1";
 
@@ -67,7 +61,7 @@ class DiagramIntegrationTest extends AbstractIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        BpmnModel model = buildProcessWithServiceTask();
+        BpmnModel model = buildProcess();
         Deployment deployment = repositoryService.createDeployment()
                 .addBpmnModel(PROCESS_KEY + ".bpmn20.xml", model)
                 .key(PROCESS_KEY)
@@ -79,15 +73,12 @@ class DiagramIntegrationTest extends AbstractIntegrationTest {
     @AfterEach
     void tearDown() {
         BpmnQueryIntegrationTest.DynamicUserContext.CURRENT_USER.remove();
-
         for (String piId : processInstanceIds) {
             try {
                 runtimeService.deleteProcessInstance(piId, "test cleanup");
             } catch (Exception ignored) {
-                // 可能已结束
             }
         }
-
         if (deploymentId != null) {
             try {
                 repositoryService.deleteDeployment(deploymentId, true);
@@ -96,193 +87,95 @@ class DiagramIntegrationTest extends AbstractIntegrationTest {
         }
     }
 
-    // ======================== 核心测试用例 ========================
-
-    /**
-     * 流程运行中：发起节点 completed，审批节点 active。
-     */
     @Test
-    void testDiagramWithActiveNode() {
+    void testGetXml() {
         String piId = startAndAdvanceToApproval();
         processInstanceIds.add(piId);
 
-        ProcessDiagramVO diagram = flowablePlus.getProcessDiagram(piId);
+        String pdId = repositoryService.createProcessDefinitionQuery()
+                .processDefinitionKey(PROCESS_KEY).latestVersion().singleResult().getId();
 
-        assertThat(diagram.getProcessInstanceId()).isEqualTo(piId);
-        assertThat(diagram.getProcessDefinitionId()).isNotNull();
-        assertThat(diagram.getSvg()).isNotNull().isNotEmpty();
-
-        // 验证是有效 SVG
-        assertThat(diagram.getSvg()).startsWith("<svg");
-        assertThat(diagram.getSvg()).contains("base64");
-        // 发起节点已完成
-        assertThat(diagram.getSvg()).contains("data-state=\"completed\"");
-        // 审批节点活跃
-        assertThat(diagram.getSvg()).contains("data-state=\"active\"");
-        // CSS 色值
-        assertThat(diagram.getSvg()).contains("#FF4D4F");
-        assertThat(diagram.getSvg()).contains("#52C41A");
+        ProcessDiagramVO result = flowablePlus.getProcessDiagramXml(pdId);
+        assertThat(result.getProcessDefinitionId()).isEqualTo(pdId);
+        assertThat(result.getXml()).contains(PROCESS_KEY);
     }
 
-    /**
-     * 流程已结束：所有节点 completed，无 active。
-     */
     @Test
-    void testDiagramForCompletedProcess() {
+    void testStatesWithActiveNode() {
+        String piId = startAndAdvanceToApproval();
+        processInstanceIds.add(piId);
+
+        DiagramStatesVO states = flowablePlus.getProcessDiagramStates(piId);
+
+        assertThat(states.getStates().getCompleted()).contains("initiateTask");
+        assertThat(states.getStates().getActive()).contains("approvalTask");
+    }
+
+    @Test
+    void testStatesForCompletedProcess() {
         BpmnQueryIntegrationTest.DynamicUserContext.set(INITIATOR);
         ProcessInstance pi = runtimeService.startProcessInstanceByKey(PROCESS_KEY,
                 Collections.singletonMap("initiator", (Object) INITIATOR));
         String piId = pi.getId();
         processInstanceIds.add(piId);
-
-        // 完成发起任务
         completeTaskForProcessInstance(piId);
-        // 完成审批任务
         completeTaskForProcessInstance(piId);
 
-        ProcessDiagramVO diagram = flowablePlus.getProcessDiagram(piId);
-
-        assertThat(diagram.getProcessInstanceId()).isEqualTo(piId);
-        assertThat(diagram.getSvg()).isNotNull().isNotEmpty();
-        assertThat(diagram.getSvg()).startsWith("<svg");
-
-        // 已完成流程不应有 active 状态
-        assertThat(diagram.getSvg()).doesNotContain("data-state=\"active\"");
-        // 应有 completed 状态
-        assertThat(diagram.getSvg()).contains("data-state=\"completed\"");
-        assertThat(diagram.getSvg()).contains("#52C41A");
+        DiagramStatesVO states = flowablePlus.getProcessDiagramStates(piId);
+        assertThat(states.getStates().getActive()).isEmpty();
+        assertThat(states.getStates().getCompleted()).contains("initiateTask", "approvalTask");
     }
 
-    /**
-     * 空高亮测试：传入已结束流程实例时返回含 completed 状态的 SVG。
-     */
     @Test
-    void testEmptyHighlightForCompletedProcess() {
+    void testCompletedFlows() {
         BpmnQueryIntegrationTest.DynamicUserContext.set(INITIATOR);
         ProcessInstance pi = runtimeService.startProcessInstanceByKey(PROCESS_KEY,
                 Collections.singletonMap("initiator", (Object) INITIATOR));
         String piId = pi.getId();
         processInstanceIds.add(piId);
-
-        // 完成所有任务
         completeTaskForProcessInstance(piId);
         completeTaskForProcessInstance(piId);
 
-        ProcessDiagramVO diagram = flowablePlus.getProcessDiagram(piId);
-
-        assertThat(diagram.getProcessInstanceId()).isEqualTo(piId);
-        String svg = diagram.getSvg();
-        assertThat(svg).isNotNull().isNotEmpty();
-
-        // 结束时不应有 active
-        assertThat(svg).doesNotContain("data-state=\"active\"");
-        // 应有 completed 状态（发起和审批两个用户任务）
-        String dataStateCompleted = "data-state=\"completed\"";
-        int completedCount = svg.split(dataStateCompleted, -1).length - 1;
-        assertThat(completedCount).isGreaterThanOrEqualTo(2);
-
-        // 应有 CSS
-        assertThat(svg).contains("<style");
-        assertThat(svg).contains("#FF4D4F");
-        assertThat(svg).contains("#52C41A");
-        assertThat(svg).contains("#1890FF");
+        DiagramStatesVO states = flowablePlus.getProcessDiagramStates(piId);
+        assertThat(states.getCompletedFlows()).isNotEmpty();
     }
 
-    /**
-     * overlay 矩形对齐回归测试：验证 SVG 中 data-state {@code <rect>} 的坐标
-     * 与 BPMN GraphicInfo 严格对齐，且 {@code <svg>} 根节点尺寸正确。
-     *
-     * <p>覆盖 2 个 UserTask（1 active, 1 completed），验证两种高亮态都与 BPMN 绝对坐标对齐。
-     * StartEvent 在 SKIP_TYPES 中不会被标注，因此不验证其 overlay。</p>
-     */
     @Test
-    void testDiagramOverlayAlignment() {
-        // 1. 部署带显式坐标的模型
-        BpmnModel model = buildProcessWithExplicitCoordinates();
-        Deployment deploy = repositoryService.createDeployment()
-                .addBpmnModel(PROCESS_KEY_ALIGNMENT + ".bpmn20.xml", model)
-                .key(PROCESS_KEY_ALIGNMENT)
-                .deploy();
-        String alignDeploymentId = deploy.getId();
+    void testActiveTasks() {
+        String piId = startAndAdvanceToApproval();
+        processInstanceIds.add(piId);
 
-        try {
-            // 2. 启动流程，完成发起任务（使 initiateTask 为 completed），审批节点保持 active
-            BpmnQueryIntegrationTest.DynamicUserContext.set(INITIATOR);
-            ProcessInstance pi = runtimeService.startProcessInstanceByKey(PROCESS_KEY_ALIGNMENT,
-                    Collections.singletonMap("initiator", (Object) INITIATOR));
-            String piId = pi.getId();
-            processInstanceIds.add(piId);
-            completeTaskForProcessInstance(piId);
+        DiagramStatesVO states = flowablePlus.getProcessDiagramStates(piId);
 
-            // 3. 获取流程图 SVG
-            ProcessDiagramVO diagram = flowablePlus.getProcessDiagram(piId);
-            String svg = diagram.getSvg();
-            assertThat(svg).isNotNull().isNotEmpty();
-
-            // 4. 从实际使用的 BPMN 模型中获取期望的 GraphicInfo
-            String processDefinitionId = diagram.getProcessDefinitionId();
-            BpmnModel deployedModel = repositoryService.getBpmnModel(processDefinitionId);
-            assertThat(deployedModel).as("应能获取部署后的 BPMN 模型").isNotNull();
-
-            Map<String, GraphicInfo> locationMap = deployedModel.getLocationMap();
-            assertThat(locationMap).as("部署后的模型应有位置信息").isNotEmpty();
-
-            // 计算 maxX/maxY
-            double expectedMaxX = 0;
-            double expectedMaxY = 0;
-            for (GraphicInfo gi : locationMap.values()) {
-                double right = gi.getX() + gi.getWidth();
-                double bottom = gi.getY() + gi.getHeight();
-                if (right > expectedMaxX) expectedMaxX = right;
-                if (bottom > expectedMaxY) expectedMaxY = bottom;
-            }
-
-            // 5. 从 SVG 中解析 <rect> 并断言
-            Map<String, RectInfo> rects = parseOverlayRects(svg);
-            // 仅验证会被标注 overlay 的节点（StartEvent 等在 SKIP_TYPES 中跳过）
-            for (Map.Entry<String, GraphicInfo> entry : locationMap.entrySet()) {
-                String nodeId = entry.getKey();
-                GraphicInfo gi = entry.getValue();
-                if (!rects.containsKey(nodeId)) {
-                    continue; // 跳过不会出现在 overlay 中的节点
-                }
-                RectInfo rect = rects.get(nodeId);
-                assertThat(rect.x).as("节点 %s 的 x 坐标", nodeId)
-                        .isCloseTo(gi.getX(), within(0.5));
-                assertThat(rect.y).as("节点 %s 的 y 坐标", nodeId)
-                        .isCloseTo(gi.getY(), within(0.5));
-                assertThat(rect.width).as("节点 %s 的宽度", nodeId)
-                        .isCloseTo(gi.getWidth(), within(0.5));
-                assertThat(rect.height).as("节点 %s 的高度", nodeId)
-                        .isCloseTo(gi.getHeight(), within(0.5));
-            }
-
-            // 验证至少有两个节点被标注了 overlay
-            assertThat(rects).as("至少应有 2 个节点被标注 overlay（active + completed）")
-                    .hasSizeGreaterThanOrEqualTo(2);
-
-            // 验证存在 active 和 completed 两种状态
-            assertThat(svg).contains("data-state=\"active\"");
-            assertThat(svg).contains("data-state=\"completed\"");
-
-            // 6. 断言 <svg> 根节��尺寸
-            assertThat(parseSvgWidth(svg)).as("<svg> 根节点宽度")
-                    .isEqualTo((int) expectedMaxX + 10);
-            assertThat(parseSvgHeight(svg)).as("<svg> 根节点高度")
-                    .isEqualTo((int) expectedMaxY + 10);
-        } finally {
-            repositoryService.deleteDeployment(alignDeploymentId, true);
-        }
+        assertThat(states.getActiveTasks()).hasSize(1);
+        DiagramStatesVO.TaskBriefVO task = states.getActiveTasks().get(0);
+        assertThat(task.getTaskId()).isNotNull();
+        assertThat(task.getActivityId()).isEqualTo("approvalTask");
+        assertThat(task.getTaskName()).isEqualTo("审批");
+        assertThat(task.getAssignee()).isEqualTo(APPROVER);
     }
 
-    // ======================== 辅助方法 ========================
+    @Test
+    void testActiveTasksEmptyForCompletedProcess() {
+        BpmnQueryIntegrationTest.DynamicUserContext.set(INITIATOR);
+        ProcessInstance pi = runtimeService.startProcessInstanceByKey(PROCESS_KEY,
+                Collections.singletonMap("initiator", (Object) INITIATOR));
+        String piId = pi.getId();
+        processInstanceIds.add(piId);
+        completeTaskForProcessInstance(piId);
+        completeTaskForProcessInstance(piId);
+
+        DiagramStatesVO states = flowablePlus.getProcessDiagramStates(piId);
+        assertThat(states.getActiveTasks()).isEmpty();
+    }
+
+    // ======================== helpers ========================
 
     private String startAndAdvanceToApproval() {
         BpmnQueryIntegrationTest.DynamicUserContext.set(INITIATOR);
         ProcessInstance pi = runtimeService.startProcessInstanceByKey(PROCESS_KEY,
                 Collections.singletonMap("initiator", (Object) INITIATOR));
         String piId = pi.getId();
-        // 完成发起任务
         completeTaskForProcessInstance(piId);
         return piId;
     }
@@ -298,11 +191,11 @@ class DiagramIntegrationTest extends AbstractIntegrationTest {
         }
     }
 
-    private BpmnModel buildProcessWithServiceTask() {
+    private BpmnModel buildProcess() {
         BpmnModel model = new BpmnModel();
         Process process = new Process();
         process.setId(PROCESS_KEY);
-        process.setName("测试流程图流程");
+        process.setName("测试流程");
         model.addProcess(process);
 
         StartEvent start = new StartEvent();
@@ -325,100 +218,6 @@ class DiagramIntegrationTest extends AbstractIntegrationTest {
         addFlow(process, "f_init_approval", initTask, approvalTask);
 
         return model;
-    }
-
-    /**
-     * 构建带显式 GraphicInfo 坐标的 BPMN 模型，用于 overlay 对齐回归测试。
-     */
-    private BpmnModel buildProcessWithExplicitCoordinates() {
-        BpmnModel model = new BpmnModel();
-        Process process = new Process();
-        process.setId(PROCESS_KEY_ALIGNMENT);
-        process.setName("对齐测试流程");
-        model.addProcess(process);
-
-        StartEvent start = new StartEvent();
-        start.setId("start");
-        process.addFlowElement(start);
-
-        UserTask initTask = new UserTask();
-        initTask.setId("initiateTask");
-        initTask.setName("发起");
-        initTask.setAssignee("${initiator}");
-        process.addFlowElement(initTask);
-
-        UserTask approvalTask = new UserTask();
-        approvalTask.setId("approvalTask");
-        approvalTask.setName("审批");
-        approvalTask.setAssignee(APPROVER);
-        process.addFlowElement(approvalTask);
-
-        addFlow(process, "f_start_init", start, initTask);
-        addFlow(process, "f_init_approval", initTask, approvalTask);
-
-        // 显式设置 GraphicInfo 坐标
-        model.addGraphicInfo("start", new GraphicInfo(50, 100, 30, 30));
-        model.addGraphicInfo("initiateTask", new GraphicInfo(150, 80, 100, 70));
-        model.addGraphicInfo("approvalTask", new GraphicInfo(320, 80, 100, 70));
-
-        return model;
-    }
-
-    // ======================== SVG 解析 ========================
-
-    /**
-     * 解析 SVG 中 data-state {@code <rect>} 的坐标信息。
-     */
-    private static Map<String, RectInfo> parseOverlayRects(String svg) {
-        Map<String, RectInfo> result = new HashMap<>();
-        Pattern p = Pattern.compile(
-                "<rect id=\"([^\"]+)\" data-state=\"[^\"]*\" class=\"[^\"]*\" "
-                        + "x=\"([^\"]+)\" y=\"([^\"]+)\" width=\"([^\"]+)\" height=\"([^\"]+)\"");
-        Matcher m = p.matcher(svg);
-        while (m.find()) {
-            double x = Double.parseDouble(m.group(2));
-            double y = Double.parseDouble(m.group(3));
-            double w = Double.parseDouble(m.group(4));
-            double h = Double.parseDouble(m.group(5));
-            result.put(m.group(1), new RectInfo(x, y, w, h));
-        }
-        return result;
-    }
-
-    private static int parseSvgWidth(String svg) {
-        Matcher m = Pattern.compile("<svg[^>]* width=\"(\\d+)\"").matcher(svg);
-        if (m.find()) {
-            return Integer.parseInt(m.group(1));
-        }
-        throw new AssertionError("SVG 中未找到 width 属性");
-    }
-
-    private static int parseSvgHeight(String svg) {
-        Matcher m = Pattern.compile("<svg[^>]* height=\"(\\d+)\"").matcher(svg);
-        if (m.find()) {
-            return Integer.parseInt(m.group(1));
-        }
-        throw new AssertionError("SVG 中未找到 height 属性");
-    }
-
-    private static org.assertj.core.data.Offset<Double> within(double tolerance) {
-        return org.assertj.core.data.Offset.offset(tolerance);
-    }
-
-    // ======================== RectInfo 内部类 ========================
-
-    private static class RectInfo {
-        final double x;
-        final double y;
-        final double width;
-        final double height;
-
-        RectInfo(double x, double y, double width, double height) {
-            this.x = x;
-            this.y = y;
-            this.width = width;
-            this.height = height;
-        }
     }
 
     private static void addFlow(Process process, String id, FlowElement sourceEl, FlowElement targetEl) {
