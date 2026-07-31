@@ -12,6 +12,20 @@
     <description>Flowable workflow engine enhancement toolkit, providing simplified APIs and Chinese-style workflow features.</description>
     <url>https://github.com/flowable-plus/flowable-plus</url>
 
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <name>flowable-plus Contributors</name>
+            <url>https://github.com/head-down/flowable-plus</url>
+        </developer>
+    </developers>
+
     <modules>
         <module>flowable-plus-core</module>
         <module>flowable-plus-spring-boot-starter</module>

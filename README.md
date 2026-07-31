@@ -5,7 +5,7 @@
 [![Java](https://img.shields.io/badge/java-8-blue?style=flat-square&logo=java)](https://adoptium.net/)
 [![Spring Boot](https://img.shields.io/badge/spring--boot-2.7.18-brightgreen?style=flat-square&logo=springboot)](https://spring.io/projects/spring-boot)
 [![Flowable](https://img.shields.io/badge/flowable-6.8.0-red?style=flat-square)](https://www.flowable.com/)
-[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square)](./LICENSE)
 [![Status](https://img.shields.io/badge/status-stable-brightgreen?style=flat-square)](https://github.com/head-down/flowable-plus)
 
 ## 状态
@@ -164,4 +164,4 @@ List<ApprovalRecordVO> history = flowablePlus.getApprovalHistory("proc-001");
 
 ## 许可证
 
-MIT License
+[Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0)
