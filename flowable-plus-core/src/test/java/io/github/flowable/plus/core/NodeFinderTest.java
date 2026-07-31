@@ -422,6 +422,45 @@ public class NodeFinderTest {
                 .hasMessageContaining("不存在");
     }
 
+    /**
+     * 条件兜底：排他网关条件表达式引用了不在 variables 中的变量，
+     * 所有条件分支被排除 → 回退到不评估条件，展示所有下一节点。
+     * <p>
+     * 场景：task1 → egw → taskA (${nextNodeCodeTmp eq 'sealHandler'})
+     *                  → taskB (${nextNodeCodeTmp eq 'subsidiaryManager'})
+     * nextNodeCodeTmp 不在 variables 中 → 兜底返回 [taskA, taskB]。
+     */
+    @Test
+    public void testFindNextUserTasksConditionFallbackMissingVariable() {
+        TestModelBuilder builder = new TestModelBuilder();
+        UserTask task1 = builder.addUserTask("task1");
+        ExclusiveGateway egw = builder.addExclusiveGateway("egw");
+        UserTask taskA = builder.addUserTask("taskA");
+        UserTask taskB = builder.addUserTask("taskB");
+
+        builder.addSequenceFlow("f1", task1, egw);
+        builder.addSequenceFlowWithCondition("f2a", egw, taskA, "${nextNodeCodeTmp eq 'sealHandler'}");
+        builder.addSequenceFlowWithCondition("f2b", egw, taskB, "${nextNodeCodeTmp eq 'subsidiaryManager'}");
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-fallback")).thenReturn(model);
+
+        ExpressionManager mockExprMgr = Mockito.mock(ExpressionManager.class);
+        Expression exprFalse = Mockito.mock(Expression.class);
+        when(exprFalse.getValue(Mockito.any())).thenReturn(false);
+        when(mockExprMgr.createExpression("nextNodeCodeTmp eq 'sealHandler'")).thenReturn(exprFalse);
+        when(mockExprMgr.createExpression("nextNodeCodeTmp eq 'subsidiaryManager'")).thenReturn(exprFalse);
+
+        nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService, mockExprMgr, null);
+
+        // variables 中不包含 nextNodeCodeTmp
+        Map<String, Object> vars = new HashMap<>();
+
+        List<String> result = nodeFinder.findNextUserTasks("proc-fallback", "task1", "pi-001", vars);
+
+        assertThat(result).containsExactlyInAnyOrder("taskA", "taskB");
+    }
+
     // ======================== findCompletedUserTasks ========================
 
     @Test

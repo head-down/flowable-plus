@@ -273,6 +273,10 @@ public class DefaultNodeFinder implements NodeFinder {
 
     /**
      * 从指定节点的 outgoing flows 出发正向遍历，收集可达的 UserTask 节点。
+     * <p>
+     * 条件兜底：当所有带条件的 outgoing flow 均被排除（结果为空）时，
+     * 回退到不评估条件的方式重新遍历。这处理了审批阶段预览时路由变量（如
+     * nextNodeCodeTmp）尚未写入的场景，避免因变量缺失隐藏用户可能选择的下一节点。
      *
      * @param processDefinitionId 流程定义 ID
      * @param nodeId 起始节点 ID
@@ -307,16 +311,33 @@ public class DefaultNodeFinder implements NodeFinder {
             FlowNode startFlowNode = (FlowNode) startElement;
             List<SequenceFlow> outgoingFlows = startFlowNode.getOutgoingFlows();
             if (outgoingFlows != null) {
+                int conditionalCount = 0;
+                List<SequenceFlow> excludedFlows = new ArrayList<>();
+
                 for (SequenceFlow flow : outgoingFlows) {
                     if (variables != null && flow.getConditionExpression() != null
                             && !flow.getConditionExpression().isEmpty()) {
+                        conditionalCount++;
                         if (!evaluateCondition(flow.getConditionExpression(), variables)) {
+                            excludedFlows.add(flow);
                             continue;
                         }
                     }
                     FlowElement target = bpmnModel.getFlowElement(flow.getTargetRef());
                     if (target != null) {
                         traceForwardAll(bpmnModel, target, variables, visited, result, stopAtUserTask);
+                    }
+                }
+
+                // 兜底：所有条件分支均被排除 → 不评估条件重新遍历
+                // 审批阶段预览时，路由变量（如 nextNodeCodeTmp）尚未写入，
+                // 不应因此隐藏用户可能选择的下一审批节点
+                if (conditionalCount > 0 && excludedFlows.size() == conditionalCount) {
+                    for (SequenceFlow flow : excludedFlows) {
+                        FlowElement target = bpmnModel.getFlowElement(flow.getTargetRef());
+                        if (target != null) {
+                            traceForwardAll(bpmnModel, target, null, visited, result, stopAtUserTask);
+                        }
                     }
                 }
             }
@@ -400,11 +421,16 @@ public class DefaultNodeFinder implements NodeFinder {
                 return;
             }
 
+            int conditionalCount = 0;
+            List<SequenceFlow> excludedFlows = new ArrayList<>();
+
             for (SequenceFlow flow : outgoingFlows) {
                 // 评估网关条件
                 if (variables != null && flow.getConditionExpression() != null
                         && !flow.getConditionExpression().isEmpty()) {
+                    conditionalCount++;
                     if (!evaluateCondition(flow.getConditionExpression(), variables)) {
+                        excludedFlows.add(flow);
                         continue;
                     }
                 }
@@ -412,6 +438,18 @@ public class DefaultNodeFinder implements NodeFinder {
                 FlowElement target = bpmnModel.getFlowElement(flow.getTargetRef());
                 if (target != null) {
                     traceForwardAll(bpmnModel, target, variables, visited, result, stopAtUserTask);
+                }
+            }
+
+            // 兜底：所有条件分支均被排除 → 不评估条件重新遍历
+            // 审批阶段预览时，路由变量（如 nextNodeCodeTmp）尚未写入，
+            // 不应因此隐藏用户可能选择的下一审批节点
+            if (conditionalCount > 0 && excludedFlows.size() == conditionalCount) {
+                for (SequenceFlow flow : excludedFlows) {
+                    FlowElement target = bpmnModel.getFlowElement(flow.getTargetRef());
+                    if (target != null) {
+                        traceForwardAll(bpmnModel, target, null, visited, result, stopAtUserTask);
+                    }
                 }
             }
         }
