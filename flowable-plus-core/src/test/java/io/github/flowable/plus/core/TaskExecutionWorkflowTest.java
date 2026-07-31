@@ -213,7 +213,7 @@ public class TaskExecutionWorkflowTest {
 
         assertThatThrownBy(() -> workflow.rejectTask("task-001", "不同意"))
                 .isInstanceOf(NoPreviousNodeException.class)
-                .hasMessageContaining("并行网关");
+                .hasMessageContaining("无法确定唯一上一审批节点");
     }
 
     // ======================== 驳回至发起人 ========================

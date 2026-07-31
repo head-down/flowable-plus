@@ -117,7 +117,7 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
         List<String> prevNodes = nodeFinder.findPreviousNodes(processDefinitionId, currentActivityId, processInstanceId);
 
         if (prevNodes.size() > 1) {
-            throw new NoPreviousNodeException("当前节点位于并行网关汇合之后，无法驳回至单一上级节点");
+            throw new NoPreviousNodeException("无法确定唯一上一审批节点");
         }
 
         String targetNode = prevNodes.get(0);
@@ -176,7 +176,7 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
                 task.getProcessDefinitionId(), task.getTaskDefinitionKey(), processInstanceId);
 
         if (prevNodes.size() > 1) {
-            throw new NoPreviousNodeException("当前节点位于并行网关汇合之后，无法确定撤回目标");
+            throw new NoPreviousNodeException("无法确定唯一上一审批节点");
         }
 
         String prevNodeId = prevNodes.get(0);

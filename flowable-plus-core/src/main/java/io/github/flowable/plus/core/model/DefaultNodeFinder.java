@@ -100,7 +100,37 @@ public class DefaultNodeFinder implements NodeFinder {
         if (result.isEmpty()) {
             throw new NoPreviousNodeException("节点 " + currentActivityId + " 无上一审批节点");
         }
+
+        // 多候选节点时，通过历史数据过滤出实际执行的路径。
+        // 非受控汇合：多个 model 候选 → 1 个实际执行 → 返回 1 个
+        // 并行网关汇合：多个 model 候选 → 多个都执行 → 返回多个 → rejectTask size>1 拦截
+        // 排他网关历史缺失：resolveExclusiveGateway 返回全量入边 → 多个候选 → filterByHistory 裁决
+        if (result.size() > 1 && processInstanceId != null) {
+            result = filterByHistory(result, processInstanceId);
+            if (result.isEmpty()) {
+                throw new NoPreviousNodeException("节点 " + currentActivityId + " 无上一审批节点");
+            }
+        }
         return result;
+    }
+
+    /**
+     * 通过历史数据过滤候选节点，保留实际执行过的节点。
+     * 使用 activityId + count() 逐候选查询，避免 .list() 全量加载性能问题。
+     */
+    private List<String> filterByHistory(List<String> candidateNodeIds, String processInstanceId) {
+        List<String> executedNodes = new ArrayList<>();
+        for (String nodeId : candidateNodeIds) {
+            long count = historyService.createHistoricActivityInstanceQuery()
+                    .processInstanceId(processInstanceId)
+                    .activityId(nodeId)
+                    .finished()
+                    .count();
+            if (count > 0) {
+                executedNodes.add(nodeId);
+            }
+        }
+        return executedNodes;
     }
 
     @Override
@@ -209,6 +239,10 @@ public class DefaultNodeFinder implements NodeFinder {
 
     /**
      * 解析排他网关的实际执行分支。
+     *
+     * <p>使用 activityId + count() 逐候选查询，避免 .list() 全量加载性能问题。
+     * 历史匹配失败时返回全部入边（而非盲猜首条），
+     * 让外层 filterByHistory 做最终裁决，防止"安全网穿透"导致静默数据污染。</p>
      */
     private List<SequenceFlow> resolveExclusiveGateway(String processInstanceId, List<SequenceFlow> incomingFlows) {
         if (incomingFlows == null || incomingFlows.isEmpty()) {
@@ -219,21 +253,19 @@ public class DefaultNodeFinder implements NodeFinder {
             return incomingFlows;
         }
 
-        List<HistoricActivityInstance> historicInstances = historyService
-                .createHistoricActivityInstanceQuery()
-                .processInstanceId(processInstanceId)
-                .finished()
-                .orderByHistoricActivityInstanceEndTime().desc()
-                .list();
-
         for (SequenceFlow flow : incomingFlows) {
-            for (HistoricActivityInstance instance : historicInstances) {
-                if (flow.getSourceRef().equals(instance.getActivityId())) {
-                    return Collections.singletonList(flow);
-                }
+            long count = historyService.createHistoricActivityInstanceQuery()
+                    .processInstanceId(processInstanceId)
+                    .activityId(flow.getSourceRef())
+                    .finished()
+                    .count();
+            if (count > 0) {
+                return Collections.singletonList(flow);
             }
         }
 
+        // 历史匹配失败：返回全部入边，故意触发外层 result.size() > 1 → filterByHistory 裁决。
+        // 不返回 singletonList(firstFlow)：会造成安全网穿透，静默选择错误节点。
         return incomingFlows;
     }
 

@@ -111,13 +111,9 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-ex")).thenReturn(model);
 
-        // Mock 历史数据：taskA 在历史中出现过，taskB 没有
-        HistoricActivityInstance instanceTaskA = createMockInstance("taskA", new Date(10000), new Date(20000));
-        HistoricActivityInstance instanceTask1 = createMockInstance("task1", new Date(0), new Date(10000));
-        List<HistoricActivityInstance> instances = new ArrayList<>();
-        instances.add(instanceTaskA);
-        instances.add(instanceTask1);
-        stubHistoricActivityInstances("pi-001", instances);
+        // count() 查询：resolveExclusiveGateway 按 incomingFlows 顺序逐条查询
+        // f4a(taskA) 先 → count=1, f4b(taskB) 后 → count=0
+        stubCountQueries("pi-001", 1L, 0L);
 
         List<String> result = nodeFinder.findPreviousNodes("proc-ex", "task2", "pi-001");
 
@@ -1424,6 +1420,82 @@ public class NodeFinderTest {
         // 走 altTask 分支 → UserTask → 不终止
         List<String> result2 = nodeFinderWithExpr.findReachableEndEvents("proc-end-gwcond", "task", vars);
         assertThat(result2).isEmpty();
+    }
+
+    // ======================== 非受控汇合 & 历史过滤 ========================
+
+    /**
+     * 非受控汇合：handler 有 4 条入线（无网关），历史仅 chairman 执行过。
+     * 验证 findPreviousNodes 通过历史过滤返回单一结果。
+     */
+    @Test
+    public void testFindPreviousNodesUncontrolledMerge() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask chairman = builder.addUserTask("chairman");
+        UserTask executive = builder.addUserTask("executive");
+        UserTask integratedAdminDept = builder.addUserTask("integratedAdminDept");
+        UserTask subsidiaryManager = builder.addUserTask("subsidiaryManager");
+        UserTask handler = builder.addUserTask("handler");
+
+        builder.addSequenceFlow("f1", start, chairman);
+        builder.addSequenceFlow("f1b", start, executive);
+        builder.addSequenceFlow("f1c", start, integratedAdminDept);
+        builder.addSequenceFlow("f1d", start, subsidiaryManager);
+        builder.addSequenceFlow("f2a", chairman, handler);
+        builder.addSequenceFlow("f2b", executive, handler);
+        builder.addSequenceFlow("f2c", integratedAdminDept, handler);
+        builder.addSequenceFlow("f2d", subsidiaryManager, handler);
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-um")).thenReturn(model);
+
+        // filterByHistory 按 result 列表顺序查询：chairman=1，其余=0
+        stubCountQueries("pi-um", 1L, 0L, 0L, 0L);
+
+        List<String> result = nodeFinder.findPreviousNodes("proc-um", "handler", "pi-um");
+
+        assertThat(result).containsExactly("chairman");
+    }
+
+    /**
+     * 排他网关 merge + 历史全部缺失：taskA→gw→task2, taskB→gw→task2，
+     * 历史无 taskA/taskB 记录。验证不盲猜首条，而是抛 NoPreviousNodeException。
+     */
+    @Test
+    public void testFindPreviousNodesExclusiveGatewayHistoryAllMissed() {
+        TestModelBuilder builder = new TestModelBuilder();
+        StartEvent start = builder.addStartEvent("start");
+        UserTask taskA = builder.addUserTask("taskA");
+        UserTask taskB = builder.addUserTask("taskB");
+        ExclusiveGateway gwMerge = builder.addExclusiveGateway("gw_merge");
+        UserTask task2 = builder.addUserTask("task2");
+
+        builder.addSequenceFlow("f1a", start, taskA);
+        builder.addSequenceFlow("f1b", start, taskB);
+        builder.addSequenceFlow("f2a", taskA, gwMerge);
+        builder.addSequenceFlow("f2b", taskB, gwMerge);
+        builder.addSequenceFlow("f3", gwMerge, task2);
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-gw-miss")).thenReturn(model);
+
+        // resolveExclusiveGateway: taskA=0, taskB=0 → 返回全量入边
+        // filterByHistory: taskA=0, taskB=0 → 空列表 → NoPreviousNodeException
+        stubCountQueries("pi-miss", 0L, 0L, 0L, 0L);
+
+        assertThatThrownBy(() -> nodeFinder.findPreviousNodes("proc-gw-miss", "task2", "pi-miss"))
+                .isInstanceOf(NoPreviousNodeException.class)
+                .hasMessageContaining("task2 无上一审批节点");
+    }
+
+    private void stubCountQueries(String processInstanceId, Long... counts) {
+        HistoricActivityInstanceQuery query = Mockito.mock(HistoricActivityInstanceQuery.class);
+        when(historyService.createHistoricActivityInstanceQuery()).thenReturn(query);
+        when(query.processInstanceId(processInstanceId)).thenReturn(query);
+        when(query.finished()).thenReturn(query);
+        when(query.activityId(anyString())).thenReturn(query);
+        when(query.count()).thenReturn(counts[0], java.util.Arrays.copyOfRange(counts, 1, counts.length));
     }
 
     private void stubHistoricActivityInstances(String processInstanceId,
