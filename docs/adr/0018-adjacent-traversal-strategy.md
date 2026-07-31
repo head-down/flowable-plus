@@ -26,4 +26,5 @@ NodeFinder 现有的正向遍历方法 `findAllReachableUserTasks` 和 `findNext
 
 - `traceForwardAll` 多一个 `boolean` 参数，6 处调用点（3 处外部 + 3 处内部递归）全部需要显式传参
 - `findAdjacentUserTasks` 返回的是一层 UserTask，调用方若需全量遍历应使用 `findNextUserTasks`
+- `getAdjacentTaskApprovers()` / `getAdjacentNodeApproversByProcessKey()` 返回的审批人列表跨节点不作去重。同一用户若出现在多个紧邻节点（如并行分支的各 UserTask），列表中会出现多次（每次携带对应 nodeId）。调用方应根据业务场景自行聚合（预览场景按 userId 去重，指派场景按 nodeId 分组）。同一节点内的审批人已由 `UserTaskApproverResolver` 按 assignee &gt; candidateUser &gt; candidateGroup 优先级去重。
 - 该参数扩展了引擎的灵活性，未来若新增更多遍历策略变体，可能更自然地向策略模式演进

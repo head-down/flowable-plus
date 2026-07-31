@@ -174,8 +174,13 @@ public interface QueryOperations {
     /**
      * 获取当前任务所有下一节点的审批人（扁平列表）。
      *
+     * <p>去重策略与 {@link #getAdjacentTaskApprovers(String)} 一致：
+     * 同一节点内的审批人已按优先级去重，跨节点不作去重，
+     * 调用方应根据业务场景自行聚合或分组。</p>
+     *
      * @param taskId 当前任务 ID
      * @return 所有下一节点的审批人列表
+     * @see #getAdjacentTaskApprovers(String)
      */
     List<ApproverInfoVO> getNextTaskApprovers(String taskId);
 
@@ -226,8 +231,13 @@ public interface QueryOperations {
      *
      * <p>典型场景：审批页面展示"紧邻的下一步审批人"。</p>
      *
+     * <p><b>去重策略：</b>同一节点内的审批人已按优先级去重（assignee &gt;
+     * candidateUser &gt; candidateGroup），但跨节点不作去重。
+     * 调用方应根据业务场景自行聚合（预览场景按 userId 去重，
+     * 指派场景按 nodeId 分组）。</p>
+     *
      * @param taskId 当前任务 ID，不可为 null 或空
-     * @return 紧邻节点的审批人扁平列表，不做去重
+     * @return 紧邻节点的审批人扁平列表，跨节点含可能重复的审批人
      */
     List<ApproverInfoVO> getAdjacentTaskApprovers(String taskId);
 

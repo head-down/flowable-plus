@@ -7,11 +7,16 @@ import org.flowable.bpmn.model.UserTask;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * {@link ApproverResolver} 的默认实现，从 BPMN UserTask 中提取 assignee、
  * candidateUsers 和 candidateGroups 信息。
+ *
+ * <p>同一节点内按优先级去重（assignee &gt; candidateUser &gt; candidateGroup），
+ * 同一用户不会因为多种分配方式而在结果列表中出现多次。</p>
  *
  * @author flowable-plus
  */
@@ -29,35 +34,41 @@ public class UserTaskApproverResolver implements ApproverResolver {
     @Override
     public List<ApproverInfoVO> resolveApprovers(UserTask userTask) {
         List<ApproverInfoVO> approvers = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
 
-        // assignee
+        // assignee（最高优先级）
         if (userTask.getAssignee() != null && !userTask.getAssignee().isEmpty()) {
+            seen.add(userTask.getAssignee());
             approvers.add(ApproverInfoVO.builder()
                     .id(userTask.getAssignee())
                     .type("assignee")
                     .build());
         }
 
-        // candidateUsers
+        // candidateUsers（跳过已被 assignee 包含的用户）
         if (userTask.getCandidateUsers() != null) {
             for (String candidateUser : userTask.getCandidateUsers()) {
-                approvers.add(ApproverInfoVO.builder()
-                        .id(candidateUser)
-                        .type("candidateUser")
-                        .build());
+                if (seen.add(candidateUser)) {
+                    approvers.add(ApproverInfoVO.builder()
+                            .id(candidateUser)
+                            .type("candidateUser")
+                            .build());
+                }
             }
         }
 
-        // candidateGroups
+        // candidateGroups（跳过已被 assignee 或 candidateUsers 包含的用户）
         if (userTask.getCandidateGroups() != null && groupResolver != null) {
             for (String groupId : userTask.getCandidateGroups()) {
                 List<String> members = groupResolver.getGroupMembers(groupId);
                 for (String memberId : members) {
-                    approvers.add(ApproverInfoVO.builder()
-                            .id(memberId)
-                            .type("candidateGroup")
-                            .groupId(groupId)
-                            .build());
+                    if (seen.add(memberId)) {
+                        approvers.add(ApproverInfoVO.builder()
+                                .id(memberId)
+                                .type("candidateGroup")
+                                .groupId(groupId)
+                                .build());
+                    }
                 }
             }
         }

@@ -107,6 +107,11 @@ public class NodePreviewWorkflow {
 
     /**
      * 根据流程定义 Key 获取紧邻审批节点及审批人（仅返回第一个审批层级，遇 UserTask 即停止深入）。
+     *
+     * <p>各节点的审批人列表（{@code approvers} 字段）由
+     * {@link io.github.flowable.plus.core.support.UserTaskApproverResolver} 解析，
+     * 同一节点内已做优先级去重。跨节点去重策略详见
+     * {@link io.github.flowable.plus.core.api.QueryOperations#getAdjacentTaskApprovers(String)}。</p>
      */
     public List<NodeApproverVO> getAdjacentNodeApproversByProcessKey(String processKey,
                                                                       Map<String, Object> variables) {
@@ -164,6 +169,8 @@ public class NodePreviewWorkflow {
 
     /**
      * 获取当前任务所有下一节点的审批人（扁平列表）。
+     *
+     * <p>去重策略详见 {@link io.github.flowable.plus.core.api.QueryOperations#getNextTaskApprovers(String)}。</p>
      */
     public List<ApproverInfoVO> getNextTaskApprovers(String taskId) {
         return getNextTaskApprovers(taskId, null);
@@ -309,7 +316,7 @@ public class NodePreviewWorkflow {
      *
      * <p>与 {@link #getAdjacentTaskNodes(String, String)} 遍历逻辑一致，
      * 仅将 VO 映射从 {@link NextTaskNodeVO} 切换为 {@link ApproverInfoVO}。
-     * 返回零阶邻接 UserTask 的审批人，不做去重。</p>
+     * 去重策略详见 {@link io.github.flowable.plus.core.api.QueryOperations#getAdjacentTaskApprovers(String)}。</p>
      */
     public List<ApproverInfoVO> getAdjacentTaskApprovers(String taskId) {
         if (taskId == null || taskId.isEmpty()) {
