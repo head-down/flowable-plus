@@ -23,6 +23,7 @@ public class ApprovalActionTest {
                         ApprovalAction.START,
                         ApprovalAction.AGREE,
                         ApprovalAction.REJECT,
+                        ApprovalAction.RETURN,
                         ApprovalAction.WITHDRAW,
                         ApprovalAction.REVOKE,
                         ApprovalAction.COUNTER_SIGN_AGREE,
@@ -35,8 +36,8 @@ public class ApprovalActionTest {
     }
 
     @Test
-    void testValueCountIsEleven() {
-        assertThat(ApprovalAction.values()).hasSize(11);
+    void testValueCountIsTwelve() {
+        assertThat(ApprovalAction.values()).hasSize(12);
     }
 
     // ======================== CommentTypeConverter 一对一映射 ========================
@@ -98,9 +99,9 @@ public class ApprovalActionTest {
     // ======================== CommentTypeConverter 语义映射 ========================
 
     @Test
-    void testFromCommentTypeReturnMapsToAgree() {
+    void testFromCommentTypeReturnMapsToReturn() {
         assertThat(CommentTypeConverter.toApprovalAction(CommentType.RETURN))
-                .isEqualTo(ApprovalAction.AGREE);
+                .isEqualTo(ApprovalAction.RETURN);
     }
 
     @Test

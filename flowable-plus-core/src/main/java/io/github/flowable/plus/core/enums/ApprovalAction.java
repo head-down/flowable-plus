@@ -17,6 +17,9 @@ public enum ApprovalAction {
     /** 驳回：审批人不同意当前任务 */
     REJECT,
 
+    /** 退回：当前审批人将任务退回到指定历史审批节点 */
+    RETURN,
+
     /** 撤回：上一节点审批人撤回到自己的待办 */
     WITHDRAW,
 

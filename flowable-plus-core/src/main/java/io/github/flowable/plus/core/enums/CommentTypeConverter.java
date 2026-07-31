@@ -7,7 +7,7 @@ package io.github.flowable.plus.core.enums;
  * <ul>
  *   <li>一对一映射（AGREE, REJECT, WITHDRAW, REVOKE, COUNTER_SIGN_AGREE,
  *       COUNTER_SIGN_REJECT, ADD_SIGN, DELETE_SIGN, TRANSFER）</li>
- *   <li>RETURN → AGREE（退回在语义上等同于同意）</li>
+ *   <li>RETURN → RETURN（退回操作展示为独立的退回类别）</li>
  *   <li>AUTO_COMPLETE → AGREE（自动提交等同于同意）</li>
  *   <li>DELEGATE / RESOLVE_DELEGATE → 抛出 IllegalArgumentException</li>
  * </ul>
@@ -36,7 +36,7 @@ public final class CommentTypeConverter {
             case REJECT:
                 return ApprovalAction.REJECT;
             case RETURN:
-                return ApprovalAction.AGREE;
+                return ApprovalAction.RETURN;
             case WITHDRAW:
                 return ApprovalAction.WITHDRAW;
             case REVOKE:
