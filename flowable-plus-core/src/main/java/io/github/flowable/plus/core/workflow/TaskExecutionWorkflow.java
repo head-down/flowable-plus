@@ -16,6 +16,7 @@ import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.model.NodeFinder;
 import io.github.flowable.plus.core.spi.ExecutionTreeHelper;
 import io.github.flowable.plus.core.spi.UserContext;
+import io.github.flowable.plus.core.strategy.PreviousNodeResolutionStrategy;
 import io.github.flowable.plus.core.support.PreviousNodeAuthorizer;
 import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.support.TaskValidation;
@@ -104,6 +105,11 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
 
     @Override
     public void rejectTask(String taskId, String reason) {
+        rejectTask(taskId, reason, null);
+    }
+
+    @Override
+    public void rejectTask(String taskId, String reason, PreviousNodeResolutionStrategy strategy) {
         PlusTask task = TaskValidation.validateTaskExists(taskService, historyService, taskId, "驳回");
         TaskValidation.validateCurrentUserIsAssignee(task, userContext.getCurrentUserId(), taskId, "驳回");
         TaskValidation.validateNotMultiInstance(multiInstanceDetector, task, taskId);
@@ -115,12 +121,8 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
         checkActiveParallelBranch(task);
 
         List<String> prevNodes = nodeFinder.findPreviousNodes(processDefinitionId, currentActivityId, processInstanceId);
+        String targetNode = resolvePreviousNode(prevNodes, processInstanceId, strategy);
 
-        if (prevNodes.size() > 1) {
-            throw new NoPreviousNodeException("无法确定唯一上一审批节点");
-        }
-
-        String targetNode = prevNodes.get(0);
         executeRollback(task, targetNode, reason, CommentType.REJECT.name());
 
         if (eventPublisher != null) {
@@ -164,6 +166,11 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
 
     @Override
     public void withdrawTask(String taskId, String reason) {
+        withdrawTask(taskId, reason, null);
+    }
+
+    @Override
+    public void withdrawTask(String taskId, String reason, PreviousNodeResolutionStrategy strategy) {
         String currentUserId = userContext.getCurrentUserId();
         PlusTask task = TaskValidation.validateTaskExists(taskService, historyService, taskId, "撤回");
         TaskValidation.validateNotMultiInstance(multiInstanceDetector, task, taskId);
@@ -174,12 +181,7 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
 
         List<String> prevNodes = nodeFinder.findPreviousNodes(
                 task.getProcessDefinitionId(), task.getTaskDefinitionKey(), processInstanceId);
-
-        if (prevNodes.size() > 1) {
-            throw new NoPreviousNodeException("无法确定唯一上一审批节点");
-        }
-
-        String prevNodeId = prevNodes.get(0);
+        String prevNodeId = resolvePreviousNode(prevNodes, processInstanceId, strategy);
 
         if (!previousNodeAuthorizer.isAuthorized(currentUserId, taskId)) {
             throw new PermissionDeniedException(
@@ -339,6 +341,29 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
             throw new NoPreviousNodeException(
                     "当前节点位于并行分支上，存在其他活跃分支，请使用驳回至发起人操作");
         }
+    }
+
+    /**
+     * 从候选节点列表中解析出唯一的目标节点。
+     *
+     * <p>单候选时直接返回；多候选时若 strategy 不为 null 则委托策略选择，
+     * 否则抛出 NoPreviousNodeException（保持向后兼容）。</p>
+     *
+     * @param prevNodes         已通过历史过滤的候选节点列表
+     * @param processInstanceId 流程实例 ID
+     * @param strategy          节点选择策略，可为 null
+     * @return 选中的目标节点 ID
+     * @throws NoPreviousNodeException 候选列表为空，或多候选且 strategy 为 null 时抛出
+     */
+    private String resolvePreviousNode(List<String> prevNodes, String processInstanceId,
+                                        PreviousNodeResolutionStrategy strategy) {
+        if (prevNodes.size() == 1) {
+            return prevNodes.get(0);
+        }
+        if (prevNodes.size() > 1 && strategy != null) {
+            return strategy.resolve(prevNodes, processInstanceId, historyService);
+        }
+        throw new NoPreviousNodeException("无法确定唯一上一审批节点");
     }
 
     private void executeRollback(PlusTask task, String targetActivityId, String reason, String commentType) {

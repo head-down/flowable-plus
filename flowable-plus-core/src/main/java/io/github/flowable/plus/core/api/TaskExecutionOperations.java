@@ -5,6 +5,7 @@ import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.exception.TaskAlreadyCompletedException;
+import io.github.flowable.plus.core.strategy.PreviousNodeResolutionStrategy;
 import io.github.flowable.plus.core.vo.JumpableNodeVO;
 import io.github.flowable.plus.core.enums.CommentType;
 
@@ -57,6 +58,26 @@ public interface TaskExecutionOperations {
     void rejectTask(String taskId, String reason);
 
     /**
+     * 驳回至上一审批节点，多候选时使用指定策略选择目标节点。
+     *
+     * <p>当存在多个上一审批节点（如并行网关汇合）时，通过 strategy 确定目标节点。
+     * 不传策略（{@code null}）时行为与 {@link #rejectTask(String, String)} 一致，
+     * 多候选场景直接抛出 {@link NoPreviousNodeException}。</p>
+     *
+     * <p>策略收到的候选节点已通过历史数据清洗，不包含未执行的"幽灵分支"。
+     * 内置策略参见 {@link PreviousNodeResolutionStrategy} 的实现类。</p>
+     *
+     * @param taskId   任务 ID，不可为 null
+     * @param reason   驳回原因，可为 null
+     * @param strategy 多候选节点的选择策略，可为 null（null 时多候选抛异常）
+     * @throws NotFoundException            任务不存在时抛出
+     * @throws TaskAlreadyCompletedException 任务已完成时抛出
+     * @throws PermissionDeniedException     调用者不是当前任务审批人时抛出
+     * @throws NoPreviousNodeException       无上一审批节点或 strategy 为 null 且多候选时抛出
+     */
+    void rejectTask(String taskId, String reason, PreviousNodeResolutionStrategy strategy);
+
+    /**
      * 驳回至流程发起人节点。
      *
      * <p>审批人不同意当前任务，退回至流程的第一个审批节点（发起人所在节点）。</p>
@@ -83,6 +104,26 @@ public interface TaskExecutionOperations {
      * @throws NoPreviousNodeException       无上一审批节点或处于并行网关汇合之后时抛出
      */
     void withdrawTask(String taskId, String reason);
+
+    /**
+     * 撤回已提交的任务，多候选时使用指定策略选择目标节点。
+     *
+     * <p>当存在多个上一审批节点（如并行网关汇合）时，通过 strategy 确定目标节点。
+     * 不传策略（{@code null}）时行为与 {@link #withdrawTask(String, String)} 一致，
+     * 多候选场景直接抛出 {@link NoPreviousNodeException}。</p>
+     *
+     * <p>策略收到的候选节点已通过历史数据清洗，不包含未执行的"幽灵分支"。
+     * 内置策略参见 {@link PreviousNodeResolutionStrategy} 的实现类。</p>
+     *
+     * @param taskId   任务 ID，不可为 null
+     * @param reason   撤回原因，可为 null
+     * @param strategy 多候选节点的选择策略，可为 null（null 时多候选抛异常）
+     * @throws NotFoundException            任务不存在时抛出
+     * @throws TaskAlreadyCompletedException 任务已完成时抛出
+     * @throws PermissionDeniedException     调用者不是上一审批节点人或尝试撤回自己的任务时抛出
+     * @throws NoPreviousNodeException       无上一审批节点或 strategy 为 null 且多候选时抛出
+     */
+    void withdrawTask(String taskId, String reason, PreviousNodeResolutionStrategy strategy);
 
     /**
      * 转办：将单实例审批任务彻底转移给他人。

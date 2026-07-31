@@ -12,6 +12,7 @@ import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.model.NodeFinder;
 import io.github.flowable.plus.core.spi.ExecutionTreeHelper;
 import io.github.flowable.plus.core.spi.UserContext;
+import io.github.flowable.plus.core.strategy.PreviousNodeResolvers;
 import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.vo.JumpableNodeVO;
 import io.github.flowable.plus.core.support.PreviousNodeAuthorizer;
@@ -19,6 +20,8 @@ import io.github.flowable.plus.core.workflow.TaskExecutionWorkflow;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
+import org.flowable.engine.history.HistoricActivityInstance;
+import org.flowable.engine.history.HistoricActivityInstanceQuery;
 import org.flowable.engine.runtime.ChangeActivityStateBuilder;
 import org.flowable.engine.runtime.Execution;
 import org.flowable.engine.runtime.ExecutionQuery;
@@ -40,6 +43,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -66,6 +70,7 @@ public class TaskExecutionWorkflowTest {
     private ProcessEndDetector mockProcessEndDetector;
     private TaskExecutionWorkflow workflow;
     private PreviousNodeAuthorizer mockPreviousNodeAuthorizer;
+    private ChangeActivityStateBuilder mockChangeStateBuilder;
 
     @BeforeEach
     void setUp() {
@@ -216,6 +221,76 @@ public class TaskExecutionWorkflowTest {
                 .hasMessageContaining("无法确定唯一上一审批节点");
     }
 
+    @Test
+    void testRejectTaskWithFirstCandidateStrategy() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
+        when(mockNodeFinder.findPreviousNodes("leave:1:abc", "task2", "pi-001"))
+                .thenReturn(Arrays.asList("task1a", "task1b"));
+
+        stubRollback();
+
+        workflow.rejectTask("task-001", "不同意",
+                PreviousNodeResolvers.firstCandidate());
+
+        verify(mockChangeStateBuilder).moveActivityIdTo("task2", "task1a");
+    }
+
+    @Test
+    void testRejectTaskWithEarliestStartedStrategy() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
+        when(mockNodeFinder.findPreviousNodes("leave:1:abc", "task2", "pi-001"))
+                .thenReturn(Arrays.asList("task1a", "task1b"));
+
+        // task1b started earlier (500000 < 1000000), strategy should select task1b
+        HistoricActivityInstance activityA = mock(HistoricActivityInstance.class);
+        when(activityA.getStartTime()).thenReturn(new Date(1000000L));
+        HistoricActivityInstance activityB = mock(HistoricActivityInstance.class);
+        when(activityB.getStartTime()).thenReturn(new Date(500000L));
+
+        HistoricActivityInstanceQuery queryA = mock(HistoricActivityInstanceQuery.class);
+        HistoricActivityInstanceQuery queryB = mock(HistoricActivityInstanceQuery.class);
+        when(mockHistoryService.createHistoricActivityInstanceQuery())
+                .thenReturn(queryA).thenReturn(queryB);
+
+        when(queryA.processInstanceId("pi-001")).thenReturn(queryA);
+        when(queryA.activityId("task1a")).thenReturn(queryA);
+        when(queryA.finished()).thenReturn(queryA);
+        when(queryA.orderByHistoricActivityInstanceStartTime()).thenReturn(queryA);
+        when(queryA.asc()).thenReturn(queryA);
+        when(queryA.listPage(0, 1)).thenReturn(Collections.singletonList(activityA));
+
+        when(queryB.processInstanceId("pi-001")).thenReturn(queryB);
+        when(queryB.activityId("task1b")).thenReturn(queryB);
+        when(queryB.finished()).thenReturn(queryB);
+        when(queryB.orderByHistoricActivityInstanceStartTime()).thenReturn(queryB);
+        when(queryB.asc()).thenReturn(queryB);
+        when(queryB.listPage(0, 1)).thenReturn(Collections.singletonList(activityB));
+
+        stubRollback();
+
+        workflow.rejectTask("task-001", "不同意",
+                PreviousNodeResolvers.earliestStarted());
+
+        verify(mockChangeStateBuilder).moveActivityIdTo("task2", "task1b");
+    }
+
+    @Test
+    void testWithdrawTaskRejectsMultiNodeWithoutStrategy() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", "user3");
+        stubTaskExists(task);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
+        when(mockNodeFinder.findPreviousNodes("leave:1:abc", "task2", "pi-001"))
+                .thenReturn(Arrays.asList("task1a", "task1b"));
+
+        assertThatThrownBy(() -> workflow.withdrawTask("task-001", "撤回"))
+                .isInstanceOf(NoPreviousNodeException.class)
+                .hasMessageContaining("无法确定唯一上一审批节点");
+    }
+
     // ======================== 驳回至发起人 ========================
 
     @Test
@@ -272,6 +347,63 @@ public class TaskExecutionWorkflowTest {
         workflow.withdrawTask("task-001", "撤回测试");
 
         verify(mockTaskService).addComment("task-001", "pi-001", CommentType.WITHDRAW.name(), "撤回测试");
+    }
+
+    @Test
+    void testWithdrawTaskWithFirstCandidateStrategy() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", "user3");
+        stubTaskExists(task);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
+        when(mockNodeFinder.findPreviousNodes("leave:1:abc", "task2", "pi-001"))
+                .thenReturn(Arrays.asList("task1a", "task1b"));
+
+        stubRollback();
+
+        workflow.withdrawTask("task-001", "撤回测试",
+                PreviousNodeResolvers.firstCandidate());
+
+        verify(mockChangeStateBuilder).moveActivityIdTo("task2", "task1a");
+    }
+
+    @Test
+    void testWithdrawTaskWithLatestEndedStrategy() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", "user3");
+        stubTaskExists(task);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
+        when(mockNodeFinder.findPreviousNodes("leave:1:abc", "task2", "pi-001"))
+                .thenReturn(Arrays.asList("task1a", "task1b"));
+
+        // task1a ended later (3000000 > 2000000), strategy should select task1a
+        HistoricActivityInstance activityA = mock(HistoricActivityInstance.class);
+        when(activityA.getEndTime()).thenReturn(new Date(3000000L));
+        HistoricActivityInstance activityB = mock(HistoricActivityInstance.class);
+        when(activityB.getEndTime()).thenReturn(new Date(2000000L));
+
+        HistoricActivityInstanceQuery queryA = mock(HistoricActivityInstanceQuery.class);
+        HistoricActivityInstanceQuery queryB = mock(HistoricActivityInstanceQuery.class);
+        when(mockHistoryService.createHistoricActivityInstanceQuery())
+                .thenReturn(queryA).thenReturn(queryB);
+
+        when(queryA.processInstanceId("pi-001")).thenReturn(queryA);
+        when(queryA.activityId("task1a")).thenReturn(queryA);
+        when(queryA.finished()).thenReturn(queryA);
+        when(queryA.orderByHistoricActivityInstanceEndTime()).thenReturn(queryA);
+        when(queryA.desc()).thenReturn(queryA);
+        when(queryA.listPage(0, 1)).thenReturn(Collections.singletonList(activityA));
+
+        when(queryB.processInstanceId("pi-001")).thenReturn(queryB);
+        when(queryB.activityId("task1b")).thenReturn(queryB);
+        when(queryB.finished()).thenReturn(queryB);
+        when(queryB.orderByHistoricActivityInstanceEndTime()).thenReturn(queryB);
+        when(queryB.desc()).thenReturn(queryB);
+        when(queryB.listPage(0, 1)).thenReturn(Collections.singletonList(activityB));
+
+        stubRollback();
+
+        workflow.withdrawTask("task-001", "撤回测试",
+                PreviousNodeResolvers.latestEnded());
+
+        verify(mockChangeStateBuilder).moveActivityIdTo("task2", "task1a");
     }
 
     @Test
@@ -847,10 +979,10 @@ public class TaskExecutionWorkflowTest {
     }
 
     private void stubRollback() {
-        ChangeActivityStateBuilder mockBuilder = mock(ChangeActivityStateBuilder.class);
-        when(mockRuntimeService.createChangeActivityStateBuilder()).thenReturn(mockBuilder);
-        when(mockBuilder.processInstanceId(anyString())).thenReturn(mockBuilder);
-        when(mockBuilder.moveActivityIdTo(anyString(), anyString())).thenReturn(mockBuilder);
+        mockChangeStateBuilder = mock(ChangeActivityStateBuilder.class);
+        when(mockRuntimeService.createChangeActivityStateBuilder()).thenReturn(mockChangeStateBuilder);
+        when(mockChangeStateBuilder.processInstanceId(anyString())).thenReturn(mockChangeStateBuilder);
+        when(mockChangeStateBuilder.moveActivityIdTo(anyString(), anyString())).thenReturn(mockChangeStateBuilder);
     }
 
     private void stubHistoricTaskLookup(String processInstanceId, String taskDefKey,
