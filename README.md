@@ -157,8 +157,14 @@ List<ApprovalRecordVO> history = flowablePlus.getApprovalHistory("proc-001");
 | ADR-0008 | 自动提交采用 AutoApprovalRule SPI，异常快速失败 |
 | ADR-0009 | 审批历史 Comment→Action 推断采用三级策略 |
 | ADR-0010 | FlowablePlus 门面保持纯聚合角色 |
-| ADR-0011 | 事件监听器采用 DispatchableEvent 自分发 |
-| ADR-0012 | 已办查询切换至流程实例维度 |
+| ADR-0011 | DispatchableEvent 自分发替代 instanceof 链 |
+| ADR-0012 | 已办查询基于流程实例维度的两阶段查询 |
+| ADR-0013 | 已办查询精确分页引入 Native SQL |
+| ADR-0014 | 多数据库 CI 矩阵作为 v1.0.0 GA 硬性准入条件 |
+| ADR-0015 | 公开 API 准入标准：禁止裸透传 Flowable 原生方法 |
+| ADR-0016 | 正向 EndEvent 终止检测作为独立 NodeFinder 方法 |
+| ADR-0017 | 乐观锁冲突不采用通用 AOP 重试，仅在具体方法内精准重试 |
+| ADR-0018 | 紧邻遍历使用 stopAtUserTask 参数复用现有遍历引擎 |
 
 详见 `docs/adr/` 目录。
 
