@@ -511,7 +511,7 @@ public class HistoryWorkflowTest {
         HistoricTaskInstance ht1 = createHistoricTask("ht-1", "task1", "部门审批", "user1",
                 taskStart, taskEnd, "deleted");
 
-        Comment revokeComment = createComment("ht-1", "REVOKE", "申请人撤销流程", taskEnd);
+        Comment revokeComment = createComment("ht-1", "INVALID", "申请人作废流程", taskEnd);
 
         stubNormalFlow(activities, Collections.singletonList(ht1),
                 Collections.singletonList(revokeComment));
@@ -520,7 +520,7 @@ public class HistoryWorkflowTest {
         List<ApprovalRecordVO> result = historyWorkflow.getApprovalHistory(INSTANCE_ID);
 
         assertThat(result).hasSize(2);
-        assertThat(result.get(1).getAction()).isEqualTo(ApprovalAction.REVOKE);
+        assertThat(result.get(1).getAction()).isEqualTo(ApprovalAction.INVALID);
     }
 
     // ======================== 转办操作 ========================

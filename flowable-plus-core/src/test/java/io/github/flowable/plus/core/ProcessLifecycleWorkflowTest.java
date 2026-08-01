@@ -489,7 +489,7 @@ public class ProcessLifecycleWorkflowTest {
         workflow.invalidateProcess("pi-001", "发起人作废");
 
         verify(mockRuntimeService).deleteProcessInstance("pi-001", "发起人作废");
-        verify(mockTaskService).addComment("task-001", "pi-001", CommentType.REVOKE.name(), "发起人作废");
+        verify(mockTaskService).addComment("task-001", "pi-001", CommentType.INVALID.name(), "发起人作废");
     }
 
     @Test

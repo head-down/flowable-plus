@@ -130,7 +130,7 @@ public class ProcessLifecycleWorkflow implements ProcessLifecycleOperations {
         }
 
         String commentText = StrUtil.isNotBlank(reason) ? reason : "作废流程实例";
-        taskService.addComment(activeTask.getId(), processInstanceId, CommentType.REVOKE.name(), commentText);
+        taskService.addComment(activeTask.getId(), processInstanceId, CommentType.INVALID.name(), commentText);
 
         runtimeService.deleteProcessInstance(processInstanceId, reason);
 

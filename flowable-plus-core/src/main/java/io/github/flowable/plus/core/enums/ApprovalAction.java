@@ -23,8 +23,8 @@ public enum ApprovalAction {
     /** 撤回：上一节点审批人撤回到自己的待办 */
     WITHDRAW,
 
-    /** 撤销：流程发起人撤销整个流程实例 */
-    REVOKE,
+    /** 作废：流程发起人作废整个流程实例 */
+    INVALID,
 
     /** 会签同意：会签参与者投赞成票 */
     COUNTER_SIGN_AGREE,

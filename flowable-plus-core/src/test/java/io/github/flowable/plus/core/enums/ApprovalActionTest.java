@@ -25,7 +25,7 @@ public class ApprovalActionTest {
                         ApprovalAction.REJECT,
                         ApprovalAction.RETURN,
                         ApprovalAction.WITHDRAW,
-                        ApprovalAction.REVOKE,
+                        ApprovalAction.INVALID,
                         ApprovalAction.COUNTER_SIGN_AGREE,
                         ApprovalAction.COUNTER_SIGN_REJECT,
                         ApprovalAction.TRANSFER,
@@ -61,9 +61,9 @@ public class ApprovalActionTest {
     }
 
     @Test
-    void testFromCommentTypeRevoke() {
-        assertThat(CommentTypeConverter.toApprovalAction(CommentType.REVOKE))
-                .isEqualTo(ApprovalAction.REVOKE);
+    void testFromCommentTypeInvalid() {
+        assertThat(CommentTypeConverter.toApprovalAction(CommentType.INVALID))
+                .isEqualTo(ApprovalAction.INVALID);
     }
 
     @Test
