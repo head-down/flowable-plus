@@ -6,6 +6,7 @@ import io.github.flowable.plus.core.domain.PlusTask;
 import io.github.flowable.plus.core.enums.CommentType;
 import io.github.flowable.plus.core.event.EventPublisher;
 import io.github.flowable.plus.core.event.TaskCompletedEvent;
+import io.github.flowable.plus.core.event.TaskJumpedEvent;
 import io.github.flowable.plus.core.event.TaskRejectedEvent;
 import io.github.flowable.plus.core.event.TaskTransferredEvent;
 import io.github.flowable.plus.core.event.TaskWithdrawnEvent;
@@ -266,6 +267,12 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
         }
 
         executeRollback(task, targetNodeId, reason, commentType.name());
+
+        if (eventPublisher != null) {
+            eventPublisher.publish(TaskJumpedEvent.of(task.getId(), task.getProcessInstanceId(),
+                    task.getName(), task.getTaskDefinitionKey(), task.getAssignee(),
+                    targetNodeId, reason, commentType.name(), new java.util.Date()));
+        }
     }
 
     @Override

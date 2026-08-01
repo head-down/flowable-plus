@@ -5,6 +5,7 @@ import io.github.flowable.plus.core.event.ProcessInvalidatedEvent;
 import io.github.flowable.plus.core.event.ProcessStartedEvent;
 import io.github.flowable.plus.core.event.TaskCompletedEvent;
 import io.github.flowable.plus.core.event.TaskDelegatedEvent;
+import io.github.flowable.plus.core.event.TaskJumpedEvent;
 import io.github.flowable.plus.core.event.TaskRejectedEvent;
 import io.github.flowable.plus.core.event.TaskTransferredEvent;
 import io.github.flowable.plus.core.event.TaskWithdrawnEvent;
@@ -46,4 +47,6 @@ public interface ProcessEventListener {
     default void onTaskTransferred(TaskTransferredEvent event) {}
 
     default void onProcessEnded(ProcessEndedEvent event) {}
+
+    default void onTaskJumped(TaskJumpedEvent event) {}
 }
