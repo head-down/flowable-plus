@@ -4,6 +4,7 @@ import io.github.flowable.plus.core.event.EventPublisher;
 import io.github.flowable.plus.core.event.TaskCompletedEvent;
 import io.github.flowable.plus.core.event.TaskDelegatedEvent;
 import io.github.flowable.plus.core.event.TaskRejectedEvent;
+import io.github.flowable.plus.core.exception.AmbiguousPreviousNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
@@ -315,9 +316,14 @@ public class CounterSignWorkflow implements CounterSignOperations {
 
     private void validateCounterSignPermission(PlusTask task) {
         String currentUserId = userContext.getCurrentUserId();
-        if (!previousNodeAuthorizer.isAuthorized(currentUserId, task.getId())) {
+        try {
+            if (!previousNodeAuthorizer.isAuthorized(currentUserId, task.getId())) {
+                throw new PermissionDeniedException(
+                        "用户 " + currentUserId + " 无权操作会签任务，仅上一节点审批人可操作");
+            }
+        } catch (AmbiguousPreviousNodeException e) {
             throw new PermissionDeniedException(
-                    "用户 " + currentUserId + " 无权操作会签任务，仅上一节点审批人可操作");
+                    "当前会签任务的前置节点存在多个，无法唯一确定上一节点审批人", e);
         }
     }
 }

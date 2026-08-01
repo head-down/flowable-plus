@@ -85,6 +85,7 @@ public class TaskExecutionWorkflowTest {
 
         mockPreviousNodeAuthorizer = mock(PreviousNodeAuthorizer.class);
         when(mockPreviousNodeAuthorizer.isAuthorized(anyString(), anyString())).thenReturn(true);
+        when(mockPreviousNodeAuthorizer.isAuthorized(anyString(), anyString(), any())).thenReturn(true);
 
         // 默认 stub：createExecutionQuery 返回空执行对象（非并行分支场景）
         stubNoParallelBranch();
@@ -426,7 +427,7 @@ public class TaskExecutionWorkflowTest {
         when(histTaskQuery.desc()).thenReturn(histTaskQuery);
         when(histTaskQuery.listPage(0, 1)).thenReturn(Collections.singletonList(prevTask));
 
-        when(mockPreviousNodeAuthorizer.isAuthorized(USER_ID, "task-001")).thenReturn(false);
+        when(mockPreviousNodeAuthorizer.isAuthorized(eq(USER_ID), eq("task-001"), any())).thenReturn(false);
 
         assertThatThrownBy(() -> workflow.withdrawTask("task-001", "撤回"))
                 .isInstanceOf(PermissionDeniedException.class)
@@ -453,7 +454,7 @@ public class TaskExecutionWorkflowTest {
         when(histTaskQuery.desc()).thenReturn(histTaskQuery);
         when(histTaskQuery.listPage(0, 1)).thenReturn(Collections.singletonList(prevTask));
 
-        when(mockPreviousNodeAuthorizer.isAuthorized(USER_ID, "task-001")).thenReturn(false);
+        when(mockPreviousNodeAuthorizer.isAuthorized(eq(USER_ID), eq("task-001"), any())).thenReturn(false);
 
         assertThatThrownBy(() -> workflow.withdrawTask("task-001", "撤回"))
                 .isInstanceOf(PermissionDeniedException.class)

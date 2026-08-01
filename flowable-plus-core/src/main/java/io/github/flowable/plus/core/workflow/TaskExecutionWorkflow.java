@@ -184,7 +184,7 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
                 task.getProcessDefinitionId(), task.getTaskDefinitionKey(), processInstanceId);
         String prevNodeId = resolvePreviousNode(prevNodes, processInstanceId, strategy);
 
-        if (!previousNodeAuthorizer.isAuthorized(currentUserId, taskId)) {
+        if (!previousNodeAuthorizer.isAuthorized(currentUserId, taskId, strategy)) {
             throw new PermissionDeniedException(
                     "用户 " + currentUserId + " 不是上一节点审批人，无权撤回任务 " + taskId);
         }
