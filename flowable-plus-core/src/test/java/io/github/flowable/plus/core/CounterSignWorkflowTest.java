@@ -264,7 +264,7 @@ public class CounterSignWorkflowTest {
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
         stubCounterSignPermission(task);
 
-        // Q1: validateTaskExists + Q2: resolveCurrentAssignees
+        // Q1: validateTaskExists + Q2: resolveCurrentAssignees + Q3: isMultiInstanceFinished
         Task assignee = createMockTask("sub-1", definitionId, "csTask", "pi-001", USER_ID);
         Task mockExistTask = createMockTask(task.getId(), task.getProcessDefinitionId(),
                 task.getTaskDefinitionKey(), task.getProcessInstanceId(), task.getAssignee());
@@ -276,7 +276,13 @@ public class CounterSignWorkflowTest {
         when(q2.taskDefinitionKey(anyString())).thenReturn(q2);
         when(q2.active()).thenReturn(q2);
         when(q2.list()).thenReturn(Collections.singletonList(assignee));
-        when(mockTaskService.createTaskQuery()).thenReturn(q1, q2);
+        // Q3: isMultiInstanceFinished — 仍有活跃任务，返回计数 > 0 表示未完成
+        TaskQuery q3 = mock(TaskQuery.class);
+        when(q3.processInstanceId(anyString())).thenReturn(q3);
+        when(q3.taskDefinitionKey(anyString())).thenReturn(q3);
+        when(q3.active()).thenReturn(q3);
+        when(q3.count()).thenReturn(1L);
+        when(mockTaskService.createTaskQuery()).thenReturn(q1, q2, q3);
 
         counterSignWorkflow.addCounterSigner("task-001", Collections.singletonList("newUser"));
 
@@ -307,7 +313,13 @@ public class CounterSignWorkflowTest {
         when(q2.taskDefinitionKey(anyString())).thenReturn(q2);
         when(q2.active()).thenReturn(q2);
         when(q2.list()).thenReturn(Collections.singletonList(assignee));
-        when(mockTaskService.createTaskQuery()).thenReturn(q1, q2);
+        // Q3: isMultiInstanceFinished — 仍有活跃任务
+        TaskQuery q3 = mock(TaskQuery.class);
+        when(q3.processInstanceId(anyString())).thenReturn(q3);
+        when(q3.taskDefinitionKey(anyString())).thenReturn(q3);
+        when(q3.active()).thenReturn(q3);
+        when(q3.count()).thenReturn(1L);
+        when(mockTaskService.createTaskQuery()).thenReturn(q1, q2, q3);
 
         counterSignWorkflow.addCounterSigner("task-001", Arrays.asList("newUser1", "newUser2"));
 

@@ -267,7 +267,7 @@ public class ApprovalActionTest {
         CountersignSubRecord record = new CountersignSubRecord(
                 "task-cs-001", "node-countersign", "部门会签",
                 ApprovalAction.COUNTER_SIGN_REJECT, "actor-id", "actor-name",
-                "有异议", start, end, 1000L
+                "有异议", start, end, 1000L, null
         );
 
         assertThat(record.getTaskId()).isEqualTo("task-cs-001");

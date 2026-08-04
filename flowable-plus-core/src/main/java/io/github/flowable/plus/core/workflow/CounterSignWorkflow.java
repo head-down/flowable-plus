@@ -23,14 +23,17 @@ import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
 import org.flowable.task.api.history.HistoricTaskInstance;
 import org.flowable.task.api.Task;
+import org.flowable.variable.api.history.HistoricVariableInstance;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -39,6 +42,9 @@ import java.util.stream.Collectors;
  * @author flowable-plus
  */
 public class CounterSignWorkflow implements CounterSignOperations {
+
+    /** Task 局部变量名：会签轮次索引 */
+    static final String CS_ROUND_INDEX_VAR = "csRoundIndex";
 
     private static final Logger log = LoggerFactory.getLogger(CounterSignWorkflow.class);
 
@@ -150,16 +156,42 @@ public class CounterSignWorkflow implements CounterSignOperations {
             return;
         }
 
+        // 检测是否开启新轮次（全部审批完成后加签 = 新一轮）
+        boolean isNewRound = isMultiInstanceFinished(task);
+        int newRoundIndex = 0;
+        if (isNewRound) {
+            newRoundIndex = determineNextRoundIndex(processInstanceId, activityId);
+        }
+
+        // 批量加签
         for (String assignee : newAssignees) {
             HashMap<String, Object> executionVariables = new HashMap<>();
             executionVariables.put("assignee", assignee);
             runtimeService.addMultiInstanceExecution(activityId, processInstanceId, executionVariables);
         }
 
-        StringBuilder commentMsg = new StringBuilder("新增审批人: ")
+        // 新轮次：批量查询任务 + 内存过滤 + 统一打标（N→1 降维）
+        if (isNewRound) {
+            Set<String> newAssigneeSet = new HashSet<>(newAssignees);
+            List<Task> activeTasks = taskService.createTaskQuery()
+                    .processInstanceId(processInstanceId)
+                    .taskDefinitionKey(activityId)
+                    .active()
+                    .list();
+            for (Task t : activeTasks) {
+                if (newAssigneeSet.contains(t.getAssignee())) {
+                    taskService.setVariableLocal(t.getId(), "csRoundIndex", newRoundIndex);
+                }
+            }
+        }
+
+        StringBuilder commentMsg = new StringBuilder("加签审批人: ")
                 .append(String.join(", ", newAssignees));
         if (!skippedAssignees.isEmpty()) {
-            commentMsg.append("；跳过已存在: ").append(String.join(", ", skippedAssignees));
+            commentMsg.append("，跳过重复: ").append(String.join(", ", skippedAssignees));
+        }
+        if (isNewRound) {
+            commentMsg.append("，开启第 ").append(newRoundIndex + 1).append(" 轮会签");
         }
         taskService.addComment(taskId, processInstanceId, CommentType.ADD_SIGN.name(), commentMsg.toString());
 
@@ -302,6 +334,43 @@ public class CounterSignWorkflow implements CounterSignOperations {
                 .taskDefinitionKey(task.getTaskDefinitionKey())
                 .active()
                 .count() == 0;
+    }
+
+    /**
+     * 确定下一个会签轮次索引。
+     * 查询历史 csRoundIndex Task 局部变量，按 taskDefinitionKey 过滤以避免跨节点污染，
+     * 然后计算 max + 1。若无历史数据（老数据或首轮），返回 1（原始审批人轮次为隐式 0）。
+     */
+    private int determineNextRoundIndex(String processInstanceId, String taskDefinitionKey) {
+        // 按 taskDefinitionKey 获取所有历史任务 ID，用于 csRoundIndex 范围限定
+        List<HistoricTaskInstance> tasks = historyService
+                .createHistoricTaskInstanceQuery()
+                .processInstanceId(processInstanceId)
+                .taskDefinitionKey(taskDefinitionKey)
+                .list();
+
+        java.util.Set<String> taskIds = tasks.stream()
+                .map(HistoricTaskInstance::getId)
+                .collect(Collectors.toSet());
+
+        if (taskIds.isEmpty()) {
+            return 1;
+        }
+
+        // 查询所有 csRoundIndex，内存过滤到当前节点的 taskId
+        List<HistoricVariableInstance> vars = historyService
+                .createHistoricVariableInstanceQuery()
+                .processInstanceId(processInstanceId)
+                .variableName(CS_ROUND_INDEX_VAR)
+                .list();
+
+        int maxRound = 0;
+        for (HistoricVariableInstance var : vars) {
+            if (taskIds.contains(var.getTaskId()) && var.getValue() instanceof Integer) {
+                maxRound = Math.max(maxRound, (Integer) var.getValue());
+            }
+        }
+        return maxRound > 0 ? maxRound + 1 : 1;
     }
 
     private void invokeCallbacks(java.util.function.Consumer<CounterSignCallback> action) {

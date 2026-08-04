@@ -49,4 +49,12 @@ public class CountersignSubRecord {
 
     /** 耗时（毫秒） */
     private Long duration;
+
+    /**
+     * 会签轮次索引，用于多轮加签场景的分组展示。
+     *
+     * <p>写侧通过 Task 局部变量 {@code csRoundIndex} 显式标记，
+     * 读侧据此分轮次。为 null 时降级到 nrOfInstances 启发式推断。
+     */
+    private Integer roundIndex;
 }

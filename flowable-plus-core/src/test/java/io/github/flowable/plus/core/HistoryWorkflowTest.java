@@ -25,6 +25,8 @@ import org.flowable.engine.history.HistoricProcessInstanceQuery;
 import org.flowable.engine.task.Comment;
 import org.flowable.task.api.history.HistoricTaskInstance;
 import org.flowable.task.api.history.HistoricTaskInstanceQuery;
+import org.flowable.variable.api.history.HistoricVariableInstance;
+import org.flowable.variable.api.history.HistoricVariableInstanceQuery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -32,10 +34,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -58,6 +63,10 @@ public class HistoryWorkflowTest {
     private IdentityResolver mockIdentityResolver;
     private HistoryWorkflow historyWorkflow;
 
+    /** 用于区分不同 variableName 的 mock 数据 */
+    private List<HistoricVariableInstance> nrOfInstancesVarData = Collections.emptyList();
+    private List<HistoricVariableInstance> csRoundIndexVarData = Collections.emptyList();
+
     @BeforeEach
     public void setUp() {
         mockHistoryService = mock(HistoryService.class);
@@ -79,6 +88,40 @@ public class HistoryWorkflowTest {
         historyWorkflow = new HistoryWorkflow(mockHistoryService, mockTaskService,
                 mockBpmnModelCache, mockMultiInstanceDetector, mockIdentityResolver,
                 actionInferenceStrategy);
+
+        // 每次 createHistoricVariableInstanceQuery() 创建新 mock，通过追踪 variableName 区分返回值
+        resetVarQueryStubs();
+    }
+
+    /**
+     * 将 createHistoricVariableInstanceQuery() 设置为按 variableName 返回不同数据的机制。
+     * 在需要自定义变量数据的测试中调用对应 stub 后，会自动生效。
+     */
+    private void resetVarQueryStubs() {
+        // 重置数据
+        nrOfInstancesVarData = Collections.emptyList();
+        csRoundIndexVarData = Collections.emptyList();
+
+        // 使用可变引用追踪最后调用的 variableName
+        final String[] lastVarName = {null};
+        when(mockHistoryService.createHistoricVariableInstanceQuery()).thenAnswer(inv -> {
+            HistoricVariableInstanceQuery q = mock(HistoricVariableInstanceQuery.class);
+            when(q.processInstanceId(INSTANCE_ID)).thenReturn(q);
+            when(q.variableName(any())).thenAnswer(varNameInv -> {
+                lastVarName[0] = (String) varNameInv.getArgument(0);
+                return q;
+            });
+            when(q.list()).thenAnswer(listInv -> {
+                if ("nrOfInstances".equals(lastVarName[0])) {
+                    return nrOfInstancesVarData;
+                }
+                if ("csRoundIndex".equals(lastVarName[0])) {
+                    return csRoundIndexVarData;
+                }
+                return Collections.emptyList();
+            });
+            return q;
+        });
     }
 
     // ======================== 参数校验 ========================
@@ -308,6 +351,202 @@ public class HistoryWorkflowTest {
         assertThat(round2.getCountersignRecords().get(0).getActorId()).isEqualTo("userC");
         assertThat(round2.getCountersignRecords().get(0).getAction()).isEqualTo(ApprovalAction.COUNTER_SIGN_REJECT);
         assertThat(round2.getCountersignRecords().get(1).getActorId()).isEqualTo("userD");
+    }
+
+    // ======================== 多轮会签：addMultiInstanceExecution 追加审批人（同一 miBody） ========================
+
+    @Test
+    public void testAddSignersMultiRoundCounterSign() {
+        Date startEventTime = new Date(1000);
+
+        // 同一 miBody 下，第1轮 + 追加的2人
+        Date miBodyStart = new Date(2000);
+        Date r1Sub1Start = new Date(2100);
+        Date r1Sub1End = new Date(2200);
+        Date r1Sub2Start = new Date(2300);
+        Date r1Sub2End = new Date(2400);
+        Date r1Sub3Start = new Date(2500);
+        Date r1Sub3End = new Date(2600);
+
+        // 第2轮（addMultiInstanceExecution 追加）：时间更晚
+        Date r2Sub1Start = new Date(5000);
+        Date r2Sub1End = new Date(5100);
+        Date r2Sub2Start = new Date(5200);
+        Date r2Sub2End = new Date(5300);
+
+        String miExecId = "exec-mi-1";
+
+        List<HistoricActivityInstance> activities = Arrays.asList(
+                createActivity("start", "startEvent", "开始", startEventTime, startEventTime, null),
+                // 同一 miBody + 5 个会签人（#N 后缀即 loopCounter）
+                createActivity("csTask", "multiInstanceBody", "会签审批", miBodyStart, miBodyStart, null, miExecId),
+                createActivity("csTask#0", "userTask", "会签审批", r1Sub1Start, r1Sub1Start, "ht-r1-1"),
+                createActivity("csTask#1", "userTask", "会签审批", r1Sub2Start, r1Sub2Start, "ht-r1-2"),
+                createActivity("csTask#2", "userTask", "会签审批", r1Sub3Start, r1Sub3Start, "ht-r1-3"),
+                createActivity("csTask#3", "userTask", "会签审批", r2Sub1Start, r2Sub1Start, "ht-r2-1"),
+                createActivity("csTask#4", "userTask", "会签审批", r2Sub2Start, r2Sub2Start, "ht-r2-2")
+        );
+
+        HistoricTaskInstance htR1_1 = createHistoricTask("ht-r1-1", "csTask", "会签审批", "userA",
+                r1Sub1Start, r1Sub1End, "completed");
+        HistoricTaskInstance htR1_2 = createHistoricTask("ht-r1-2", "csTask", "会签审批", "userB",
+                r1Sub2Start, r1Sub2End, "completed");
+        HistoricTaskInstance htR1_3 = createHistoricTask("ht-r1-3", "csTask", "会签审批", "userC",
+                r1Sub3Start, r1Sub3End, "completed");
+        HistoricTaskInstance htR2_1 = createHistoricTask("ht-r2-1", "csTask", "会签审批", "userD",
+                r2Sub1Start, r2Sub1End, "completed");
+        HistoricTaskInstance htR2_2 = createHistoricTask("ht-r2-2", "csTask", "会签审批", "userE",
+                r2Sub2Start, r2Sub2End, "completed");
+
+        Comment cR1_1 = createComment("ht-r1-1", "COUNTER_SIGN_AGREE", "第一轮同意A", r1Sub1End);
+        Comment cR1_2 = createComment("ht-r1-2", "COUNTER_SIGN_AGREE", "第一轮同意B", r1Sub2End);
+        Comment cR1_3 = createComment("ht-r1-3", "COUNTER_SIGN_AGREE", "第一轮同意C", r1Sub3End);
+        Comment cR2_1 = createComment("ht-r2-1", "COUNTER_SIGN_AGREE", "第二轮同意D", r2Sub1End);
+        Comment cR2_2 = createComment("ht-r2-2", "COUNTER_SIGN_REJECT", "第二轮驳回E", r2Sub2End);
+
+        // 第1轮初始 3 人，addMultiInstanceExecution 追加 2 人后变为 5
+        List<HistoricVariableInstance> nrOfInstancesVars = Arrays.asList(
+                createHistoricVariable(miExecId, "nrOfInstances", 3),
+                createHistoricVariable(miExecId, "nrOfInstances", 5)
+        );
+
+        when(mockIdentityResolver.resolve("userD")).thenReturn("用户D");
+        when(mockIdentityResolver.resolve("userE")).thenReturn("用户E");
+
+        stubNormalFlow(activities,
+                Arrays.asList(htR1_1, htR1_2, htR1_3, htR2_1, htR2_2),
+                Arrays.asList(cR1_1, cR1_2, cR1_3, cR2_1, cR2_2));
+        stubBpmnModel(buildMultiInstanceModel());
+        stubNrOfInstancesVars(nrOfInstancesVars);
+        when(mockMultiInstanceDetector.isMultiInstanceNode(PROCESS_DEF_ID, "csTask")).thenReturn(true);
+
+        List<ApprovalRecordVO> result = historyWorkflow.getApprovalHistory(INSTANCE_ID);
+
+        // 应产出 3 条父记录：START + 第1轮会签 + 第2轮会签
+        assertThat(result).hasSize(3);
+        assertThat(result.get(0).getAction()).isEqualTo(ApprovalAction.START);
+
+        // 第1轮会签：3 个子记录 (loopCounter 0, 1, 2)
+        ApprovalRecordVO round1 = result.get(1);
+        assertThat(round1.getNodeId()).isEqualTo("csTask");
+        assertThat(round1.getCountersignRecords()).hasSize(3);
+        assertThat(round1.getCountersignRecords().get(0).getActorId()).isEqualTo("userA");
+        assertThat(round1.getCountersignRecords().get(0).getAction()).isEqualTo(ApprovalAction.COUNTER_SIGN_AGREE);
+        assertThat(round1.getCountersignRecords().get(1).getActorId()).isEqualTo("userB");
+        assertThat(round1.getCountersignRecords().get(2).getActorId()).isEqualTo("userC");
+
+        // 第2轮会签：2 个子记录 (loopCounter 3, 4, 由 addMultiInstanceExecution 追加)
+        ApprovalRecordVO round2 = result.get(2);
+        assertThat(round2.getNodeId()).isEqualTo("csTask");
+        assertThat(round2.getCountersignRecords()).hasSize(2);
+        assertThat(round2.getCountersignRecords().get(0).getActorId()).isEqualTo("userD");
+        assertThat(round2.getCountersignRecords().get(0).getAction()).isEqualTo(ApprovalAction.COUNTER_SIGN_AGREE);
+        assertThat(round2.getCountersignRecords().get(0).getComment()).isEqualTo("第二轮同意D");
+        assertThat(round2.getCountersignRecords().get(1).getActorId()).isEqualTo("userE");
+        assertThat(round2.getCountersignRecords().get(1).getAction()).isEqualTo(ApprovalAction.COUNTER_SIGN_REJECT);
+        assertThat(round2.getCountersignRecords().get(1).getComment()).isEqualTo("第二轮驳回E");
+    }
+
+    // ======================== 显式轮次分组：csRoundIndex Task 局部变量（路径1+2） ========================
+
+    @Test
+    public void testExplicitRoundIndexGrouping() {
+        Date startEventTime = new Date(1000);
+
+        // 同一 miBody 下，原始3人 + addMultiInstanceExecution 追加2人（第2轮）
+        Date miBodyStart = new Date(2000);
+        Date r0Sub1Start = new Date(2100);
+        Date r0Sub1End = new Date(2200);
+        Date r0Sub2Start = new Date(2300);
+        Date r0Sub2End = new Date(2400);
+        Date r0Sub3Start = new Date(2500);
+        Date r0Sub3End = new Date(2600);
+
+        Date r1Sub1Start = new Date(5000);
+        Date r1Sub1End = new Date(5100);
+        Date r1Sub2Start = new Date(5200);
+        Date r1Sub2End = new Date(5300);
+
+        String miExecId = "exec-mi-1";
+
+        List<HistoricActivityInstance> activities = Arrays.asList(
+                createActivity("start", "startEvent", "开始", startEventTime, startEventTime, null),
+                createActivity("csTask", "multiInstanceBody", "会签审批", miBodyStart, miBodyStart, null, miExecId),
+                createActivity("csTask#0", "userTask", "会签审批", r0Sub1Start, r0Sub1Start, "ht-r0-1"),
+                createActivity("csTask#1", "userTask", "会签审批", r0Sub2Start, r0Sub2Start, "ht-r0-2"),
+                createActivity("csTask#2", "userTask", "会签审批", r0Sub3Start, r0Sub3Start, "ht-r0-3"),
+                createActivity("csTask#3", "userTask", "会签审批", r1Sub1Start, r1Sub1Start, "ht-r1-1"),
+                createActivity("csTask#4", "userTask", "会签审批", r1Sub2Start, r1Sub2Start, "ht-r1-2")
+        );
+
+        HistoricTaskInstance htR0_1 = createHistoricTask("ht-r0-1", "csTask", "会签审批", "userA",
+                r0Sub1Start, r0Sub1End, "completed");
+        HistoricTaskInstance htR0_2 = createHistoricTask("ht-r0-2", "csTask", "会签审批", "userB",
+                r0Sub2Start, r0Sub2End, "completed");
+        HistoricTaskInstance htR0_3 = createHistoricTask("ht-r0-3", "csTask", "会签审批", "userC",
+                r0Sub3Start, r0Sub3End, "completed");
+        HistoricTaskInstance htR1_1 = createHistoricTask("ht-r1-1", "csTask", "会签审批", "userD",
+                r1Sub1Start, r1Sub1End, "completed");
+        HistoricTaskInstance htR1_2 = createHistoricTask("ht-r1-2", "csTask", "会签审批", "userE",
+                r1Sub2Start, r1Sub2End, "completed");
+
+        Comment cR0_1 = createComment("ht-r0-1", "COUNTER_SIGN_AGREE", "第一轮同意A", r0Sub1End);
+        Comment cR0_2 = createComment("ht-r0-2", "COUNTER_SIGN_AGREE", "第一轮同意B", r0Sub2End);
+        Comment cR0_3 = createComment("ht-r0-3", "COUNTER_SIGN_AGREE", "第一轮同意C", r0Sub3End);
+        Comment cR1_1 = createComment("ht-r1-1", "COUNTER_SIGN_AGREE", "第二轮同意D", r1Sub1End);
+        Comment cR1_2 = createComment("ht-r1-2", "COUNTER_SIGN_REJECT", "第二轮驳回E", r1Sub2End);
+
+        // csRoundIndex Task 局部变量：第二轮加签任务有显式轮次 = 1
+        List<HistoricVariableInstance> csRoundIndexVars = Arrays.asList(
+                createCsRoundVariable("ht-r1-1", 1),
+                createCsRoundVariable("ht-r1-2", 1)
+        );
+
+        when(mockIdentityResolver.resolve("userD")).thenReturn("用户D");
+        when(mockIdentityResolver.resolve("userE")).thenReturn("用户E");
+
+        stubNormalFlow(activities,
+                Arrays.asList(htR0_1, htR0_2, htR0_3, htR1_1, htR1_2),
+                Arrays.asList(cR0_1, cR0_2, cR0_3, cR1_1, cR1_2));
+        stubBpmnModel(buildMultiInstanceModel());
+        stubCsRoundIndexVars(csRoundIndexVars);
+        when(mockMultiInstanceDetector.isMultiInstanceNode(PROCESS_DEF_ID, "csTask")).thenReturn(true);
+
+        List<ApprovalRecordVO> result = historyWorkflow.getApprovalHistory(INSTANCE_ID);
+
+        // 应产出 3 条父记录：START + 第0轮会签 + 第1轮会签
+        assertThat(result).hasSize(3);
+        assertThat(result.get(0).getAction()).isEqualTo(ApprovalAction.START);
+
+        // 第0轮（原始审批人，无 csRoundIndex，路径2默认 round=0）
+        ApprovalRecordVO round0 = result.get(1);
+        assertThat(round0.getNodeId()).isEqualTo("csTask");
+        assertThat(round0.getCountersignRecords()).hasSize(3);
+        CountersignSubRecord sub0_1 = round0.getCountersignRecords().get(0);
+        assertThat(sub0_1.getActorId()).isEqualTo("userA");
+        assertThat(sub0_1.getAction()).isEqualTo(ApprovalAction.COUNTER_SIGN_AGREE);
+        assertThat(sub0_1.getRoundIndex()).isEqualTo(0);
+        CountersignSubRecord sub0_2 = round0.getCountersignRecords().get(1);
+        assertThat(sub0_2.getActorId()).isEqualTo("userB");
+        assertThat(sub0_2.getRoundIndex()).isEqualTo(0);
+        CountersignSubRecord sub0_3 = round0.getCountersignRecords().get(2);
+        assertThat(sub0_3.getActorId()).isEqualTo("userC");
+        assertThat(sub0_3.getRoundIndex()).isEqualTo(0);
+
+        // 第1轮（加签的审批人，csRoundIndex=1，路径1显式值）
+        ApprovalRecordVO round1 = result.get(2);
+        assertThat(round1.getNodeId()).isEqualTo("csTask");
+        assertThat(round1.getCountersignRecords()).hasSize(2);
+        CountersignSubRecord sub1_1 = round1.getCountersignRecords().get(0);
+        assertThat(sub1_1.getActorId()).isEqualTo("userD");
+        assertThat(sub1_1.getAction()).isEqualTo(ApprovalAction.COUNTER_SIGN_AGREE);
+        assertThat(sub1_1.getComment()).isEqualTo("第二轮同意D");
+        assertThat(sub1_1.getRoundIndex()).isEqualTo(1);
+        CountersignSubRecord sub1_2 = round1.getCountersignRecords().get(1);
+        assertThat(sub1_2.getActorId()).isEqualTo("userE");
+        assertThat(sub1_2.getAction()).isEqualTo(ApprovalAction.COUNTER_SIGN_REJECT);
+        assertThat(sub1_2.getComment()).isEqualTo("第二轮驳回E");
+        assertThat(sub1_2.getRoundIndex()).isEqualTo(1);
     }
 
     // ======================== 驳回重回：同一节点多次出现 ========================
@@ -659,6 +898,13 @@ public class HistoryWorkflowTest {
     private HistoricActivityInstance createActivity(String activityId, String activityType,
                                                      String activityName, Date startTime,
                                                      Date endTime, String taskId) {
+        return createActivity(activityId, activityType, activityName, startTime, endTime, taskId, null);
+    }
+
+    private HistoricActivityInstance createActivity(String activityId, String activityType,
+                                                     String activityName, Date startTime,
+                                                     Date endTime, String taskId,
+                                                     String executionId) {
         HistoricActivityInstance activity = mock(HistoricActivityInstance.class);
         when(activity.getActivityId()).thenReturn(activityId);
         when(activity.getActivityType()).thenReturn(activityType);
@@ -667,6 +913,10 @@ public class HistoryWorkflowTest {
         when(activity.getEndTime()).thenReturn(endTime);
         when(activity.getTaskId()).thenReturn(taskId);
         when(activity.getProcessDefinitionId()).thenReturn(PROCESS_DEF_ID);
+        when(activity.getProcessInstanceId()).thenReturn(INSTANCE_ID);
+        if (executionId != null) {
+            when(activity.getExecutionId()).thenReturn(executionId);
+        }
         return activity;
     }
 
@@ -749,6 +999,40 @@ public class HistoryWorkflowTest {
         flow.setSourceRef(source);
         flow.setTargetRef(target);
         process.addFlowElement(flow);
+    }
+
+    private HistoricVariableInstance createHistoricVariable(String executionId,
+                                                              String variableName,
+                                                              Object value) {
+        HistoricVariableInstance var = mock(HistoricVariableInstance.class);
+        when(var.getExecutionId()).thenReturn(executionId);
+        when(var.getVariableName()).thenReturn(variableName);
+        when(var.getValue()).thenReturn(value);
+        return var;
+    }
+
+    /**
+     * 创建一个有 taskId 的 csRoundIndex 变量，用于 stubCsRoundIndexVars。
+     */
+    private HistoricVariableInstance createCsRoundVariable(String taskId, int roundIndex) {
+        HistoricVariableInstance var = mock(HistoricVariableInstance.class);
+        when(var.getTaskId()).thenReturn(taskId);
+        when(var.getValue()).thenReturn(roundIndex);
+        return var;
+    }
+
+    /**
+     * 设置 csRoundIndex 查询的返回值。
+     */
+    private void stubCsRoundIndexVars(List<HistoricVariableInstance> vars) {
+        csRoundIndexVarData = vars != null ? vars : Collections.emptyList();
+    }
+
+    /**
+     * 设置 nrOfInstances 查询的返回值。
+     */
+    private void stubNrOfInstancesVars(List<HistoricVariableInstance> vars) {
+        nrOfInstancesVarData = vars != null ? vars : Collections.emptyList();
     }
 
     // ======================== Mock Stubs ========================
