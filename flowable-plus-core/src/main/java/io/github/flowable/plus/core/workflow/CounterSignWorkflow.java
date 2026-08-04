@@ -329,11 +329,24 @@ public class CounterSignWorkflow implements CounterSignOperations {
     }
 
     private boolean isMultiInstanceFinished(PlusTask task) {
-        return taskService.createTaskQuery()
+        long activeCount = taskService.createTaskQuery()
                 .processInstanceId(task.getProcessInstanceId())
                 .taskDefinitionKey(task.getTaskDefinitionKey())
                 .active()
-                .count() == 0;
+                .count();
+        if (activeCount == 0) {
+            return true;
+        }
+        // 排除当前任务自身（addCounterSigner 场景中当前任务仍活跃）
+        if (activeCount == 1) {
+            Task sole = taskService.createTaskQuery()
+                    .processInstanceId(task.getProcessInstanceId())
+                    .taskDefinitionKey(task.getTaskDefinitionKey())
+                    .active()
+                    .singleResult();
+            return sole != null && sole.getId().equals(task.getId());
+        }
+        return false;
     }
 
     /**
