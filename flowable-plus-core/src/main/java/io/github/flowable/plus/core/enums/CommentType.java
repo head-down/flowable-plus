@@ -42,6 +42,9 @@ public enum CommentType {
     TRANSFER,
 
     /** 自动提交：发起人自动提交首审批任务 */
-    AUTO_COMPLETE
+    AUTO_COMPLETE,
+
+    /** 发起会签：伪单例审批人发起会签，自动完成自身子任务 */
+    INITIATE_COUNTERSIGN
 
 }

@@ -31,13 +31,14 @@ public class ApprovalActionTest {
                         ApprovalAction.TRANSFER,
                         ApprovalAction.ADD_SIGN,
                         ApprovalAction.DELETE_SIGN,
-                        ApprovalAction.TERMINATE
+                        ApprovalAction.TERMINATE,
+                        ApprovalAction.INITIATE_COUNTERSIGN
                 );
     }
 
     @Test
-    void testValueCountIsTwelve() {
-        assertThat(ApprovalAction.values()).hasSize(12);
+    void testValueCountIsThirteen() {
+        assertThat(ApprovalAction.values()).hasSize(13);
     }
 
     // ======================== CommentTypeConverter 一对一映射 ========================
@@ -94,6 +95,12 @@ public class ApprovalActionTest {
     void testFromCommentTypeTransfer() {
         assertThat(CommentTypeConverter.toApprovalAction(CommentType.TRANSFER))
                 .isEqualTo(ApprovalAction.TRANSFER);
+    }
+
+    @Test
+    void testFromCommentTypeInitiateCountersign() {
+        assertThat(CommentTypeConverter.toApprovalAction(CommentType.INITIATE_COUNTERSIGN))
+                .isEqualTo(ApprovalAction.INITIATE_COUNTERSIGN);
     }
 
     // ======================== CommentTypeConverter 语义映射 ========================

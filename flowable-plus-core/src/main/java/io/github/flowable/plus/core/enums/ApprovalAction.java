@@ -42,6 +42,9 @@ public enum ApprovalAction {
     DELETE_SIGN,
 
     /** 终止：流程被强制终止 */
-    TERMINATE
+    TERMINATE,
+
+    /** 发起会签：伪单例审批人发起会签，自动完成自身子任务 */
+    INITIATE_COUNTERSIGN
 
 }
