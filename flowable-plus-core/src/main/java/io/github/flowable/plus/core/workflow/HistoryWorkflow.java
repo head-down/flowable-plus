@@ -145,15 +145,16 @@ public class HistoryWorkflow {
                         activity.getProcessDefinitionId(), baseId);
 
                 if (isMultiInstance) {
-                    // 贪心吞噬会签归组
+                    // 贪心吞噬会签归组（do-while 确保首条记录无条件加入，后续按 miBody 边界断开）
                     List<HistoricActivityInstance> miGroup = new ArrayList<>();
-                    while (i < filteredActivities.size()
-                            && isSameMultiInstanceGroup(
-                            filteredActivities.get(i).getActivityId(),
-                            baseId, processDefinitionId)) {
+                    do {
                         miGroup.add(filteredActivities.get(i));
                         i++;
-                    }
+                    } while (i < filteredActivities.size()
+                            && isSameMultiInstanceGroup(
+                            filteredActivities.get(i).getActivityId(),
+                            filteredActivities.get(i).getActivityType(),
+                            baseId, processDefinitionId));
                     records.add(buildMultiInstanceRecord(miGroup, taskMap, commentsByTaskId));
                 } else {
                     // 普通用户任务节点
@@ -187,25 +188,36 @@ public class HistoryWorkflow {
             return false;
         }
         return INCLUDED_ACTIVITY_TYPES.contains(activityType)
-                || activityType.toLowerCase().contains(MULTI_INSTANCE_BODY_PATTERN);
+                || isMultiInstanceBodyActivity(activityType);
     }
 
     // ======================== 多实例子组成员判断 ========================
 
     /**
-     * 判断当前活动是否与前一个活动属于同一个多实例组。
-     * 比较去除了 #multiInstance 后缀的 activityId。
+     * 判断当前活动是否与当前多实例组属于同一组。
+     * 比较去除多实例后缀的 activityId，并识别 miBody 作为轮次边界。
      */
     private boolean isSameMultiInstanceGroup(String currentActivityId,
+                                              String currentActivityType,
                                               String baseId,
                                               String processDefinitionId) {
-        // 先检查是否为多实例节点
+        // multiInstanceBody 节点是新轮次的边界标记，不并入当前组
+        if (isMultiInstanceBodyActivity(currentActivityType)) {
+            return false;
+        }
         String currentBaseId = baseActivityId(currentActivityId);
         if (!baseId.equals(currentBaseId)) {
             return false;
         }
-        // 再次确认 BPMN 模型中确实有多实例配置
         return multiInstanceDetector.isMultiInstanceNode(processDefinitionId, currentBaseId);
+    }
+
+    /**
+     * 检查 activityType 是否为 multiInstanceBody 类型（轮次边界标记）。
+     */
+    private boolean isMultiInstanceBodyActivity(String activityType) {
+        return activityType != null
+                && activityType.toLowerCase().contains(MULTI_INSTANCE_BODY_PATTERN);
     }
 
     /**

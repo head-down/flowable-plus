@@ -234,6 +234,82 @@ public class HistoryWorkflowTest {
         assertThat(sub3.getActorId()).isEqualTo("userC");
     }
 
+    // ======================== 多轮会签：同一多实例节点被多次访问 ========================
+
+    @Test
+    public void testMultiRoundCounterSign() {
+        Date startEventTime = new Date(1000);
+
+        // 第1轮：miBody + 2个会签人
+        Date miBodyR1Start = new Date(2000);
+        Date r1Sub1Start = new Date(2100);
+        Date r1Sub1End = new Date(2200);
+        Date r1Sub2Start = new Date(2300);
+        Date r1Sub2End = new Date(2400);
+
+        // 第2轮：miBody + 2个会签人
+        Date miBodyR2Start = new Date(5000);
+        Date r2Sub1Start = new Date(5100);
+        Date r2Sub1End = new Date(5200);
+        Date r2Sub2Start = new Date(5300);
+        Date r2Sub2End = new Date(5400);
+
+        List<HistoricActivityInstance> activities = Arrays.asList(
+                createActivity("start", "startEvent", "开始", startEventTime, startEventTime, null),
+                // 第1轮会签
+                createActivity("csTask", "multiInstanceBody", "会签审批", miBodyR1Start, miBodyR1Start, null),
+                createActivity("csTask", "userTask", "会签审批", r1Sub1Start, r1Sub1Start, "ht-r1-1"),
+                createActivity("csTask", "userTask", "会签审批", r1Sub2Start, r1Sub2Start, "ht-r1-2"),
+                // 第2轮会签
+                createActivity("csTask", "multiInstanceBody", "会签审批", miBodyR2Start, miBodyR2Start, null),
+                createActivity("csTask", "userTask", "会签审批", r2Sub1Start, r2Sub1Start, "ht-r2-1"),
+                createActivity("csTask", "userTask", "会签审批", r2Sub2Start, r2Sub2Start, "ht-r2-2")
+        );
+
+        HistoricTaskInstance htR1_1 = createHistoricTask("ht-r1-1", "csTask", "会签审批", "userA",
+                r1Sub1Start, r1Sub1End, "completed");
+        HistoricTaskInstance htR1_2 = createHistoricTask("ht-r1-2", "csTask", "会签审批", "userB",
+                r1Sub2Start, r1Sub2End, "completed");
+        HistoricTaskInstance htR2_1 = createHistoricTask("ht-r2-1", "csTask", "会签审批", "userC",
+                r2Sub1Start, r2Sub1End, "completed");
+        HistoricTaskInstance htR2_2 = createHistoricTask("ht-r2-2", "csTask", "会签审批", "userD",
+                r2Sub2Start, r2Sub2End, "completed");
+
+        Comment cR1_1 = createComment("ht-r1-1", "COUNTER_SIGN_AGREE", "第1轮同意", r1Sub1End);
+        Comment cR1_2 = createComment("ht-r1-2", "COUNTER_SIGN_AGREE", "第1轮同意", r1Sub2End);
+        Comment cR2_1 = createComment("ht-r2-1", "COUNTER_SIGN_REJECT", "第2轮驳回", r2Sub1End);
+        Comment cR2_2 = createComment("ht-r2-2", "COUNTER_SIGN_AGREE", "第2轮同意", r2Sub2End);
+
+        when(mockIdentityResolver.resolve("userD")).thenReturn("用户D");
+
+        stubNormalFlow(activities,
+                Arrays.asList(htR1_1, htR1_2, htR2_1, htR2_2),
+                Arrays.asList(cR1_1, cR1_2, cR2_1, cR2_2));
+        stubBpmnModel(buildMultiInstanceModel());
+        when(mockMultiInstanceDetector.isMultiInstanceNode(PROCESS_DEF_ID, "csTask")).thenReturn(true);
+
+        List<ApprovalRecordVO> result = historyWorkflow.getApprovalHistory(INSTANCE_ID);
+
+        // 应产出 3 条父记录：START + 第1轮会签 + 第2轮会签
+        assertThat(result).hasSize(3);
+        assertThat(result.get(0).getAction()).isEqualTo(ApprovalAction.START);
+
+        // 第1轮会签
+        ApprovalRecordVO round1 = result.get(1);
+        assertThat(round1.getNodeId()).isEqualTo("csTask");
+        assertThat(round1.getCountersignRecords()).hasSize(2);
+        assertThat(round1.getCountersignRecords().get(0).getActorId()).isEqualTo("userA");
+        assertThat(round1.getCountersignRecords().get(1).getActorId()).isEqualTo("userB");
+
+        // 第2轮会签
+        ApprovalRecordVO round2 = result.get(2);
+        assertThat(round2.getNodeId()).isEqualTo("csTask");
+        assertThat(round2.getCountersignRecords()).hasSize(2);
+        assertThat(round2.getCountersignRecords().get(0).getActorId()).isEqualTo("userC");
+        assertThat(round2.getCountersignRecords().get(0).getAction()).isEqualTo(ApprovalAction.COUNTER_SIGN_REJECT);
+        assertThat(round2.getCountersignRecords().get(1).getActorId()).isEqualTo("userD");
+    }
+
     // ======================== 驳回重回：同一节点多次出现 ========================
 
     @Test
