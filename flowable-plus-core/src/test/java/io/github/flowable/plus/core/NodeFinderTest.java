@@ -1123,6 +1123,38 @@ public class NodeFinderTest {
         assertThat(adjacentResult).containsExactlyInAnyOrder("taskA", "taskSub");
     }
 
+    /**
+     * 网关直达 UserTask 短路：网关的出边一部分直达 UserTask、一部分经过中间元素后再到 UserTask 时，
+     * stopAtUserTask=true 应仅收集直达的 UserTask，跳过间接路径。
+     *
+     * <p>BPMN: task_src → egw → <br>
+     *   分支1: → task_direct (UserTask, 直达) <br>
+     *   分支2: → service_mid (ServiceTask) → task_indirect (UserTask, 间接)
+     *
+     * <p>验证：findAdjacentUserTasks 仅返回 task_direct，不包含 task_indirect。
+     */
+    @Test
+    public void testFindAdjacentUserTasksGatewayShortCircuitIndirectPaths() {
+        TestModelBuilder builder = new TestModelBuilder();
+        UserTask src = builder.addUserTask("task_src");
+        ExclusiveGateway egw = builder.addExclusiveGateway("egw");
+        UserTask taskDirect = builder.addUserTask("task_direct");
+        ServiceTask serviceMid = builder.addServiceTask("service_mid");
+        UserTask taskIndirect = builder.addUserTask("task_indirect");
+
+        builder.addSequenceFlow("f1", src, egw);
+        builder.addSequenceFlow("f_direct", egw, taskDirect);
+        builder.addSequenceFlow("f_mid1", egw, serviceMid);
+        builder.addSequenceFlow("f_mid2", serviceMid, taskIndirect);
+
+        BpmnModel model = builder.build();
+        when(repositoryService.getBpmnModel("proc-gw-short")).thenReturn(model);
+
+        List<String> result = nodeFinder.findAdjacentUserTasks("proc-gw-short", "task_src", null);
+
+        assertThat(result).containsExactly("task_direct");
+    }
+
     // ======================== findReachableEndEvents ========================
 
     /**

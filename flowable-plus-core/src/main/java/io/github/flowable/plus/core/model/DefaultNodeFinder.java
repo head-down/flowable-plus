@@ -453,6 +453,24 @@ public class DefaultNodeFinder implements NodeFinder {
                 return;
             }
 
+            // stopAtUserTask 模式：网关若存在直达 UserTask 的出边，仅跟随 UserTask 和
+            // SubProcess/CallActivity 路径，阻止 ServiceTask/ScriptTask 等中间节点
+            // 穿透到下游 UserTask（如会签入口网关不要跟随 SKIP→路由→下游审批人）
+            if (stopAtUserTask && (element instanceof ExclusiveGateway || element instanceof ParallelGateway)) {
+                boolean hasDirectUserTaskPath = false;
+                for (SequenceFlow flow : outgoingFlows) {
+                    FlowElement target = bpmnModel.getFlowElement(flow.getTargetRef());
+                    if (target instanceof UserTask) {
+                        hasDirectUserTaskPath = true;
+                        break;
+                    }
+                }
+                if (hasDirectUserTaskPath) {
+                    gatedTraverse(outgoingFlows, bpmnModel, variables, visited, result, stopAtUserTask);
+                    return;
+                }
+            }
+
             int conditionalCount = 0;
             List<SequenceFlow> excludedFlows = new ArrayList<>();
 
@@ -482,6 +500,49 @@ public class DefaultNodeFinder implements NodeFinder {
                     if (target != null) {
                         traceForwardAll(bpmnModel, target, null, visited, result, stopAtUserTask);
                     }
+                }
+            }
+        }
+    }
+
+    /**
+     * stopAtUserTask 模式下网关的出边遍历：仅跟随直达 UserTask 和 SubProcess/CallActivity，
+     * 阻止 ServiceTask/ScriptTask 等中间节点穿透到下游 UserTask。
+     *
+     * <p>与下方主循环的关键差异：排除"间接路径"（中间节点 + 下游 UserTask），
+     * 不拦截同样承载子 UserTask 的 SubProcess/CallActivity。</p>
+     */
+    private void gatedTraverse(List<SequenceFlow> outgoingFlows, BpmnModel bpmnModel,
+                               Map<String, Object> variables, Set<String> visited,
+                               List<String> result, boolean stopAtUserTask) {
+        int conditionalCount = 0;
+        int excludedCount = 0;
+        List<SequenceFlow> excludedFlows = new ArrayList<>();
+
+        for (SequenceFlow flow : outgoingFlows) {
+            FlowElement target = bpmnModel.getFlowElement(flow.getTargetRef());
+
+            if (target instanceof UserTask) {
+                if (variables != null && flow.getConditionExpression() != null
+                        && !flow.getConditionExpression().isEmpty()) {
+                    conditionalCount++;
+                    if (!evaluateCondition(flow.getConditionExpression(), variables)) {
+                        excludedCount++;
+                        excludedFlows.add(flow);
+                        continue;
+                    }
+                }
+                traceForwardAll(bpmnModel, target, variables, visited, result, stopAtUserTask);
+            } else if (target instanceof SubProcess || target instanceof CallActivity) {
+                traceForwardAll(bpmnModel, target, variables, visited, result, stopAtUserTask);
+            }
+        }
+
+        if (conditionalCount > 0 && excludedCount == conditionalCount) {
+            for (SequenceFlow flow : excludedFlows) {
+                FlowElement target = bpmnModel.getFlowElement(flow.getTargetRef());
+                if (target instanceof UserTask) {
+                    traceForwardAll(bpmnModel, target, null, visited, result, stopAtUserTask);
                 }
             }
         }
