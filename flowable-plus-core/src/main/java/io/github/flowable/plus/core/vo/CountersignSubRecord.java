@@ -53,8 +53,8 @@ public class CountersignSubRecord {
     /**
      * 会签轮次索引，用于多轮加签场景的分组展示。
      *
-     * <p>写侧通过 Task 局部变量 {@code csRoundIndex} 显式标记，
-     * 读侧据此分轮次。为 null 时降级到 nrOfInstances 启发式推断。
+     * <p>写侧通过 Task 局部变量 {@code csRoundIndex} 显式标记，读侧据此分轮次。
+     * 有显式值直接使用，无则默认 round = 0（原始审批人隐式轮次）。
      */
     private Integer roundIndex;
 }

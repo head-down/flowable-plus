@@ -49,20 +49,19 @@ for (Task t : activeTasks) {
 
 `determineNextRoundIndex` 查询历史 `csRoundIndex` 变量的 `max + 1`，按 `taskDefinitionKey` 范围过滤以避免多会签节点交叉污染。相比规格草案中的 `nrOfInstances` 计数方式，自引用与读侧策略一致，且避免了对 Flowable 内部执行模型的依赖。
 
-### 4. 读侧三级分组策略
+### 4. 读侧两级分组策略
 
 ```
-hasAnyExplicitRound = !roundByTaskId.isEmpty()
-
 对每个子记录:
-  roundByTaskId.get(taskId) != null  → 使用显式值                       (路径1: 新数据加签人，主路径)
-  hasAnyExplicitRound == true        → 默认 round = 0                   (路径2: 新数据原始审批人)
-  hasAnyExplicitRound == false       → roundIndex = null，降级到 nrOfInstances (路径3: 老数据)
+  roundByTaskId.get(taskId) != null  → 使用显式值    (路径1: 加签人，主路径)
+  无显式值                           → 默认 round = 0 (路径2: 原始审批人隐式轮次)
 ```
+
+csRoundIndex 随本方案首次引入，不存在历史流程数据中无此变量的场景，因此无需 nrOfInstances 降级路径。
 
 ## 备选方案
 
-- **读侧纯启发式推断（nrOfInstances + loopCounter）**：已实现作为路径 3 降级兜底，但由于无法区分加签与新轮次，不可作为主路径
+- **读侧纯启发式推断（nrOfInstances + loopCounter）**：不可作为主路径——无法区分加签与新轮次，且 flowable-plus 为首个生产版本，无历史数据兼容负担
 - **Execution 级 executionVariables**：被否决——`ExecutionEntityImpl.isPropagateToHistoricVariable()` 硬编码返回 `false`，变量不持久化到历史表，读侧无法查询
 - **新增自定义表追踪轮次**：被否决——flowable-plus 定位为"贴近引擎的增强工具包"，不应强制用户创建自定义表（与 ADR-0003 决策一致）
 
@@ -70,4 +69,3 @@ hasAnyExplicitRound = !roundByTaskId.isEmpty()
 
 - **正面**：轮次追踪精确可靠，不依赖启发式推断；写读一致；N→1 降维减少 DB 开销
 - **负面**：每轮加签需额外一次 `setVariableLocal` 调用（在批量打标时分摊）
-- **向后兼容**：路径 3 完全保留 `nrOfInstances` 降级路径，已存在的流程历史数据不受影响
