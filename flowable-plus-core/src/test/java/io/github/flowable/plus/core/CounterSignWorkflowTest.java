@@ -41,6 +41,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import org.mockito.Mockito;
@@ -346,7 +347,8 @@ public class CounterSignWorkflowTest {
 
     /**
      * 伪单例场景（nrOfInstances=1，只有 1 人）：加签时应识别为未完成，
-     * 不进入新轮次分支，不设置 csRoundIndex，评论不包含"第 2 轮"。
+     * 不进入新轮次分支，但仍应设置 csRoundIndex=0（与原始审批人同轮次），
+     * 评论不包含"第 2 轮"。
      */
     @Test
     void testAddCounterSignerPseudoSingletonNotFinished() {
@@ -381,7 +383,28 @@ public class CounterSignWorkflowTest {
         when(q3.taskDefinitionKey(anyString())).thenReturn(q3);
         when(q3.active()).thenReturn(q3);
         when(q3.count()).thenReturn(1L);
-        when(mockTaskService.createTaskQuery()).thenReturn(q1, q2, q3);
+
+        // Q4: determineCurrentRoundIndex 活跃任务查询
+        TaskQuery q4 = mock(TaskQuery.class);
+        when(q4.processInstanceId(anyString())).thenReturn(q4);
+        when(q4.taskDefinitionKey(anyString())).thenReturn(q4);
+        when(q4.active()).thenReturn(q4);
+        when(q4.list()).thenReturn(Collections.singletonList(assignee));
+
+        // Q5: setVariableLocal 活跃任务查询（返回加签后的 B、C、D）
+        Task taskB = createMockTask("sub-B", definitionId, "csTask", "pi-001", "B");
+        Task taskC = createMockTask("sub-C", definitionId, "csTask", "pi-001", "C");
+        Task taskD = createMockTask("sub-D", definitionId, "csTask", "pi-001", "D");
+        TaskQuery q5 = mock(TaskQuery.class);
+        when(q5.processInstanceId(anyString())).thenReturn(q5);
+        when(q5.taskDefinitionKey(anyString())).thenReturn(q5);
+        when(q5.active()).thenReturn(q5);
+        when(q5.list()).thenReturn(Arrays.asList(assignee, taskB, taskC, taskD));
+
+        when(mockTaskService.createTaskQuery()).thenReturn(q1, q2, q3, q4, q5);
+
+        // determineCurrentRoundIndex：活跃任务有 csRoundIndex=0（原始审批人隐式轮次）
+        when(mockTaskService.getVariableLocal(eq("sub-1"), eq("csRoundIndex"))).thenReturn(0);
 
         counterSignWorkflow.addCounterSigner("task-001", Arrays.asList("B", "C", "D"));
 
@@ -398,8 +421,8 @@ public class CounterSignWorkflowTest {
                 eq(CommentType.ADD_SIGN.name()),
                 Mockito.argThat(msg -> msg.contains("加签审批人") && !msg.contains("第 2 轮")));
 
-        // 验证：不应调用 setVariableLocal（新轮次才设置 csRoundIndex）
-        verify(mockTaskService, never()).setVariableLocal(anyString(), eq("csRoundIndex"), Mockito.anyInt());
+        // 验证：始终设置 csRoundIndex=0（原始审批人隐式轮次 0）
+        verify(mockTaskService, times(3)).setVariableLocal(anyString(), eq("csRoundIndex"), eq(0));
     }
 
     @Test

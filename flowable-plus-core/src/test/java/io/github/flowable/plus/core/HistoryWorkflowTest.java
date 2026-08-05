@@ -64,7 +64,6 @@ public class HistoryWorkflowTest {
     private HistoryWorkflow historyWorkflow;
 
     /** 用于区分不同 variableName 的 mock 数据 */
-    private List<HistoricVariableInstance> nrOfInstancesVarData = Collections.emptyList();
     private List<HistoricVariableInstance> csRoundIndexVarData = Collections.emptyList();
 
     @BeforeEach
@@ -99,7 +98,6 @@ public class HistoryWorkflowTest {
      */
     private void resetVarQueryStubs() {
         // 重置数据
-        nrOfInstancesVarData = Collections.emptyList();
         csRoundIndexVarData = Collections.emptyList();
 
         // 使用可变引用追踪最后调用的 variableName
@@ -112,9 +110,6 @@ public class HistoryWorkflowTest {
                 return q;
             });
             when(q.list()).thenAnswer(listInv -> {
-                if ("nrOfInstances".equals(lastVarName[0])) {
-                    return nrOfInstancesVarData;
-                }
                 if ("csRoundIndex".equals(lastVarName[0])) {
                     return csRoundIndexVarData;
                 }
@@ -404,10 +399,10 @@ public class HistoryWorkflowTest {
         Comment cR2_1 = createComment("ht-r2-1", "COUNTER_SIGN_AGREE", "第二轮同意D", r2Sub1End);
         Comment cR2_2 = createComment("ht-r2-2", "COUNTER_SIGN_REJECT", "第二轮驳回E", r2Sub2End);
 
-        // 第1轮初始 3 人，addMultiInstanceExecution 追加 2 人后变为 5
-        List<HistoricVariableInstance> nrOfInstancesVars = Arrays.asList(
-                createHistoricVariable(miExecId, "nrOfInstances", 3),
-                createHistoricVariable(miExecId, "nrOfInstances", 5)
+        // 第二轮（addMultiInstanceExecution 追加）的 csRoundIndex=1
+        List<HistoricVariableInstance> csRoundIndexVars = Arrays.asList(
+                createCsRoundVariable("ht-r2-1", 1),
+                createCsRoundVariable("ht-r2-2", 1)
         );
 
         when(mockIdentityResolver.resolve("userD")).thenReturn("用户D");
@@ -417,7 +412,7 @@ public class HistoryWorkflowTest {
                 Arrays.asList(htR1_1, htR1_2, htR1_3, htR2_1, htR2_2),
                 Arrays.asList(cR1_1, cR1_2, cR1_3, cR2_1, cR2_2));
         stubBpmnModel(buildMultiInstanceModel());
-        stubNrOfInstancesVars(nrOfInstancesVars);
+        stubCsRoundIndexVars(csRoundIndexVars);
         when(mockMultiInstanceDetector.isMultiInstanceNode(PROCESS_DEF_ID, "csTask")).thenReturn(true);
 
         List<ApprovalRecordVO> result = historyWorkflow.getApprovalHistory(INSTANCE_ID);
@@ -1001,16 +996,6 @@ public class HistoryWorkflowTest {
         process.addFlowElement(flow);
     }
 
-    private HistoricVariableInstance createHistoricVariable(String executionId,
-                                                              String variableName,
-                                                              Object value) {
-        HistoricVariableInstance var = mock(HistoricVariableInstance.class);
-        when(var.getExecutionId()).thenReturn(executionId);
-        when(var.getVariableName()).thenReturn(variableName);
-        when(var.getValue()).thenReturn(value);
-        return var;
-    }
-
     /**
      * 创建一个有 taskId 的 csRoundIndex 变量，用于 stubCsRoundIndexVars。
      */
@@ -1026,13 +1011,6 @@ public class HistoryWorkflowTest {
      */
     private void stubCsRoundIndexVars(List<HistoricVariableInstance> vars) {
         csRoundIndexVarData = vars != null ? vars : Collections.emptyList();
-    }
-
-    /**
-     * 设置 nrOfInstances 查询的返回值。
-     */
-    private void stubNrOfInstancesVars(List<HistoricVariableInstance> vars) {
-        nrOfInstancesVarData = vars != null ? vars : Collections.emptyList();
     }
 
     // ======================== Mock Stubs ========================

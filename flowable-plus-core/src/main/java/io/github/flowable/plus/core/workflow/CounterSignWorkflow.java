@@ -158,9 +158,11 @@ public class CounterSignWorkflow implements CounterSignOperations {
 
         // 检测是否开启新轮次（全部审批完成后加签 = 新一轮）
         boolean isNewRound = isMultiInstanceFinished(task);
-        int newRoundIndex = 0;
+        int roundIndex;
         if (isNewRound) {
-            newRoundIndex = determineNextRoundIndex(processInstanceId, activityId);
+            roundIndex = determineNextRoundIndex(processInstanceId, activityId);
+        } else {
+            roundIndex = determineCurrentRoundIndex(processInstanceId, activityId);
         }
 
         // 批量加签
@@ -170,18 +172,16 @@ public class CounterSignWorkflow implements CounterSignOperations {
             runtimeService.addMultiInstanceExecution(activityId, processInstanceId, executionVariables);
         }
 
-        // 新轮次：批量查询任务 + 内存过滤 + 统一打标（N→1 降维）
-        if (isNewRound) {
-            Set<String> newAssigneeSet = new HashSet<>(newAssignees);
-            List<Task> activeTasks = taskService.createTaskQuery()
-                    .processInstanceId(processInstanceId)
-                    .taskDefinitionKey(activityId)
-                    .active()
-                    .list();
-            for (Task t : activeTasks) {
-                if (newAssigneeSet.contains(t.getAssignee())) {
-                    taskService.setVariableLocal(t.getId(), "csRoundIndex", newRoundIndex);
-                }
+        // 始终为新任务打上 csRoundIndex（批量查询 + 内存过滤 + 统一打标，N→1 降维）
+        Set<String> newAssigneeSet = new HashSet<>(newAssignees);
+        List<Task> activeTasks = taskService.createTaskQuery()
+                .processInstanceId(processInstanceId)
+                .taskDefinitionKey(activityId)
+                .active()
+                .list();
+        for (Task t : activeTasks) {
+            if (newAssigneeSet.contains(t.getAssignee())) {
+                taskService.setVariableLocal(t.getId(), "csRoundIndex", roundIndex);
             }
         }
 
@@ -191,7 +191,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
             commentMsg.append("，跳过重复: ").append(String.join(", ", skippedAssignees));
         }
         if (isNewRound) {
-            commentMsg.append("，开启第 ").append(newRoundIndex + 1).append(" 轮会签");
+            commentMsg.append("，开启第 ").append(roundIndex + 1).append(" 轮会签");
         }
         taskService.addComment(taskId, processInstanceId, CommentType.ADD_SIGN.name(), commentMsg.toString());
 
@@ -395,6 +395,35 @@ public class CounterSignWorkflow implements CounterSignOperations {
             }
         }
         return maxRound > 0 ? maxRound + 1 : 1;
+    }
+
+    /**
+     * 确定当前会签轮次索引（非新轮次加签场景）。
+     *
+     * <p>策略：
+     * <ol>
+     *   <li>优先从当前节点活跃任务读取 csRoundIndex 运行时变量</li>
+     *   <li>降级：从历史数据推断，nextRound - 1（nextRound 最小为 1，
+     *       因此 currentRound 最小为 0，即原始审批人隐式轮次）</li>
+     * </ol>
+     */
+    private int determineCurrentRoundIndex(String processInstanceId,
+                                            String taskDefinitionKey) {
+        // 1. 优先从活跃任务的 csRoundIndex 读取当前轮次
+        List<Task> activeTasks = taskService.createTaskQuery()
+                .processInstanceId(processInstanceId)
+                .taskDefinitionKey(taskDefinitionKey)
+                .active()
+                .list();
+        for (Task t : activeTasks) {
+            Object var = taskService.getVariableLocal(t.getId(), CS_ROUND_INDEX_VAR);
+            if (var instanceof Integer) {
+                return (Integer) var;
+            }
+        }
+        // 2. 降级：活跃任务无 csRoundIndex（如原始审批人轮次隐式 0）
+        // determineNextRoundIndex 最小返回 1 → currentRound = 0 ✓
+        return determineNextRoundIndex(processInstanceId, taskDefinitionKey) - 1;
     }
 
     private void invokeCallbacks(java.util.function.Consumer<CounterSignCallback> action) {
