@@ -65,6 +65,15 @@ public class DefaultActionInferenceStrategy implements ActionInferenceStrategy {
         if (taskComments == null || taskComments.isEmpty()) {
             return null;
         }
+        // 第一遍：优先匹配 INITIATE_COUNTERSIGN（发起会签优先级最高）
+        // 因为 addCounterSigner + addComment("INITIATE_COUNTERSIGN")
+        // 在同一毫秒内完成是常见模式，需要显式优先匹配。
+        for (Comment comment : taskComments) {
+            if ("INITIATE_COUNTERSIGN".equals(comment.getType())) {
+                return comment;
+            }
+        }
+        // 第二遍：匹配其他业务 CommentType
         for (Comment comment : taskComments) {
             String typeStr = comment.getType();
             if (typeStr != null) {
