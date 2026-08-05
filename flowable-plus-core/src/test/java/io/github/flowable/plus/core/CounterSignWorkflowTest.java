@@ -262,9 +262,16 @@ public class CounterSignWorkflowTest {
         String definitionId = "leave:1:abc";
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
-        stubCounterSignPermission(task);
 
-        // Q1: validateTaskExists + Q2: resolveCurrentAssignees + Q3: isMultiInstanceFinished
+        // isMultiInstanceFinished 中 finishedCount 查询（无人已完成 → 未完成）
+        HistoricTaskInstanceQuery hqFinished = mock(HistoricTaskInstanceQuery.class);
+        when(hqFinished.processInstanceId(anyString())).thenReturn(hqFinished);
+        when(hqFinished.taskDefinitionKey(anyString())).thenReturn(hqFinished);
+        when(hqFinished.finished()).thenReturn(hqFinished);
+        when(hqFinished.count()).thenReturn(0L);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(hqFinished);
+
+        // Q1: validateTaskExists, Q2: resolveCurrentAssignees, Q3: isMultiInstanceFinished
         Task assignee = createMockTask("sub-1", definitionId, "csTask", "pi-001", USER_ID);
         Task mockExistTask = createMockTask(task.getId(), task.getProcessDefinitionId(),
                 task.getTaskDefinitionKey(), task.getProcessInstanceId(), task.getAssignee());
@@ -276,7 +283,7 @@ public class CounterSignWorkflowTest {
         when(q2.taskDefinitionKey(anyString())).thenReturn(q2);
         when(q2.active()).thenReturn(q2);
         when(q2.list()).thenReturn(Collections.singletonList(assignee));
-        // Q3: isMultiInstanceFinished — 仍有活跃任务，返回计数 > 0 表示未完成
+        // Q3: isMultiInstanceFinished — activeCount=1 + finishedCount=0 → 未完成
         TaskQuery q3 = mock(TaskQuery.class);
         when(q3.processInstanceId(anyString())).thenReturn(q3);
         when(q3.taskDefinitionKey(anyString())).thenReturn(q3);
@@ -298,7 +305,14 @@ public class CounterSignWorkflowTest {
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         stubTaskExists(task);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
-        stubCounterSignPermission(task);
+
+        // isMultiInstanceFinished 中 finishedCount 查询（无人已完成）
+        HistoricTaskInstanceQuery hqFinished = mock(HistoricTaskInstanceQuery.class);
+        when(hqFinished.processInstanceId(anyString())).thenReturn(hqFinished);
+        when(hqFinished.taskDefinitionKey(anyString())).thenReturn(hqFinished);
+        when(hqFinished.finished()).thenReturn(hqFinished);
+        when(hqFinished.count()).thenReturn(0L);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(hqFinished);
 
         Task assignee = createMockTask("sub-1", definitionId, "csTask", "pi-001", USER_ID);
 
@@ -313,7 +327,6 @@ public class CounterSignWorkflowTest {
         when(q2.taskDefinitionKey(anyString())).thenReturn(q2);
         when(q2.active()).thenReturn(q2);
         when(q2.list()).thenReturn(Collections.singletonList(assignee));
-        // Q3: isMultiInstanceFinished — 仍有活跃任务
         TaskQuery q3 = mock(TaskQuery.class);
         when(q3.processInstanceId(anyString())).thenReturn(q3);
         when(q3.taskDefinitionKey(anyString())).thenReturn(q3);
@@ -329,6 +342,64 @@ public class CounterSignWorkflowTest {
         expectedVars2.put("assignee", "newUser2");
         verify(mockRuntimeService).addMultiInstanceExecution("csTask", "pi-001", expectedVars1);
         verify(mockRuntimeService).addMultiInstanceExecution("csTask", "pi-001", expectedVars2);
+    }
+
+    /**
+     * 伪单例场景（nrOfInstances=1，只有 1 人）：加签时应识别为未完成，
+     * 不进入新轮次分支，不设置 csRoundIndex，评论不包含"第 2 轮"。
+     */
+    @Test
+    void testAddCounterSignerPseudoSingletonNotFinished() {
+        String definitionId = "leave:1:abc";
+        PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
+
+        // isMultiInstanceFinished 中 finishedCount 查询：0 人已完成 → 伪单例
+        HistoricTaskInstanceQuery hqFinished = mock(HistoricTaskInstanceQuery.class);
+        when(hqFinished.processInstanceId(anyString())).thenReturn(hqFinished);
+        when(hqFinished.taskDefinitionKey(anyString())).thenReturn(hqFinished);
+        when(hqFinished.finished()).thenReturn(hqFinished);
+        when(hqFinished.count()).thenReturn(0L);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(hqFinished);
+
+        // 当前只有一个活跃任务（伪单例）
+        Task assignee = createMockTask("sub-1", definitionId, "csTask", "pi-001", USER_ID);
+        Task mockExistTask = createMockTask(task.getId(), task.getProcessDefinitionId(),
+                task.getTaskDefinitionKey(), task.getProcessInstanceId(), task.getAssignee());
+
+        TaskQuery q1 = mock(TaskQuery.class);
+        when(q1.taskId(task.getId())).thenReturn(q1);
+        when(q1.singleResult()).thenReturn(mockExistTask);
+        TaskQuery q2 = mock(TaskQuery.class);
+        when(q2.processInstanceId(anyString())).thenReturn(q2);
+        when(q2.taskDefinitionKey(anyString())).thenReturn(q2);
+        when(q2.active()).thenReturn(q2);
+        when(q2.list()).thenReturn(Collections.singletonList(assignee));
+        // Q3: isMultiInstanceFinished — activeCount=1
+        TaskQuery q3 = mock(TaskQuery.class);
+        when(q3.processInstanceId(anyString())).thenReturn(q3);
+        when(q3.taskDefinitionKey(anyString())).thenReturn(q3);
+        when(q3.active()).thenReturn(q3);
+        when(q3.count()).thenReturn(1L);
+        when(mockTaskService.createTaskQuery()).thenReturn(q1, q2, q3);
+
+        counterSignWorkflow.addCounterSigner("task-001", Arrays.asList("B", "C", "D"));
+
+        // 验证：加签执行正常
+        verify(mockRuntimeService).addMultiInstanceExecution(eq("csTask"), eq("pi-001"),
+                Mockito.argThat(map -> "B".equals(map.get("assignee"))));
+        verify(mockRuntimeService).addMultiInstanceExecution(eq("csTask"), eq("pi-001"),
+                Mockito.argThat(map -> "C".equals(map.get("assignee"))));
+        verify(mockRuntimeService).addMultiInstanceExecution(eq("csTask"), eq("pi-001"),
+                Mockito.argThat(map -> "D".equals(map.get("assignee"))));
+
+        // 验证：不应包含"第 2 轮" — 这是第一轮本身
+        verify(mockTaskService).addComment(eq(task.getId()), eq("pi-001"),
+                eq(CommentType.ADD_SIGN.name()),
+                Mockito.argThat(msg -> msg.contains("加签审批人") && !msg.contains("第 2 轮")));
+
+        // 验证：不应调用 setVariableLocal（新轮次才设置 csRoundIndex）
+        verify(mockTaskService, never()).setVariableLocal(anyString(), eq("csRoundIndex"), Mockito.anyInt());
     }
 
     @Test

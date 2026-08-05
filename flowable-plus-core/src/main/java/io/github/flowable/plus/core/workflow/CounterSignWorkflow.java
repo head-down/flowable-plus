@@ -339,6 +339,17 @@ public class CounterSignWorkflow implements CounterSignOperations {
         }
         // 排除当前任务自身（addCounterSigner 场景中当前任务仍活跃）
         if (activeCount == 1) {
+            // 区分"伪单例"和"真正的最后一人"：
+            // 伪单例（只有 1 人且无人已完成）：未完成
+            // 真正最后一人（他人已完成，只剩当前任务）：即将完成
+            long finishedCount = historyService.createHistoricTaskInstanceQuery()
+                    .processInstanceId(task.getProcessInstanceId())
+                    .taskDefinitionKey(task.getTaskDefinitionKey())
+                    .finished()
+                    .count();
+            if (finishedCount == 0) {
+                return false;
+            }
             Task sole = taskService.createTaskQuery()
                     .processInstanceId(task.getProcessInstanceId())
                     .taskDefinitionKey(task.getTaskDefinitionKey())
