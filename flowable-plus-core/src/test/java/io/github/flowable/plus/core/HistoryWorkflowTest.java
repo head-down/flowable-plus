@@ -320,6 +320,12 @@ public class HistoryWorkflowTest {
 
         when(mockIdentityResolver.resolve("userD")).thenReturn("用户D");
 
+        // 第2轮会签任务 csRoundIndex=1（ADR-0020：轮次边界统一由 csRoundIndex 决定）
+        List<HistoricVariableInstance> csRoundIndexVars = Arrays.asList(
+                createCsRoundVariable("ht-r2-1", 1),
+                createCsRoundVariable("ht-r2-2", 1));
+        stubCsRoundIndexVars(csRoundIndexVars);
+
         stubNormalFlow(activities,
                 Arrays.asList(htR1_1, htR1_2, htR2_1, htR2_2),
                 Arrays.asList(cR1_1, cR1_2, cR2_1, cR2_2));
@@ -337,7 +343,9 @@ public class HistoryWorkflowTest {
         assertThat(round1.getNodeId()).isEqualTo("csTask");
         assertThat(round1.getCountersignRecords()).hasSize(2);
         assertThat(round1.getCountersignRecords().get(0).getActorId()).isEqualTo("userA");
+        assertThat(round1.getCountersignRecords().get(0).getRoundIndex()).isEqualTo(0);
         assertThat(round1.getCountersignRecords().get(1).getActorId()).isEqualTo("userB");
+        assertThat(round1.getCountersignRecords().get(1).getRoundIndex()).isEqualTo(0);
 
         // 第2轮会签
         ApprovalRecordVO round2 = result.get(2);
@@ -345,7 +353,79 @@ public class HistoryWorkflowTest {
         assertThat(round2.getCountersignRecords()).hasSize(2);
         assertThat(round2.getCountersignRecords().get(0).getActorId()).isEqualTo("userC");
         assertThat(round2.getCountersignRecords().get(0).getAction()).isEqualTo(ApprovalAction.COUNTER_SIGN_REJECT);
+        assertThat(round2.getCountersignRecords().get(0).getRoundIndex()).isEqualTo(1);
         assertThat(round2.getCountersignRecords().get(1).getActorId()).isEqualTo("userD");
+        assertThat(round2.getCountersignRecords().get(1).getRoundIndex()).isEqualTo(1);
+    }
+
+    // ======================== ADR-0020: 流程进行中 miBody 未完全写入场景 ========================
+
+    /**
+     * ADR-0020 核心修复验证：流程进行中，第2轮 miBody 尚未写入 ACT_HI_ACTINST，
+     * 返回结构应与已结束状态一致（均按 csRoundIndex 拆分成多条父记录）。
+     */
+    @Test
+    public void testMultiRoundCounterSignWithoutBodyR2() {
+        Date startEventTime = new Date(1000);
+        Date miBodyR1Start = new Date(2000);
+        Date r1Sub1Start = new Date(2100);
+        Date r1Sub1End = new Date(2200);
+        Date r1Sub2Start = new Date(2300);
+        Date r1Sub2End = new Date(2400);
+        Date r2Sub1Start = new Date(5000);
+        Date r2Sub1End = new Date(5100);
+        Date r2Sub2Start = new Date(5200);
+        Date r2Sub2End = new Date(5300);
+
+        // 仅第1轮 miBody + 两轮子任务（模拟进行中：第2轮 miBody 尚未写入历史表）
+        List<HistoricActivityInstance> activities = Arrays.asList(
+                createActivity("start", "startEvent", "开始", startEventTime, startEventTime, null),
+                createActivity("csTask", "multiInstanceBody", "会签审批", miBodyR1Start, miBodyR1Start, null),
+                createActivity("csTask", "userTask", "会签审批", r1Sub1Start, r1Sub1Start, "ht-r1-1"),
+                createActivity("csTask", "userTask", "会签审批", r1Sub2Start, r1Sub2Start, "ht-r1-2"),
+                createActivity("csTask", "userTask", "会签审批", r2Sub1Start, r2Sub1Start, "ht-r2-1"),
+                createActivity("csTask", "userTask", "会签审批", r2Sub2Start, r2Sub2Start, "ht-r2-2")
+        );
+
+        HistoricTaskInstance htR1_1 = createHistoricTask("ht-r1-1", "csTask", "会签审批", "userA",
+                r1Sub1Start, r1Sub1End, "completed");
+        HistoricTaskInstance htR1_2 = createHistoricTask("ht-r1-2", "csTask", "会签审批", "userB",
+                r1Sub2Start, r1Sub2End, "completed");
+        HistoricTaskInstance htR2_1 = createHistoricTask("ht-r2-1", "csTask", "会签审批", "userC",
+                r2Sub1Start, r2Sub1End, "completed");
+        HistoricTaskInstance htR2_2 = createHistoricTask("ht-r2-2", "csTask", "会签审批", "userD",
+                r2Sub2Start, r2Sub2End, "completed");
+
+        Comment cR1_1 = createComment("ht-r1-1", "COUNTER_SIGN_AGREE", "第1轮同意", r1Sub1End);
+        Comment cR1_2 = createComment("ht-r1-2", "COUNTER_SIGN_AGREE", "第1轮同意", r1Sub2End);
+        Comment cR2_1 = createComment("ht-r2-1", "COUNTER_SIGN_REJECT", "第2轮驳回", r2Sub1End);
+        Comment cR2_2 = createComment("ht-r2-2", "COUNTER_SIGN_AGREE", "第2轮同意", r2Sub2End);
+
+        // 第2轮子任务 csRoundIndex=1
+        List<HistoricVariableInstance> csRoundIndexVars = Arrays.asList(
+                createCsRoundVariable("ht-r2-1", 1),
+                createCsRoundVariable("ht-r2-2", 1));
+        stubCsRoundIndexVars(csRoundIndexVars);
+
+        stubNormalFlow(activities,
+                Arrays.asList(htR1_1, htR1_2, htR2_1, htR2_2),
+                Arrays.asList(cR1_1, cR1_2, cR2_1, cR2_2));
+        stubBpmnModel(buildMultiInstanceModel());
+        when(mockMultiInstanceDetector.isMultiInstanceNode(PROCESS_DEF_ID, "csTask")).thenReturn(true);
+
+        List<ApprovalRecordVO> result = historyWorkflow.getApprovalHistory(INSTANCE_ID);
+
+        // 核心断言：虽然第2轮 miBody 未写入，仍应正确拆分为 3 条父记录
+        assertThat(result).hasSize(3);
+        assertThat(result.get(0).getAction()).isEqualTo(ApprovalAction.START);
+
+        ApprovalRecordVO round1 = result.get(1);
+        assertThat(round1.getCountersignRecords()).hasSize(2);
+        assertThat(round1.getCountersignRecords().get(0).getRoundIndex()).isEqualTo(0);
+
+        ApprovalRecordVO round2 = result.get(2);
+        assertThat(round2.getCountersignRecords()).hasSize(2);
+        assertThat(round2.getCountersignRecords().get(0).getRoundIndex()).isEqualTo(1);
     }
 
     // ======================== 多轮会签：addMultiInstanceExecution 追加审批人（同一 miBody） ========================

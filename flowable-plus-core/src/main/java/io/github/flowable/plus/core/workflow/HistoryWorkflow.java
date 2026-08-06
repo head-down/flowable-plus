@@ -150,7 +150,7 @@ public class HistoryWorkflow {
                         activity.getProcessDefinitionId(), baseId);
 
                 if (isMultiInstance) {
-                    // 贪心吞噬会签归组（do-while 确保首条记录无条件加入，后续按 miBody 边界断开）
+                    // 贪心吞噬会签归组（同一 baseId 的全部活动归入一组，miBody 的 taskId=null 在构建时被过滤）
                     List<HistoricActivityInstance> miGroup = new ArrayList<>();
                     do {
                         miGroup.add(filteredActivities.get(i));
@@ -158,7 +158,6 @@ public class HistoryWorkflow {
                     } while (i < filteredActivities.size()
                             && isSameMultiInstanceGroup(
                             filteredActivities.get(i).getActivityId(),
-                            filteredActivities.get(i).getActivityType(),
                             baseId, processDefinitionId));
                     records.addAll(buildMultiInstanceRecords(
                             miGroup, taskMap, commentsByTaskId, processInstanceId));
@@ -201,16 +200,13 @@ public class HistoryWorkflow {
 
     /**
      * 判断当前活动是否与当前多实例组属于同一组。
-     * 比较去除多实例后缀的 activityId，并识别 miBody 作为轮次边界。
+     * 仅比较去除多实例后缀的 activityId；轮次边界统一由 splitIntoExplicitRounds 按 csRoundIndex 处理（ADR-0020）。
      */
     private boolean isSameMultiInstanceGroup(String currentActivityId,
-                                              String currentActivityType,
                                               String baseId,
                                               String processDefinitionId) {
-        // multiInstanceBody 节点是新轮次的边界标记，不并入当前组
-        if (isMultiInstanceBodyActivity(currentActivityType)) {
-            return false;
-        }
+        // ADR-0020: 不以 miBody 作为轮次边界，统一由 splitIntoExplicitRounds 按 csRoundIndex 拆分。
+        // miBody 活动本身 taskId 为 null，在 buildMultiInstanceRecords 中会被 continue 跳过。
         String currentBaseId = baseActivityId(currentActivityId);
         if (!baseId.equals(currentBaseId)) {
             return false;
