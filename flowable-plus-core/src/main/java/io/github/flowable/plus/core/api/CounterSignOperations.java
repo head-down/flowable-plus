@@ -42,6 +42,11 @@ public interface CounterSignOperations {
      * <p>仅上一节点审批人可操作（无上一节点时回退到流程发起人）。
      * 已是当前节点审批人的会被静默跳过。</p>
      *
+     * <p><b>时序约束</b>：本方法通过 {@code ACT_HI_VARINST} 查询历史
+     * {@code csRoundIndex} 确定下一轮次。调用方如需为发起任务设置
+     * {@code csRoundIndex} 以归入同一轮次，<em>必须在本方法返回后再设置</em>，
+     * 不得在调用前通过 {@code setVariableLocal} 写入，否则会导致轮次偏移（+1）。</p>
+     *
      * @param taskId    任务 ID，不可为 null
      * @param assignees 要追加的审批人 ID 列表，不可为 null 或空
      * @throws NotFoundException            任务不存在时抛出
@@ -49,6 +54,7 @@ public interface CounterSignOperations {
      * @throws PermissionDeniedException     调用者无权操作时抛出
      * @throws NoPreviousNodeException       并行网关汇合场景无法确定操作权限时抛出
      * @throws IllegalArgumentException     非多实例子任务时抛出
+     * @see #removeCounterSigner
      */
     void addCounterSigner(String taskId, List<String> assignees);
 

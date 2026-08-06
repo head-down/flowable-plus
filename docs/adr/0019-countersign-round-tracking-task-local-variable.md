@@ -65,6 +65,36 @@ csRoundIndex 随本方案首次引入，不存在历史流程数据中无此变�
 - **Execution 级 executionVariables**：被否决——`ExecutionEntityImpl.isPropagateToHistoricVariable()` 硬编码返回 `false`，变量不持久化到历史表，读侧无法查询
 - **新增自定义表追踪轮次**：被否决——flowable-plus 定位为"贴近引擎的增强工具包"，不应强制用户创建自定义表（与 ADR-0003 决策一致）
 
+## 注意事项：调用方变量时序约束
+
+`addCounterSigner` 内部通过 `determineNextRoundIndex()` 从 `ACT_HI_VARINST` 查询历史 `csRoundIndex` 的最大值来确定下一轮次。因此**调用方不得在调用 `addCounterSigner` 之前将当前任务的 `csRoundIndex` 写入 `ACT_HI_VARINST`**，否则 `determineNextRoundIndex` 会"读到还没发生的轮次"，导致新子任务被赋予错误的轮次索引。
+
+### 正确调用时序
+
+```java
+// 1. 先调用 addCounterSigner（内部从历史查询轮次，看不到当前任务的 csRoundIndex）
+counterSignWorkflow.addCounterSigner(taskId, assignees);
+
+// 2. 再为当前任务设置 csRoundIndex（调用方负责将发起任务与子任务归到同一轮次）
+taskService.setVariableLocal(taskId, "csRoundIndex", roundIndex);
+
+// 3. 最后完成当前任务
+taskService.complete(taskId);
+```
+
+### 错误示例（轮次偏移）
+
+```java
+// 错误：在 addCounterSigner 之前设置 csRoundIndex
+taskService.setVariableLocal(taskId, "csRoundIndex", 1);  // ← 写入 ACT_HI_VARINST
+counterSignWorkflow.addCounterSigner(taskId, assignees);   // ← determineNextRoundIndex 读到 max=1，返回 2
+// 新子任务被赋予 csRoundIndex=2（应为 1）→ 审批历史显示为第 3 轮
+```
+
+### 根因
+
+`setVariableLocal` 会将变量写入 `ACT_HI_VARINST` 历史表（即使任务仍活跃），而 `determineNextRoundIndex` 正是通过查询此表来推断轮次的。时序错误会导致"自引用污染"——当前任务的 csRoundIndex 被错误地纳入历史查询范围。
+
 ## 后果
 
 - **正面**：轮次追踪精确可靠，不依赖启发式推断；写读一致；N→1 降维减少 DB 开销

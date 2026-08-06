@@ -120,6 +120,15 @@ public class CounterSignWorkflow implements CounterSignOperations {
         }
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p><b>实现细节</b>：新轮次通过 {@link #isMultiInstanceFinished} 检测，
+     * 轮次索引通过 {@link #determineNextRoundIndex} 从 {@code ACT_HI_VARINST}
+     * 查询历史 {@code csRoundIndex} 最大值 + 1 计算。<em>调用方不得在调用本方法前
+     * 将发起任务的 {@code csRoundIndex} 写入历史表</em>，否则当前任务会"自引用污染"
+     * 历史查询结果，导致新建子任务轮次偏移。</p>
+     */
     @Override
     public void addCounterSigner(String taskId, List<String> assignees) {
         if (taskId == null) {
