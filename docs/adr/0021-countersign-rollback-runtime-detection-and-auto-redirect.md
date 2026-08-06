@@ -32,75 +32,15 @@
 
 经过对 Flowable 6.8.0 引擎源码的深入分析，发现了一个官方未重点宣传但在源码中确实可行的路径：**如果 `collectionExpression` 引用的变量（如 `${assigneeList}`）在 `moveActivityIdTo` 调用时已存在且有值，Flowable 会在目标 MI 节点自动重建完整的多实例执行树。**
 
-### moveActivityIdTo 到 MI 节点的完整调用链
+### 核心发现：Flowable 的"隐藏能力"
 
-以下是 `moveActivityIdTo(current, targetMI)` 到达一个配置了 `multiInstanceLoopCharacteristics` 的节点时的引擎行为：
+经过对 Flowable 6.8.0 引擎源码的深入分析，发现了一个官方未重点宣传但在源码中确实可行的路径：**如果 `collectionExpression` 引用的变量（如 `${assigneeList}`）在 `moveActivityIdTo` 调用时已存在且有值，Flowable 会在目标 MI 节点自动重建完整的多实例执行树。**
 
-```
-moveActivityIdTo(current, targetMI)
-  |
-  +--> ChangeActivityStateCmd → DefaultDynamicStateManager.moveExecutionState()
-  |
-  +--> resolveActiveExecutions(targetMI): 找到 current 的 execution（targetMI 无活跃执行）
-  |
-  +--> doMoveExecutionState:
-  |     删除 current execution 和所有关联子执行/任务/变量
-  |     在 continueParent 下创建新 execution，setCurrentFlowElement(targetMI)
-  |     调度 planContinueProcessOperation(newExecution)
-  |
-  +--> ContinueProcessOperation.run():
-  |     findFlowNode() 找到 targetMI 的 BPMN 元素
-  |     continueThroughFlowNode(targetMI):
-  |       检测到 hasMultiInstanceLoopCharacteristics() = true
-  |       → executeMultiInstanceSynchronous(targetMI)
-  |
-  +--> executeMultiInstanceSynchronous:
-  |     hasMultiInstanceRootExecution(execution, targetMI) = false  ← 旧 MI root 不存在
-  |     → createMultiInstanceRootExecution(execution):
-  |         删除当前 execution，创建全新 MI root execution
-  |         设置 isMultiInstanceRoot=true, isActive=false
-  |     → executeActivityBehavior(MultiInstanceActivityBehavior)
-  |
-  +--> MultiInstanceActivityBehavior.execute(miRootNew):
-        getLocalLoopVariable(execution, collectionElementIndexVariable) == null
-          ← 全新 execution 无任何变量
-        → 走"首次执行"分支：createInstances(delegateExecution)
-           解析 collectionExpression / loopCardinality
-           创建 N 个平行/串行子执行
-           设置 nrOfInstances, nrOfCompletedInstances, nrOfActiveInstances
-           executeOriginalBehavior 为每个子实例创建 UserTask
-        → ✅ 完成！全新的多实例活动已创建
-```
+**关键条件**：`collectionExpression`（例如 `${assigneeList}`）在调用前必须可解析且值有效。如果 `assigneeList` 为空，`createInstances()` 返回 0，Flowable 会调用 `cleanupMiRoot()` **跳过该节点**——这不是期望的行为。
 
-**关键条件**：`collectionExpression`（例如 `${assigneeList}`）在调用前必须可解析且值有效。如果 `assigneeList` 为空，`createInstances()` 返回 0，Flowable 会调用 `cleanupMiRoot()` **跳过该节点**，执行指针继续前进——这不是期望的行为。
+完整的源码级调用链（8 个内部类、含精确行号和代码摘录）、一步法 vs 两步法对比、版本差异风险分析，详见独立的技术验证报告：
 
-### 涉及的 Flowable 内部类（源码级追踪）
-
-| 类 | 路径（flowable-engine-6.8.0-sources.jar） | 职责 |
-|----|------------------------------------------|------|
-| `ChangeActivityStateBuilderImpl` | `org/flowable/engine/impl/runtime/` | 构建阶段，不检查 source==target |
-| `ChangeActivityStateCmd` | `org/flowable/engine/impl/cmd/` | 委托给 DynamicStateManager |
-| `DefaultDynamicStateManager` | `org/flowable/engine/impl/dynamic/` | 入口，调用 moveExecutionState |
-| `AbstractDynamicStateManager` | `org/flowable/engine/impl/dynamic/` | 核心删除+重建逻辑（1294行） |
-| `ContinueProcessOperation` | `org/flowable/engine/impl/agenda/` | `executeMultiInstanceSynchronous` 重建 MI root |
-| `MultiInstanceActivityBehavior` | `org/flowable/engine/impl/bpmn/behavior/` | `execute()` 中 `collectionElementIndexVariable==null` 触发 `createInstances()` |
-
-### moveActivityIdTo(A, A) 的行为（补充分析）
-
-当 source 和 target 相同时：
-- `AbstractDynamicStateManager.prepareMoveExecutionEntityContainer()` 中 `currentFlowElement == newFlowElement`
-- `canContainerDirectMigrate` 始终为 `false`（`DefaultDynamicStateManager.isDirectFlowElementExecutionMigration()` 永远返回 false）
-- `doMoveExecutionState` 删除当前 execution 后重新创建指向同一 BPMN 元素的 execution
-- `ContinueProcessOperation` 再次进入该节点，检测到了 MI 特性 → 重建 MI root
-
-这解释了为什么"两步法"在理论上也可行：
-```
-Step 1: moveActivityIdTo(current, targetMI) → 产生单例 MI（若 assigneeList 至少 1 人）
-Step 2: 设置 assigneeList = [B, C]
-Step 3: moveActivityIdTo(targetMI, targetMI) → 销毁壳 + 重建 MI Root
-```
-
-但两步法有一个致命前提：**Step 1 必须产生至少 1 个实例**（否则执行会跳过节点，Step 3 找不到活跃执行）。因此在实践中，**一步法优于两步法**。
+> [Flowable 6.8.0 多实例节点原地重建技术验证报告](../flowable-mi-rebuild-verification.md)
 
 ## 决策
 
