@@ -74,8 +74,20 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
 
     @Override
     public void completeTask(String taskId, Map<String, Object> variables, String comment) {
+        doCompleteTask(taskId, variables, comment, false);
+    }
+
+    @Override
+    public void completeTaskAsSingleton(String taskId, Map<String, Object> variables, String comment) {
+        doCompleteTask(taskId, variables, comment, true);
+    }
+
+    private void doCompleteTask(String taskId, Map<String, Object> variables, String comment,
+                                 boolean skipMultiInstanceCheck) {
         PlusTask task = TaskValidation.validateTaskExists(taskService, historyService, taskId, "审批");
-        TaskValidation.validateNotMultiInstance(multiInstanceDetector, task, taskId);
+        if (!skipMultiInstanceCheck) {
+            TaskValidation.validateNotMultiInstance(multiInstanceDetector, task, taskId);
+        }
 
         String userId = userContext.getCurrentUserId();
 

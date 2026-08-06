@@ -33,6 +33,29 @@ public interface TaskExecutionOperations {
     void completeTask(String taskId, Map<String, Object> variables, String comment);
 
     /**
+     * 以单实例模式完成任务（跳过 BPMN 模型中的多实例检测）。
+     *
+     * <p>适用于 BPMN 节点定义了 {@code multiInstanceLoopCharacteristics}，
+     * 但运行时实际只有 1 个审批人（伪单例）的场景——例如会签节点
+     * {@code nrOfInstances=1} 或折返发起人确认。</p>
+     *
+     * <p>除多实例校验外，其余行为与 {@link #completeTask} 一致：
+     * 自动认领 → 写入 AGREE 评论 → 完成 → 发布事件。</p>
+     *
+     * <p><b>调用方责任</b>：调用方需自行确认当前任务确为伪单例
+     * （只有一个活跃子任务且无其他审批人）。库层不介入伪单例的判断逻辑，
+     * 因为判断条件（如 {@code countersignInitiator}）是应用层概念。</p>
+     *
+     * @param taskId    任务 ID，不可为 null
+     * @param variables 流程变量，可为 null
+     * @param comment   审批意见，可为 null
+     * @throws NotFoundException 任务不存在时抛出
+     * @throws IllegalArgumentException 任务为真正的多实例子任务时可能引发
+     *                                   Flowable 引擎的 completionCondition 未触发
+     */
+    void completeTaskAsSingleton(String taskId, Map<String, Object> variables, String comment);
+
+    /**
      * 认领任务（低级 API）。
      *
      * <p>通常无需手动调用，{@link #completeTask} 已自动认领。</p>
