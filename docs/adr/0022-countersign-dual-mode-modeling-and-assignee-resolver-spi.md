@@ -162,9 +162,32 @@ public class CountersignAssigneesListener implements TaskListener {
 
 ### 3. 与 ADR-0021 的协同
 
-- **模式 A**：初始 `assigneeList` 只有 1 人 → 运行时历史任务数 = 1 → ADR-0021 判定为非多实例 → 允许直接回退
-- **模式 B**：初始 `assigneeList` 多个人 → 运行时历史任务数 > 1 → ADR-0021 判定为多实例 → 触发自动重定向或拦截
-- **前置准备节点规范**：如果 MI 节点前有单例准备节点，ADR-0021 的自动重定向将自然生效
+ADR-0021（会签节点回退采用运行时判断 + 原地重建策略）依赖本 ADR 定义的 `AssigneeResolver` SPI 作为**主路径**：
+
+```
+回退到 MI 节点时:
+  → 运行时判断是否为多实例（count > 1）
+  → 是 → 调用 AssigneeResolverRegistry.resolve() 获取新 assigneeList
+  → 有值 → 设 assigneeList 为流程变量 → moveActivityIdTo(current, targetMI)
+          → Flowable 自动重建 MI 执行树 ✅（主路径：原地重建）
+  → 无值 → 降级：查找前置单例节点 → 自动重定向（降级路径）
+         → 无前置节点 → 拦截报错（安全底线）
+```
+
+#### 各模式的协同行为
+
+| 模式 | 初始 assigneeList | 运行时 count | SPI 有值 | 回退行为 |
+|------|-------------------|-------------|---------|---------|
+| 模式 A（偶发） | 1 人 | 1（运行后被加签可能 >1） | 是 | 原地重建为新会签 |
+| 模式 B（固定） | 多人 | > 1 | 是 | 原地重建为新会签（人员可变化） |
+| 模式 A/B | — | > 1 | 否 | 自动重定向至前置单例节点 |
+| 模式 A/B | — | > 1 | 否 + 无前置 | 拦截报错 |
+
+#### 降级路径说明
+
+即使不配置 `AssigneeResolver`，系统仍可通过以下路径完成回退：
+- 若流程建模遵守"MI 节点前有单例准备节点"规范，ADR-0021 自动重定向生效
+- 否则，`rejectTaskToInitiator`（驳回至发起人）始终可作为兜底方案
 
 ## 备选方案
 

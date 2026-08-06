@@ -1,7 +1,14 @@
-# ADR-0021: 会签节点回退采用运行时判断 + 自动重定向策略
+# ADR-0021: 会签节点回退采用运行时判断 + 原地重建策略
 
 **日期**: 2026-08-06
-**状态**: 已接受
+**状态**: 已接受（修订：2026-08-06）
+
+## 修订记录
+
+| 日期 | 变更 |
+|------|------|
+| 2026-08-06 | 初版：自动重定向至前置单例节点 |
+| 2026-08-06 | 修订：发现 `moveActivityIdTo` 到 MI 节点可触发 Flowable 原地重建 MI 执行树，决策从"自动重定向"改为"原地重建" |
 
 ## 上下文
 
@@ -17,19 +24,83 @@
 
 1. **误拦**：节点在 BPMN 模型中配置了多实例，但运行时实际只有一个人处理（单例运行），也被拦截。典型场景是"回迁节点"在不同流程定义中时而单例时而多实例。
 
-2. **体验差**：被拦截后用户只能靠 `rejectTaskToInitiator`（驳回至发起人）重新走全流程，无法直接回到会签节点的前置准备节点。
+2. **体验差**：被拦截后用户只能靠 `rejectTaskToInitiator`（驳回至发起人）重新走全流程，无法直接回到会签节点。
 
 3. **模型判断与运行时脱节**：静态的 BPMN 配置无法反映动态的运行时状态。一个配置了 MI 的节点，运行时可能因为只分配了一个审批人而表现为单例。
 
-### 为什么不能"直接跳回会签节点 + 重建多实例执行树"？
+### 核心发现：Flowable 的"隐藏能力"
 
-经过对 Flowable 6.8.0 引擎行为的深入分析：
+经过对 Flowable 6.8.0 引擎源码的深入分析，发现了一个官方未重点宣传但在源码中确实可行的路径：**如果 `collectionExpression` 引用的变量（如 `${assigneeList}`）在 `moveActivityIdTo` 调用时已存在且有值，Flowable 会在目标 MI 节点自动重建完整的多实例执行树。**
 
-1. `ChangeActivityStateBuilder.moveActivityIdTo()` 只改变执行指针，**不重建多实例执行树**。完成后目标节点上只有一个单例任务。
-2. `RuntimeService.addMultiInstanceExecution()`（加签 API）**需要多实例根执行（multi-instance root execution）存在**。该执行树在原始会签完成后已被销毁，调用会直接报错。
-3. 手工重建多实例执行树涉及 Flowable 内部 API（`ExecutionEntity`），脆弱且版本绑定。
+### moveActivityIdTo 到 MI 节点的完整调用链
 
-因此，"直接跳回已完成会签节点并重新发起会签"在当前引擎约束下不可行。
+以下是 `moveActivityIdTo(current, targetMI)` 到达一个配置了 `multiInstanceLoopCharacteristics` 的节点时的引擎行为：
+
+```
+moveActivityIdTo(current, targetMI)
+  |
+  +--> ChangeActivityStateCmd → DefaultDynamicStateManager.moveExecutionState()
+  |
+  +--> resolveActiveExecutions(targetMI): 找到 current 的 execution（targetMI 无活跃执行）
+  |
+  +--> doMoveExecutionState:
+  |     删除 current execution 和所有关联子执行/任务/变量
+  |     在 continueParent 下创建新 execution，setCurrentFlowElement(targetMI)
+  |     调度 planContinueProcessOperation(newExecution)
+  |
+  +--> ContinueProcessOperation.run():
+  |     findFlowNode() 找到 targetMI 的 BPMN 元素
+  |     continueThroughFlowNode(targetMI):
+  |       检测到 hasMultiInstanceLoopCharacteristics() = true
+  |       → executeMultiInstanceSynchronous(targetMI)
+  |
+  +--> executeMultiInstanceSynchronous:
+  |     hasMultiInstanceRootExecution(execution, targetMI) = false  ← 旧 MI root 不存在
+  |     → createMultiInstanceRootExecution(execution):
+  |         删除当前 execution，创建全新 MI root execution
+  |         设置 isMultiInstanceRoot=true, isActive=false
+  |     → executeActivityBehavior(MultiInstanceActivityBehavior)
+  |
+  +--> MultiInstanceActivityBehavior.execute(miRootNew):
+        getLocalLoopVariable(execution, collectionElementIndexVariable) == null
+          ← 全新 execution 无任何变量
+        → 走"首次执行"分支：createInstances(delegateExecution)
+           解析 collectionExpression / loopCardinality
+           创建 N 个平行/串行子执行
+           设置 nrOfInstances, nrOfCompletedInstances, nrOfActiveInstances
+           executeOriginalBehavior 为每个子实例创建 UserTask
+        → ✅ 完成！全新的多实例活动已创建
+```
+
+**关键条件**：`collectionExpression`（例如 `${assigneeList}`）在调用前必须可解析且值有效。如果 `assigneeList` 为空，`createInstances()` 返回 0，Flowable 会调用 `cleanupMiRoot()` **跳过该节点**，执行指针继续前进——这不是期望的行为。
+
+### 涉及的 Flowable 内部类（源码级追踪）
+
+| 类 | 路径（flowable-engine-6.8.0-sources.jar） | 职责 |
+|----|------------------------------------------|------|
+| `ChangeActivityStateBuilderImpl` | `org/flowable/engine/impl/runtime/` | 构建阶段，不检查 source==target |
+| `ChangeActivityStateCmd` | `org/flowable/engine/impl/cmd/` | 委托给 DynamicStateManager |
+| `DefaultDynamicStateManager` | `org/flowable/engine/impl/dynamic/` | 入口，调用 moveExecutionState |
+| `AbstractDynamicStateManager` | `org/flowable/engine/impl/dynamic/` | 核心删除+重建逻辑（1294行） |
+| `ContinueProcessOperation` | `org/flowable/engine/impl/agenda/` | `executeMultiInstanceSynchronous` 重建 MI root |
+| `MultiInstanceActivityBehavior` | `org/flowable/engine/impl/bpmn/behavior/` | `execute()` 中 `collectionElementIndexVariable==null` 触发 `createInstances()` |
+
+### moveActivityIdTo(A, A) 的行为（补充分析）
+
+当 source 和 target 相同时：
+- `AbstractDynamicStateManager.prepareMoveExecutionEntityContainer()` 中 `currentFlowElement == newFlowElement`
+- `canContainerDirectMigrate` 始终为 `false`（`DefaultDynamicStateManager.isDirectFlowElementExecutionMigration()` 永远返回 false）
+- `doMoveExecutionState` 删除当前 execution 后重新创建指向同一 BPMN 元素的 execution
+- `ContinueProcessOperation` 再次进入该节点，检测到了 MI 特性 → 重建 MI root
+
+这解释了为什么"两步法"在理论上也可行：
+```
+Step 1: moveActivityIdTo(current, targetMI) → 产生单例 MI（若 assigneeList 至少 1 人）
+Step 2: 设置 assigneeList = [B, C]
+Step 3: moveActivityIdTo(targetMI, targetMI) → 销毁壳 + 重建 MI Root
+```
+
+但两步法有一个致命前提：**Step 1 必须产生至少 1 个实例**（否则执行会跳过节点，Step 3 找不到活跃执行）。因此在实践中，**一步法优于两步法**。
 
 ## 决策
 
@@ -45,12 +116,38 @@ isMultiInstanceAtRuntime(task, activityId) :=
     .count() > 1
 ```
 
-- 历史任务数 <= 1：运行时单例，放行
-- 历史任务数 > 1：运行时多实例，进入步骤 2
+- 历史任务数 <= 1：运行时单例，直接放行
+- 历史任务数 > 1：运行时真正多实例，进入步骤 2
 
-### 2. 自动重定向至前置单例节点
+### 2. 原地重建：预设 assigneeList + 直接 moveActivityIdTo 到 MI 节点
 
-当目标节点运行时为真实多实例时，自动查找其前置单例 UserTask，将回退目标重定向到该节点：
+当目标节点运行时为真正多实例时，通过 `AssigneeResolver` SPI（ADR-0022）获取新的 `assigneeList`，设为流程变量后直接 `moveActivityIdTo` 到 MI 节点，由 Flowable 引擎自动重建 MI 执行树：
+
+```
+handleMultiInstanceRollback(task, targetMI):
+  // Step 1: 通过 SPI 获取新的会签人员列表
+  List<String> newAssignees = assigneeResolverRegistry.resolve(
+      task.getProcessInstanceId(), targetMI);
+
+  if (newAssignees == null || newAssignees.isEmpty()) {
+      // 降级：无 assigneeList → 回退到前置准备节点
+      // 见步骤 3 的降级逻辑
+      return resolveMultiInstancePredecessor(task, targetMI);
+  }
+
+  // Step 2: 设置 assigneeList 为流程变量
+  runtimeService.setVariable(task.getProcessInstanceId(), "assigneeList", newAssignees);
+
+  // Step 3: 直接跳回 MI 节点，Flowable 自动重建 MI 执行树
+  runtimeService.createChangeActivityStateBuilder()
+      .processInstanceId(task.getProcessInstanceId())
+      .moveActivityIdTo(task.getTaskDefinitionKey(), targetMI)
+      .changeState();
+```
+
+### 3. 降级：自动重定向至前置单例节点
+
+当 `AssigneeResolver` 无法提供 `assigneeList` 时，自动查找 MI 节点的前置单例 UserTask，将回退目标重定向到该节点：
 
 ```
 resolveMultiInstancePredecessor(task, miActivityId):
@@ -60,70 +157,93 @@ resolveMultiInstancePredecessor(task, miActivityId):
   else: return null               // 拦截
 ```
 
-`findPreviousNodes` 使用 `STOP_AT_FIRST_USER_TASK` 策略，从 MI 节点往回查，天然停在第一个前置 UserTask。如果 BPMN 遵守"MI 节点前有单例前置节点"的规范，该节点必然是单例。
+`findPreviousNodes` 使用 `STOP_AT_FIRST_USER_TASK` 策略，从 MI 节点往回查，天然停在第一个前置 UserTask。如果 BPMN 遵守"MI 节点前有单例前置节点"的规范（ADR-0022 模式 A/B），该节点必然是单例。
 
-### 3. 行为矩阵
+### 4. 行为矩阵
 
-| 运行时状态 | 前置单例节点 | 行为 |
-|-----------|------------|------|
-| 单例（count <= 1） | — | 放行，直接回退 |
-| 多实例（count > 1） | 存在且唯一 | 自动重定向至前置单例节点 |
-| 多实例（count > 1） | 不存在或多个 | 拦截，抛出 InvalidTargetNodeException |
+| 运行时状态 | AssigneeResolver | 前置单例节点 | 行为 |
+|-----------|-----------------|------------|------|
+| 单例（count <= 1） | — | — | 直接 `moveActivityIdTo` 到原目标 |
+| 多实例（count > 1） | 有值 | — | 设 assigneeList → `moveActivityIdTo` 到 MI 节点 → 原地重建 |
+| 多实例（count > 1） | 无值 | 存在且唯一 | 自动重定向至前置单例节点 |
+| 多实例（count > 1） | 无值 | 不存在或多个 | 拦截，抛出 `InvalidTargetNodeException` |
 
-### 4. 策略接口化
+### 5. 策略接口化
 
-将会签回退判断抽成 `CountersignRollbackStrategy` 接口（`io.github.flowable.plus.core.strategy` 包），与 `PreviousNodeResolutionStrategy` 并列：
+将会签回退判断抽成 `CountersignRollbackStrategy` 接口（`io.github.flowable.plus.core.strategy` 包）：
 
 ```java
 public interface CountersignRollbackStrategy {
     /**
      * 解析会签节点的回退目标。
-     * @return 重定向后的目标节点 ID；
-     *         null 表示拦截（应抛 InvalidTargetNodeException）；
-     *         与原 targetActivityId 相同表示放行（无需处理）
+     * @return RollbackResult 包含目标节点 ID 和可选的预设备份流程变量
      */
-    String resolveRollbackTarget(PlusTask task, String targetActivityId);
+    RollbackResult resolveRollbackTarget(
+        PlusTask task, String targetActivityId,
+        AssigneeResolverRegistry assigneeResolverRegistry);
 }
 ```
 
 两个实现：
 
-- **AutoRedirectCountersignRollbackStrategy**（默认）：自动重定向 + 拦截降级，即本 ADR 描述的完整策略。
+- **AutoRebuildCountersignRollbackStrategy**（默认）：
+  1. 运行时判断是否为多实例
+  2. 是 → 尝试 AssigneeResolver → 有值则返回 `RollbackResult.rebuild(targetMI, variables)`
+  3. AssigneeResolver 无值 → 尝试前置单例节点 → 存在则返回 `RollbackResult.redirect(predecessorNodeId)`
+  4. 无前置节点 → 返回 `RollbackResult.reject(reason)`
+
 - **StrictCountersignRollbackStrategy**（备选）：模型检查 + 全部拦截，保持旧行为。供需要保守策略的项目使用。
 
-### 5. 受影响的 API
+### 6. 受影响的 API
 
-- `rejectTask` / `withdrawTask`：`findPreviousNodes` 返回 MI 节点 → `executeRollback` 自动重定向
-- `jumpToNode`：调用方指定 MI 节点 → `executeRollback` 自动重定向
-- `getJumpableNodes`：可跳转列表中过滤运行时多实例节点
+- `rejectTask` / `withdrawTask`：`findPreviousNodes` 返回 MI 节点 → `executeRollback` 调用策略接口处理
+- `jumpToNode`：调用方指定 MI 节点 → `executeRollback` 调用策略接口处理
+- `getJumpableNodes`：可跳转列表中过滤运行时多实例节点（count > 1 且 AssigneeResolver 无值且无前置节点）
 
-### 6. 错误信息改进
+### 7. 错误信息
 
-拦截时的错误提示从"破坏多实例计数器"改为明确引导：
+拦截时的错误提示：
 
 ```
-"目标节点 X 在本流程实例中为多实例（会签）节点，直接跳转无法恢复多实例状态。
+"目标节点 X 在本流程实例中为多实例（会签）节点，且无法自动解析会签人员列表。
  建议驳回至该节点的前置准备节点，重新走完整流程。
  或使用驳回至发起人 (rejectTaskToInitiator) 重新提交"
 ```
 
+### 8. 数据完整性保障
+
+- **一步法中的 assigneeList 设置和 moveActivityIdTo 必须在同一个流程操作上下文中执行**（通常在同一事务中）
+- `runtimeService.setVariable()` + `changeState()` 是两次引擎命令，推荐在外部包裹 `@Transactional` 保证原子性
+- Flowable 的 `CommandContext` 模型中，同一事务内的多次命令操作共享同一个 `CommandContext`，变量设置对后续的 `changeState` 命令可见
+
 ## 备选方案
 
+- **两步法（moveActivityIdTo(A, A)）**：先 `moveActivityIdTo(current, A)` 产生单例壳，再设 assigneeList，再 `moveActivityIdTo(A, A)` 重建。被否决——Step 1 若 assigneeList 为空会导致执行跳过节点，Step 3 无法找到活跃执行。额外复杂度无收益。
+
 - **完全移除拦截**：接受直接跳转后产生的单例占位任务。被否决——该任务完成时 completionCondition 行为不确定，可能导致脏数据。
-- **框架层重建多实例执行树**：通过 Flowable 内部 API 手工重建。被否决——脆弱、版本绑定、不可维护。
+
+- **框架层手工重建多实例执行树**：通过 Flowable 内部 API（`ExecutionEntity` 等）手工重建。被否决——脆弱、版本绑定、不可维护。
+
 - **仅优化错误信息，不改判断逻辑**：被否决——不解决"回迁节点有时单例有时多例"的误拦问题。
+
+- **始终自动重定向**：（初版决策）不探索 Flowable 原地重建能力。被修订——`moveActivityIdTo` 到 MI 节点的自动重建能力经过源码级验证可行。
 
 ## 后果
 
 - **正面**：
   - 误拦修复：模型多实例 + 运行时单例的节点正常回退
-  - 体验提升：遵从前置节点建模规范的 BPMN 自动重定向，用户无需感知
-  - 可测试性：策略接口化后，公有 API 级别即可验证完整行为
-  - 向后兼容：真多实例 + 无前置节点的场景仍拦截（安全底线不变）
+  - 完美体验：有 AssigneeResolver 时直接回到 MI 节点，前端看到新会签任务，无需通过前置准备节点中转
+  - 渐进降级：无 SPI 时自动重定向到前置准备节点，无前置节点时拦截报错
+  - 可测试性：策略接口化后，公有 API 级别即可验证完整行为矩阵
+  - 引擎安全：全程使用 Flowable 公开 API（`moveActivityIdTo`、`setVariable`），不触碰内部类
+  - 新老数据不揉合：`changeState` 的 `deleteExecutionAndRelatedData` 会清理所有旧执行/任务/变量，新 MI 执行树是全新的
 
 - **负面**：
   - 运行时判断增加一次历史表 `count()` 查询（仅 MI 目标时触发，性能影响可忽略）
-  - 重定向行为需要记录 INFO 日志，运维需关注日志确认回退路径
+  - `AssigneeResolver` 未配置时，行为回退到自动重定向（用户须感知降级路径）
+  - `setVariable` + `changeState` 是两次引擎命令，需在外部包裹事务保证原子性
 
 - **风险**：
-  - 低：改动集中在 `TaskExecutionWorkflow` 内部，不触及 Flowable 引擎状态
+  - 中低：改动集中在 `TaskExecutionWorkflow` 内部和新增策略类，不触及 Flowable 引擎内部状态
+  - Flowable 6.8.0 的 `moveActivityIdTo` + MI 重建行为虽然源码中路径清晰，但非官方重点支持场景。后续升级 Flowable 版本时需将此行为纳入回归测试覆盖
+  - `assigneeList` 为空的边缘情况已在降级逻辑中处理（回退到前置准备节点），不会导致执行跳过节点
