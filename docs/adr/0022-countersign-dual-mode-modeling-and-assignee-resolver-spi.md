@@ -162,19 +162,29 @@ public class CountersignAssigneesListener implements TaskListener {
 
 ### 3. 与 ADR-0021 的协同
 
-ADR-0021（会签节点回退采用运行时判断 + 原地重建策略）依赖本 ADR 定义的 `AssigneeResolver` SPI 作为**主路径**：
+ADR-0021（会签节点回退采用运行时判断）的**默认策略**是自动重定向至前置单例节点，不依赖本 ADR 的 `AssigneeResolver` SPI。
+
+当项目通过 `flowable.plus.countersign-rollback-strategy=auto-rebuild` 启用原地重建策略时，本 ADR 定义的 `AssigneeResolver` SPI 作为**关键数据源**：
 
 ```
-回退到 MI 节点时:
+回退到 MI 节点时（auto-rebuild 策略）:
   → 运行时判断是否为多实例（count > 1）
   → 是 → 调用 AssigneeResolverRegistry.resolve() 获取新 assigneeList
   → 有值 → 设 assigneeList 为流程变量 → moveActivityIdTo(current, targetMI)
-          → Flowable 自动重建 MI 执行树 ✅（主路径：原地重建）
-  → 无值 → 降级：查找前置单例节点 → 自动重定向（降级路径）
-         → 无前置节点 → 拦截报错（安全底线）
+          → Flowable 自动重建 MI 执行树 ✅（原地重建，仅限 6.8.0）
+  → 无值 → 降级：查找前置单例节点 → 自动重定向
+         → 无前置节点 → 拦截报错
 ```
 
-#### 各模式的协同行为
+#### 策略与 SPI 的启用矩阵
+
+| 策略 | 是否需要 AssigneeResolver | 是否需要前置准备节点建模 | 默认 |
+|------|--------------------------|------------------------|------|
+| `auto-redirect` | 否 | 是 | ✅ 是 |
+| `auto-rebuild` | 是（否则降级到 auto-redirect） | 否（但无前置节点时拦截） | 否 |
+| `strict` | 否 | — | 否 |
+
+#### 各模式的协同行为（auto-rebuild 策略下）
 
 | 模式 | 初始 assigneeList | 运行时 count | SPI 有值 | 回退行为 |
 |------|-------------------|-------------|---------|---------|
@@ -183,11 +193,7 @@ ADR-0021（会签节点回退采用运行时判断 + 原地重建策略）依赖
 | 模式 A/B | — | > 1 | 否 | 自动重定向至前置单例节点 |
 | 模式 A/B | — | > 1 | 否 + 无前置 | 拦截报错 |
 
-#### 降级路径说明
-
-即使不配置 `AssigneeResolver`，系统仍可通过以下路径完成回退：
-- 若流程建模遵守"MI 节点前有单例准备节点"规范，ADR-0021 自动重定向生效
-- 否则，`rejectTaskToInitiator`（驳回至发起人）始终可作为兜底方案
+> **注意**：`auto-redirect` 策略下，无论 SPI 是否配置，均走自动重定向路径。`auto-rebuild` 策略下 SPI 才作为主路径生效。
 
 ## 备选方案
 

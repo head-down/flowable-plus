@@ -59,9 +59,25 @@ isMultiInstanceAtRuntime(task, activityId) :=
 - 历史任务数 <= 1：运行时单例，直接放行
 - 历史任务数 > 1：运行时真正多实例，进入步骤 2
 
-### 2. 原地重建：预设 assigneeList + 直接 moveActivityIdTo 到 MI 节点
+### 2. 默认行为：自动重定向至前置单例节点
 
-当目标节点运行时为真正多实例时，通过 `AssigneeResolver` SPI（ADR-0022）获取新的 `assigneeList`，设为流程变量后直接 `moveActivityIdTo` 到 MI 节点，由 Flowable 引擎自动重建 MI 执行树：
+当目标节点运行时为真正多实例时，自动查找 MI 节点的前置单例 UserTask，将回退目标重定向到该节点：
+
+```
+resolveMultiInstancePredecessor(task, miActivityId):
+  preds = nodeFinder.findPreviousNodes(defId, miActivityId, procInstId)
+  过滤：preds 中模型配置为单例的节点
+  if 过滤后 == 1: return 该节点  // 重定向
+  else: return null               // 拦截
+```
+
+`findPreviousNodes` 使用 `STOP_AT_FIRST_USER_TASK` 策略，从 MI 节点往回查，天然停在第一个前置 UserTask。如果 BPMN 遵守"MI 节点前有单例前置节点"的规范（ADR-0022 模式 A/B），该节点必然是单例。
+
+> 选择此策略为默认的原因：不依赖 Flowable 版本特定的引擎行为（6.8.1+ 存在已知 Bug），跨版本兼容性最好。
+
+### 3. 可选的增强：原地重建（需配置启用）
+
+如果项目锁定 Flowable 6.8.0 且配置了 `countersign-rollback-strategy=auto-rebuild`，则启用原地重建路径：通过 `AssigneeResolver` SPI（ADR-0022）获取新的 `assigneeList`，设为流程变量后直接 `moveActivityIdTo` 到 MI 节点，由 Flowable 引擎自动重建 MI 执行树：
 
 ```
 handleMultiInstanceRollback(task, targetMI):
@@ -70,8 +86,7 @@ handleMultiInstanceRollback(task, targetMI):
       task.getProcessInstanceId(), targetMI);
 
   if (newAssignees == null || newAssignees.isEmpty()) {
-      // 降级：无 assigneeList → 回退到前置准备节点
-      // 见步骤 3 的降级逻辑
+      // 降级：无 assigneeList → 回退到自动重定向
       return resolveMultiInstancePredecessor(task, targetMI);
   }
 
@@ -85,30 +100,19 @@ handleMultiInstanceRollback(task, targetMI):
       .changeState();
 ```
 
-### 3. 降级：自动重定向至前置单例节点
+> 源码级验证见 [技术验证报告](../flowable-mi-rebuild-verification.md)。此模式不设为默认，因为强依赖 Flowable 6.8.0，升级风险高。
 
-当 `AssigneeResolver` 无法提供 `assigneeList` 时，自动查找 MI 节点的前置单例 UserTask，将回退目标重定向到该节点：
+### 4. 行为矩阵（默认策略）
 
-```
-resolveMultiInstancePredecessor(task, miActivityId):
-  preds = nodeFinder.findPreviousNodes(defId, miActivityId, procInstId)
-  过滤：preds 中模型配置为单例的节点
-  if 过滤后 == 1: return 该节点  // 重定向
-  else: return null               // 拦截
-```
+| 运行时状态 | 前置单例节点 | 行为 |
+|-----------|------------|------|
+| 单例（count <= 1） | — | 直接 `moveActivityIdTo` 到原目标 |
+| 多实例（count > 1） | 存在且唯一 | 自动重定向至前置单例节点 |
+| 多实例（count > 1） | 不存在或多个 | 拦截，抛出 `InvalidTargetNodeException` |
 
-`findPreviousNodes` 使用 `STOP_AT_FIRST_USER_TASK` 策略，从 MI 节点往回查，天然停在第一个前置 UserTask。如果 BPMN 遵守"MI 节点前有单例前置节点"的规范（ADR-0022 模式 A/B），该节点必然是单例。
+> **注意**：上表是默认策略（`AutoRedirectCountersignRollbackStrategy`）的行为矩阵。`AutoRebuildCountersignRollbackStrategy` 策略在上方增加了"原地重建"路径（需要 `AssigneeResolver` 和额外配置启用），详见第 5 节。
 
-### 4. 行为矩阵
-
-| 运行时状态 | AssigneeResolver | 前置单例节点 | 行为 |
-|-----------|-----------------|------------|------|
-| 单例（count <= 1） | — | — | 直接 `moveActivityIdTo` 到原目标 |
-| 多实例（count > 1） | 有值 | — | 设 assigneeList → `moveActivityIdTo` 到 MI 节点 → 原地重建 |
-| 多实例（count > 1） | 无值 | 存在且唯一 | 自动重定向至前置单例节点 |
-| 多实例（count > 1） | 无值 | 不存在或多个 | 拦截，抛出 `InvalidTargetNodeException` |
-
-### 5. 策略接口化
+### 5. 策略接口化与可配置
 
 将会签回退判断抽成 `CountersignRollbackStrategy` 接口（`io.github.flowable.plus.core.strategy` 包）：
 
@@ -124,37 +128,70 @@ public interface CountersignRollbackStrategy {
 }
 ```
 
-两个实现：
+三个实现，通过 `flowable.plus.countersign-rollback-strategy` 配置项切换：
 
-- **AutoRebuildCountersignRollbackStrategy**（默认）：
-  1. 运行时判断是否为多实例
-  2. 是 → 尝试 AssigneeResolver → 有值则返回 `RollbackResult.rebuild(targetMI, variables)`
-  3. AssigneeResolver 无值 → 尝试前置单例节点 → 存在则返回 `RollbackResult.redirect(predecessorNodeId)`
-  4. 无前置节点 → 返回 `RollbackResult.reject(reason)`
+#### 5.1 AutoRedirectCountersignRollbackStrategy（默认）
 
-- **StrictCountersignRollbackStrategy**（备选）：模型检查 + 全部拦截，保持旧行为。供需要保守策略的项目使用。
+框架默认策略，不依赖 Flowable 版本特定行为：
+
+1. 运行时判断是否为多实例（历史任务 count > 1）
+2. 是 → 查找前置单例节点 → 存在且唯一 → 重定向
+3. 无前置节点 → 拦截
+
+> 选择依据：此策略不依赖 `moveActivityIdTo` 到 MI 节点的引擎重建行为，跨 Flowable 版本兼容性最好。
+
+#### 5.2 AutoRebuildCountersignRollbackStrategy（可选）
+
+仅在项目明确配置时启用，适应于锁定 Flowable 6.8.0 且有 `AssigneeResolver` SPI 实现的场景：
+
+1. 运行时判断是否为多实例
+2. 是 → 尝试 `AssigneeResolver` → 有值则返回 `RollbackResult.rebuild(targetMI, variables)`
+3. 无 AssigneeResolver → 降级到自动重定向（同默认策略）
+4. 无前置节点 → 拦截
+
+> **版本注意**：此策略依赖 Flowable 6.8.0 的 `moveActivityIdTo` 到 MI 节点自动重建 MI 执行树的行为。该行为在 6.8.1+ 版本中存在已知 Bug（见 [技术验证报告](../flowable-mi-rebuild-verification.md) 第 5 节）。启用前请确保 Flowable 版本锁定为 6.8.0。
+
+#### 5.3 StrictCountersignRollbackStrategy（备选）
+
+模型检查 + 全部拦截，保持旧行为。供需要保守策略的项目使用。
+
+#### 5.4 配置方式
+
+```yaml
+# application.yml
+flowable:
+  plus:
+    countersign-rollback-strategy: auto-redirect  # 默认值，无需显式配置
+    # countersign-rollback-strategy: auto-rebuild  # 启用原地重建策略（需锁定 Flowable 6.8.0）
+    # countersign-rollback-strategy: strict        # 启用严格拦截策略（旧行为）
+```
 
 ### 6. 受影响的 API
 
 - `rejectTask` / `withdrawTask`：`findPreviousNodes` 返回 MI 节点 → `executeRollback` 调用策略接口处理
 - `jumpToNode`：调用方指定 MI 节点 → `executeRollback` 调用策略接口处理
-- `getJumpableNodes`：可跳转列表中过滤运行时多实例节点（count > 1 且 AssigneeResolver 无值且无前置节点）
+- `getJumpableNodes`：可跳转列表中过滤运行时多实例节点（count > 1 且无前置单例节点的 MI 节点被过滤）
 
 ### 7. 错误信息
 
 拦截时的错误提示：
 
 ```
-"目标节点 X 在本流程实例中为多实例（会签）节点，且无法自动解析会签人员列表。
+"目标节点 X 在本流程实例中为多实例（会签）节点，且 BPMN 中不存在唯一前置单例准备节点。
  建议驳回至该节点的前置准备节点，重新走完整流程。
- 或使用驳回至发起人 (rejectTaskToInitiator) 重新提交"
+ 或使用驳回至发起人 (rejectTaskToInitiator) 重新提交。
+ 若需直接回到会签节点原地重建，请配置 countersign-rollback-strategy=auto-rebuild
+ 并确保 Flowable 版本锁定为 6.8.0。"
 ```
 
-### 8. 数据完整性保障
+### 8. 原地重建模式的数据完整性（仅 auto-rebuild 策略）
 
-- **一步法中的 assigneeList 设置和 moveActivityIdTo 必须在同一个流程操作上下文中执行**（通常在同一事务中）
+启用 `auto-rebuild` 策略时：
+
+- assigneeList 设置和 `moveActivityIdTo` 必须在同一个流程操作上下文中执行
 - `runtimeService.setVariable()` + `changeState()` 是两次引擎命令，推荐在外部包裹 `@Transactional` 保证原子性
 - Flowable 的 `CommandContext` 模型中，同一事务内的多次命令操作共享同一个 `CommandContext`，变量设置对后续的 `changeState` 命令可见
+- 该模式强依赖 Flowable 6.8.0，升级前必须回归测试（见 [技术验证报告](../flowable-mi-rebuild-verification.md) 第 5 节）
 
 ## 备选方案
 
@@ -172,18 +209,16 @@ public interface CountersignRollbackStrategy {
 
 - **正面**：
   - 误拦修复：模型多实例 + 运行时单例的节点正常回退
-  - 完美体验：有 AssigneeResolver 时直接回到 MI 节点，前端看到新会签任务，无需通过前置准备节点中转
-  - 渐进降级：无 SPI 时自动重定向到前置准备节点，无前置节点时拦截报错
-  - 可测试性：策略接口化后，公有 API 级别即可验证完整行为矩阵
-  - 引擎安全：全程使用 Flowable 公开 API（`moveActivityIdTo`、`setVariable`），不触碰内部类
-  - 新老数据不揉合：`changeState` 的 `deleteExecutionAndRelatedData` 会清理所有旧执行/任务/变量，新 MI 执行树是全新的
+  - 默认安全：`auto-redirect` 策略不依赖 Flowable 版本特定行为，跨版本兼容
+  - 渐进增强：需要原地重建的项目可通过 `auto-rebuild` 配置项启用（需锁定 Flowable 6.8.0）
+  - 可测试性：策略接口化后，每种策略可独立测试
+  - 降级闭环：无前置节点时拦截报错，错误信息引导到兜底方案（rejectTaskToInitiator）
 
 - **负面**：
   - 运行时判断增加一次历史表 `count()` 查询（仅 MI 目标时触发，性能影响可忽略）
-  - `AssigneeResolver` 未配置时，行为回退到自动重定向（用户须感知降级路径）
-  - `setVariable` + `changeState` 是两次引擎命令，需在外部包裹事务保证原子性
+  - 默认行为（自动重定向）需要 BPMN 建模遵守"MI 节点前有单例准备节点"规范
+  - `auto-rebuild` 策略需额外配置 + 版本锁定，增加了项目接入的理解成本
 
 - **风险**：
-  - 中低：改动集中在 `TaskExecutionWorkflow` 内部和新增策略类，不触及 Flowable 引擎内部状态
-  - Flowable 6.8.0 的 `moveActivityIdTo` + MI 重建行为虽然源码中路径清晰，但非官方重点支持场景。后续升级 Flowable 版本时需将此行为纳入回归测试覆盖
-  - `assigneeList` 为空的边缘情况已在降级逻辑中处理（回退到前置准备节点），不会导致执行跳过节点
+  - 低：默认策略改动集中在 `TaskExecutionWorkflow` 内部和新增策略类，不触及 Flowable 引擎内部状态
+  - `auto-rebuild` 策略的引擎行为依赖在 6.8.1+ 中存在已知 Bug，配置项文档已明确标注版本要求
