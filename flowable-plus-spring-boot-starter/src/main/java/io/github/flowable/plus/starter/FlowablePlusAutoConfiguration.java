@@ -1,6 +1,7 @@
 package io.github.flowable.plus.starter;
 
 import io.github.flowable.plus.core.strategy.AutoRedirectCountersignRollbackStrategy;
+import io.github.flowable.plus.core.strategy.AutoRebuildCountersignRollbackStrategy;
 import io.github.flowable.plus.core.strategy.CountersignRollbackStrategy;
 import io.github.flowable.plus.core.strategy.StrictCountersignRollbackStrategy;
 import io.github.flowable.plus.core.support.AssigneeResolverRegistry;
@@ -28,6 +29,7 @@ import io.github.flowable.plus.core.workflow.TaskExecutionWorkflow;
 import io.github.flowable.plus.core.support.UserTaskApproverResolver;
 import io.github.flowable.plus.core.support.VOAssembler;
 import io.github.flowable.plus.core.spi.ApproverResolver;
+import io.github.flowable.plus.core.spi.AssigneeResolver;
 import io.github.flowable.plus.core.event.DefaultEventPublisher;
 import io.github.flowable.plus.core.event.EventPublisher;
 import io.github.flowable.plus.core.spi.AutoApprovalRule;
@@ -232,16 +234,18 @@ public class FlowablePlusAutoConfiguration {
     /**
      * 注册 AssigneeResolverRegistry Bean。
      *
-     * <p>当前为空壳实现，{@code resolve()} 永远返回空列表。
-     * 后续 Ticket 将注入 {@link io.github.flowable.plus.core.spi.ApproverResolver}
-     * 实现，提供实际审批人解析能力。</p>
+     * <p>收集所有 {@link AssiSignerResolver} SPI 实现，
+     * 供 auto-rebuild 策略调用以获取新审批人列表。
+     * 无 SPI 实现时返回空注册表，触发降级路径。</p>
      *
+     * @param resolvers SPI 实现列表（可选）
      * @return AssigneeResolverRegistry 实例
      */
     @Bean
     @ConditionalOnMissingBean
-    public AssigneeResolverRegistry assigneeResolverRegistry() {
-        return new AssigneeResolverRegistry();
+    public AssigneeResolverRegistry assigneeResolverRegistry(
+            @Autowired(required = false) List<AssigneeResolver> resolvers) {
+        return new AssigneeResolverRegistry(resolvers);
     }
 
     /**
@@ -268,7 +272,8 @@ public class FlowablePlusAutoConfiguration {
             MultiInstanceDetector multiInstanceDetector,
             NodeFinder nodeFinder,
             HistoryService historyService,
-            FlowablePlusCountersignRollbackProperties rollbackProperties) {
+            FlowablePlusCountersignRollbackProperties rollbackProperties,
+            AssigneeResolverRegistry assigneeResolverRegistry) {
         FlowablePlusCountersignRollbackProperties.CountersignRollbackStrategyType strategy =
                 rollbackProperties.getCountersignRollbackStrategy();
         switch (strategy) {
@@ -276,10 +281,8 @@ public class FlowablePlusAutoConfiguration {
                 return new AutoRedirectCountersignRollbackStrategy(
                         nodeFinder, historyService, multiInstanceDetector);
             case AUTO_REBUILD:
-                // 尚未实现，回退到 auto-redirect 并记录警告
-                log.warn("会签回退策略 {} 尚未实现，回退到 auto-redirect 模式", strategy);
-                return new AutoRedirectCountersignRollbackStrategy(
-                        nodeFinder, historyService, multiInstanceDetector);
+                return new AutoRebuildCountersignRollbackStrategy(
+                        nodeFinder, historyService, multiInstanceDetector, assigneeResolverRegistry);
             case STRICT:
                 return new StrictCountersignRollbackStrategy(multiInstanceDetector);
             default:

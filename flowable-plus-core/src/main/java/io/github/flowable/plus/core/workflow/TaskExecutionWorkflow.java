@@ -438,6 +438,12 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
             taskService.addComment(task.getId(), task.getProcessInstanceId(), commentType, reason);
         }
 
+        // 原地重建：设置 assigneeList 变量以驱动 Flowable 重建多实例
+        if (result.getNewAssigneeList() != null) {
+            runtimeService.setVariable(task.getProcessInstanceId(),
+                    "assigneeList", result.getNewAssigneeList());
+        }
+
         ChangeActivityStateBuilder builder = runtimeService.createChangeActivityStateBuilder();
         builder.processInstanceId(task.getProcessInstanceId())
                 .moveActivityIdTo(task.getTaskDefinitionKey(), resolvedTargetId)
