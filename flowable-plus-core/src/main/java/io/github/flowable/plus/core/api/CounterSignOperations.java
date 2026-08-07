@@ -10,11 +10,12 @@ import java.util.Map;
 /**
  * 会签操作接口，定义多实例审批任务的投票与人员管理操作。
  *
- * <p>覆盖 {@link FlowablePlus} 中的会签投票、加签、减签操作，
- * 调用方可通过注入此接口限制可用的操作范围。</p>
+ * <p>写操作接口，与查询门面 {@link FlowablePlus}（仅读操作）分离。
+ * 实现类为 {@code CounterSignWorkflow}，调用方直接注入本接口即可。
+ * 覆盖会签投票、加签、减签操作，调用方可通过注入此接口限制可用的操作范围。</p>
  *
  * @author flowable-plus
- * @see FlowablePlus
+ * @see io.github.flowable.plus.core.workflow.CounterSignWorkflow
  */
 public interface CounterSignOperations {
 

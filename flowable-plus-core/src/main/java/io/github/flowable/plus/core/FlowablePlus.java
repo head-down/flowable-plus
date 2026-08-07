@@ -31,7 +31,14 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 /**
- * Flowable-Plus 统一入口 Façade，负责编排与组合各模块能力。
+ * Flowable-Plus 查询门面，负责收敛读操作的注入点。
+ *
+ * <p>只聚合读操作（待办/已办查询、节点预览、流程追踪、流程图、审批历史）。
+ * 写操作（发起、同意、驳回、撤回、撤销、会签等）有意不进门面，
+ * 请注入对应操作接口：{@link io.github.flowable.plus.core.api.ProcessLifecycleOperations}、
+ * {@link io.github.flowable.plus.core.api.TaskExecutionOperations}、
+ * {@link io.github.flowable.plus.core.api.CounterSignOperations}。
+ * 参见 ADR-0010「门面范围」。</p>
  *
  * <p>待办/已办查询委托给 {@link TaskQueryModule}，
  * 流程追踪委托给 {@link ProcessQueryWorkflow}，
