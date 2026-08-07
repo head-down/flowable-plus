@@ -7,6 +7,7 @@ import io.github.flowable.plus.core.strategy.StrictCountersignRollbackStrategy;
 import io.github.flowable.plus.core.support.AssigneeResolverRegistry;
 import io.github.flowable.plus.core.support.ActionInferenceStrategy;
 import io.github.flowable.plus.core.support.BpmnFormDataHelper;
+import io.github.flowable.plus.core.support.CountersignAssigneesListener;
 import io.github.flowable.plus.core.support.DefaultActionInferenceStrategy;
 import io.github.flowable.plus.core.support.PreviousNodeAuthorizer;
 import io.github.flowable.plus.core.support.ProcessEndDetector;
@@ -246,6 +247,24 @@ public class FlowablePlusAutoConfiguration {
     public AssigneeResolverRegistry assigneeResolverRegistry(
             @Autowired(required = false) List<AssigneeResolver> resolvers) {
         return new AssigneeResolverRegistry(resolvers);
+    }
+
+    /**
+     * 注册 CountersignAssigneesListener Bean。
+     *
+     * <p>Bean 名称为 {@code countersignAssigneesListener}，供 BPMN XML 中
+     * {@code delegateExpression="${countersignAssigneesListener}"} 引用。
+     * 在 MI 节点 {@code TaskListener(create)} 中检测 {@code assigneeList}
+     * 为空时自动调用 {@link AssigneeResolverRegistry} 填充审批人列表。</p>
+     *
+     * @param assigneeResolverRegistry 审批人解析注册表
+     * @return CountersignAssigneesListener 实例
+     */
+    @Bean(name = "countersignAssigneesListener")
+    @ConditionalOnMissingBean(name = "countersignAssigneesListener")
+    public CountersignAssigneesListener countersignAssigneesListener(
+            AssigneeResolverRegistry assigneeResolverRegistry) {
+        return new CountersignAssigneesListener(assigneeResolverRegistry);
     }
 
     /**
