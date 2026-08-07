@@ -45,6 +45,9 @@ import java.util.Map;
  */
 public class TaskExecutionWorkflow implements TaskExecutionOperations {
 
+    /** 会签回退重定向注释类型：标识 MI 节点自动重定位至前置单例节点 */
+    private static final String ROLLBACK_REDIRECT_COMMENT_TYPE = "RONYBZYSJFU";
+
     private final UserContext userContext;
     private final TaskService taskService;
     private final HistoryService historyService;
@@ -312,13 +315,38 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
             return new ArrayList<>();
         }
 
-        // 2. 组装 VO 列表，过滤掉多实例节点（会签/或签）
+        // 2. 组装 VO 列表，运行时判断 MI 节点
         List<JumpableNodeVO> result = new ArrayList<>();
         for (String nodeId : nodeIds) {
-            if (multiInstanceDetector.isMultiInstanceNode(processDefinitionId, nodeId)) {
-                continue;
-            }
             String nodeName = nodeFinder.getNodeName(processDefinitionId, nodeId);
+
+            // 运行时检测 MI 节点
+            boolean isMIInModel = multiInstanceDetector.isMultiInstanceNode(processDefinitionId, nodeId);
+            String displayName = null;
+
+            if (isMIInModel) {
+                long runtimeCount = historyService.createHistoricTaskInstanceQuery()
+                        .processInstanceId(processInstanceId)
+                        .taskDefinitionKey(nodeId)
+                        .count();
+
+                if (runtimeCount > 1) {
+                    // 运行时多实例：查找前置单例节点
+                    String predecessorId = CountersignRollbackStrategy
+                            .resolveMultiInstancePredecessor(
+                                    processDefinitionId, processInstanceId, nodeId,
+                                    nodeFinder, multiInstanceDetector);
+                    if (predecessorId != null) {
+                        String predecessorName = nodeFinder.getNodeName(
+                                processDefinitionId, predecessorId);
+                        displayName = nodeName + "（系统将重定向至: " + predecessorName + "）";
+                    } else {
+                        // 无前置单例节点，不包含在可跳转列表中
+                        continue;
+                    }
+                }
+                // runtimeCount <= 1: 运行时单例，正常包含
+            }
 
             List<HistoricTaskInstance> tasks = historyService.createHistoricTaskInstanceQuery()
                     .processInstanceId(processInstanceId)
@@ -334,6 +362,7 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
             result.add(JumpableNodeVO.builder()
                     .nodeId(nodeId)
                     .nodeName(nodeName)
+                    .displayName(displayName)
                     .assignee(historicTask.getAssignee())
                     .completeTime(historicTask.getEndTime())
                     .build());
@@ -399,6 +428,11 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
                 task, targetActivityId, assigneeResolverRegistry);
 
         String resolvedTargetId = result.getTargetActivityId();
+
+        if (result.getRedirectMessage() != null) {
+            taskService.addComment(task.getId(), task.getProcessInstanceId(),
+                    ROLLBACK_REDIRECT_COMMENT_TYPE, result.getRedirectMessage());
+        }
 
         if (StrUtil.isNotBlank(reason)) {
             taskService.addComment(task.getId(), task.getProcessInstanceId(), commentType, reason);

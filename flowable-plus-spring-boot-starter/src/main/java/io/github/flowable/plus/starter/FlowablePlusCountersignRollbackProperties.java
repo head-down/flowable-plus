@@ -20,12 +20,12 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class FlowablePlusCountersignRollbackProperties {
 
     /**
-     * 会签回退策略，默认 {@code strict}。
+     * 会签回退策略，默认 {@code auto-redirect}。
      *
      * <p>可选值：{@code strict}、{@code auto-redirect}、{@code auto-rebuild}。
      * 配置项名称为 {@code flowable.plus.countersign-rollback-strategy}。</p>
      */
-    private CountersignRollbackStrategyType countersignRollbackStrategy = CountersignRollbackStrategyType.STRICT;
+    private CountersignRollbackStrategyType countersignRollbackStrategy = CountersignRollbackStrategyType.AUTO_REDIRECT;
 
     public CountersignRollbackStrategyType getCountersignRollbackStrategy() {
         return countersignRollbackStrategy;

@@ -18,6 +18,7 @@ import io.github.flowable.plus.core.strategy.StrictCountersignRollbackStrategy;
 import io.github.flowable.plus.core.support.AssigneeResolverRegistry;
 import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.vo.JumpableNodeVO;
+import io.github.flowable.plus.core.vo.RollbackResult;
 import io.github.flowable.plus.core.support.PreviousNodeAuthorizer;
 import io.github.flowable.plus.core.workflow.TaskExecutionWorkflow;
 import org.flowable.engine.HistoryService;
@@ -693,18 +694,190 @@ public class TaskExecutionWorkflowTest {
                 .hasMessageContaining("审批人");
     }
 
-    // ======================== 转办 ========================
+    // ======================== getJumpableNodes - MI 运行时判断 ========================
 
     @Test
-    void testTransferTaskNormal() {
-        PlusTask task = createTask("task-001", "leave:1:abc", "task1", "pi-001", USER_ID);
+    void testGetJumpableNodesIncludesRuntimeSingleMI() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task3", "pi-001", USER_ID);
         stubTaskExistsWithAssignee(task);
 
-        workflow.transferTask("task-001", "transferUser", "工作交接");
+        // MI 节点在 BPMN 模型中，但运行时 count <= 1
+        when(mockNodeFinder.findCompletedUserTasks("leave:1:abc", "task3", "pi-001"))
+                .thenReturn(Collections.singletonList("miNode"));
+        when(mockNodeFinder.getNodeName("leave:1:abc", "miNode")).thenReturn("会签节点");
+        when(mockMultiInstanceDetector.isMultiInstanceNode("leave:1:abc", "miNode")).thenReturn(true);
 
-        verify(mockTaskService).setAssignee("task-001", "transferUser");
+        // count = 1（运行时单例）
+        HistoricTaskInstanceQuery countQuery = mock(HistoricTaskInstanceQuery.class);
+        when(countQuery.processInstanceId("pi-001")).thenReturn(countQuery);
+        when(countQuery.taskDefinitionKey("miNode")).thenReturn(countQuery);
+        when(countQuery.count()).thenReturn(1L);
+
+        // 历史任务查询
+        HistoricTaskInstance historicTask = createMockHistoricTask(
+                "ht-mi", "leave:1:abc", "miNode", "pi-001", "user1", "会签节点",
+                new Date(1000), new Date(2000), null);
+        HistoricTaskInstanceQuery histQuery = mock(HistoricTaskInstanceQuery.class);
+        when(histQuery.processInstanceId("pi-001")).thenReturn(histQuery);
+        when(histQuery.taskDefinitionKey("miNode")).thenReturn(histQuery);
+        when(histQuery.finished()).thenReturn(histQuery);
+        when(histQuery.orderByHistoricTaskInstanceEndTime()).thenReturn(histQuery);
+        when(histQuery.desc()).thenReturn(histQuery);
+        when(histQuery.listPage(0, 1)).thenReturn(Collections.singletonList(historicTask));
+
+        when(mockHistoryService.createHistoricTaskInstanceQuery())
+                .thenReturn(countQuery).thenReturn(histQuery);
+
+        List<JumpableNodeVO> result = workflow.getJumpableNodes("task-001");
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getNodeId()).isEqualTo("miNode");
+        assertThat(result.get(0).getNodeName()).isEqualTo("会签节点");
+        // 运行时单例，displayName 应为 null
+        assertThat(result.get(0).getDisplayName()).isNull();
+    }
+
+    @Test
+    void testGetJumpableNodesIncludesMultiMIWithPredecessor() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task3", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+
+        when(mockNodeFinder.findCompletedUserTasks("leave:1:abc", "task3", "pi-001"))
+                .thenReturn(Collections.singletonList("miNode"));
+        when(mockNodeFinder.getNodeName("leave:1:abc", "miNode")).thenReturn("会签节点");
+        when(mockMultiInstanceDetector.isMultiInstanceNode("leave:1:abc", "miNode")).thenReturn(true);
+
+        // count = 3（运行时真正多实例）
+        HistoricTaskInstanceQuery countQuery = mock(HistoricTaskInstanceQuery.class);
+        when(countQuery.processInstanceId("pi-001")).thenReturn(countQuery);
+        when(countQuery.taskDefinitionKey("miNode")).thenReturn(countQuery);
+        when(countQuery.count()).thenReturn(3L);
+
+        // 前置节点查找
+        when(mockNodeFinder.findPreviousNodes("leave:1:abc", "miNode", "pi-001"))
+                .thenReturn(Collections.singletonList("task1"));
+        when(mockMultiInstanceDetector.isMultiInstanceNode("leave:1:abc", "task1")).thenReturn(false);
+        when(mockNodeFinder.getNodeName("leave:1:abc", "task1")).thenReturn("提前请假");
+
+        // 历史任务查询
+        HistoricTaskInstance historicTask = createMockHistoricTask(
+                "ht-mi", "leave:1:abc", "miNode", "pi-001", "user1", "会签节点",
+                new Date(1000), new Date(2000), null);
+        HistoricTaskInstanceQuery histQuery = mock(HistoricTaskInstanceQuery.class);
+        when(histQuery.processInstanceId("pi-001")).thenReturn(histQuery);
+        when(histQuery.taskDefinitionKey("miNode")).thenReturn(histQuery);
+        when(histQuery.finished()).thenReturn(histQuery);
+        when(histQuery.orderByHistoricTaskInstanceEndTime()).thenReturn(histQuery);
+        when(histQuery.desc()).thenReturn(histQuery);
+        when(histQuery.listPage(0, 1)).thenReturn(Collections.singletonList(historicTask));
+
+        when(mockHistoryService.createHistoricTaskInstanceQuery())
+                .thenReturn(countQuery).thenReturn(histQuery);
+
+        List<JumpableNodeVO> result = workflow.getJumpableNodes("task-001");
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getNodeId()).isEqualTo("miNode");
+        assertThat(result.get(0).getNodeName()).isEqualTo("会签节点");
+        assertThat(result.get(0).getDisplayName())
+                .isNotNull()
+                .contains("会签节点")
+                .contains("系统将重定向至")
+                .contains("提前请假");
+    }
+
+    @Test
+    void testGetJumpableNodesExcludesMultiMIWithoutPredecessor() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task3", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+
+        when(mockNodeFinder.findCompletedUserTasks("leave:1:abc", "task3", "pi-001"))
+                .thenReturn(Arrays.asList("miNode", "task2"));
+        when(mockNodeFinder.getNodeName("leave:1:abc", "miNode")).thenReturn("会签节点");
+        when(mockNodeFinder.getNodeName("leave:1:abc", "task2")).thenReturn("普通节点");
+        when(mockMultiInstanceDetector.isMultiInstanceNode("leave:1:abc", "miNode")).thenReturn(true);
+        when(mockMultiInstanceDetector.isMultiInstanceNode("leave:1:abc", "task2")).thenReturn(false);
+
+        // miNode count = 3，但无前置 → 应被过滤
+        HistoricTaskInstanceQuery countQuery = mock(HistoricTaskInstanceQuery.class);
+        when(countQuery.processInstanceId("pi-001")).thenReturn(countQuery);
+        when(countQuery.taskDefinitionKey("miNode")).thenReturn(countQuery);
+        when(countQuery.count()).thenReturn(3L);
+        when(mockNodeFinder.findPreviousNodes("leave:1:abc", "miNode", "pi-001"))
+                .thenReturn(Collections.emptyList());
+
+        // task2 普通节点
+        HistoricTaskInstance historicTask2 = createMockHistoricTask(
+                "ht-2", "leave:1:abc", "task2", "pi-001", "user2", "普通节点",
+                new Date(1000), new Date(2000), null);
+        HistoricTaskInstanceQuery histQuery2 = mock(HistoricTaskInstanceQuery.class);
+        when(histQuery2.processInstanceId("pi-001")).thenReturn(histQuery2);
+        when(histQuery2.taskDefinitionKey("task2")).thenReturn(histQuery2);
+        when(histQuery2.finished()).thenReturn(histQuery2);
+        when(histQuery2.orderByHistoricTaskInstanceEndTime()).thenReturn(histQuery2);
+        when(histQuery2.desc()).thenReturn(histQuery2);
+        when(histQuery2.listPage(0, 1)).thenReturn(Collections.singletonList(historicTask2));
+
+        when(mockHistoryService.createHistoricTaskInstanceQuery())
+                .thenReturn(countQuery).thenReturn(histQuery2);
+
+        List<JumpableNodeVO> result = workflow.getJumpableNodes("task-001");
+
+        // miNode 被过滤（count > 1 + 无前置），只保留 task2
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getNodeId()).isEqualTo("task2");
+    }
+
+    // ======================== executeRollback - RONYBZYSJFU Comment ========================
+
+    @Test
+    void testExecuteRollbackWritesRedirectComment() {
+        // 使用可返回 redirect 结果的策略
+        CountersignRollbackStrategy redirectStrategy = (task, targetActivityId, registry) ->
+                RollbackResult.redirect("predecessorNode",
+                        "选择的节点 [目标节点] 在本次流程中为多人会签，已自动重定向至: 前置节点");
+
+        TaskExecutionWorkflow wfWithRedirect = new TaskExecutionWorkflow(
+                userContext, mockTaskService, mockHistoryService,
+                mockRuntimeService, mockNodeFinder, mockMultiInstanceDetector,
+                mockExecutionTreeHelper, null, mockProcessEndDetector,
+                mockPreviousNodeAuthorizer, redirectStrategy,
+                mockAssigneeResolverRegistry);
+
+        PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
+        when(mockNodeFinder.findPreviousNodes("leave:1:abc", "task2", "pi-001"))
+                .thenReturn(Collections.singletonList("task1"));
+        stubRollback();
+
+        wfWithRedirect.rejectTask("task-001", "驳回测试");
+
+        // 验证 RONYBZYSJFU comment 被写入
         verify(mockTaskService).addComment(eq("task-001"), eq("pi-001"),
-                eq(CommentType.TRANSFER.name()), eq("转办给 transferUser（工作交接）"));
+                eq("RONYBZYSJFU"), org.mockito.ArgumentMatchers.contains("多人会签"));
+        // 验证原始驳回原因 comment 仍被写入
+        verify(mockTaskService).addComment(eq("task-001"), eq("pi-001"),
+                eq("REJECT"), eq("驳回测试"));
+        // 验证回退目标是重定向后的节点
+        verify(mockChangeStateBuilder).moveActivityIdTo("task2", "predecessorNode");
+    }
+
+    @Test
+    void testExecuteRollbackNoRedirectCommentWhenDirect() {
+        // 确认直接回退时不写入 RONYBZYSJFU comment
+        PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
+        when(mockNodeFinder.findPreviousNodes("leave:1:abc", "task2", "pi-001"))
+                .thenReturn(Collections.singletonList("task1"));
+        stubRollback();
+
+        workflow.rejectTask("task-001", "不同意");
+
+        // StrictCountersignRollbackStrategy 返回 direct，不应写入 RONYBZYSJFU
+        verify(mockTaskService, never()).addComment(eq("task-001"), eq("pi-001"),
+                eq("RONYBZYSJFU"), anyString());
     }
 
     @Test

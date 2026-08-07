@@ -1,5 +1,6 @@
 package io.github.flowable.plus.starter;
 
+import io.github.flowable.plus.core.strategy.AutoRedirectCountersignRollbackStrategy;
 import io.github.flowable.plus.core.strategy.CountersignRollbackStrategy;
 import io.github.flowable.plus.core.strategy.StrictCountersignRollbackStrategy;
 import io.github.flowable.plus.core.support.AssigneeResolverRegistry;
@@ -246,12 +247,18 @@ public class FlowablePlusAutoConfiguration {
     /**
      * 注册 CountersignRollbackStrategy Bean。
      *
-     * <p>默认使用 {@link StrictCountersignRollbackStrategy}，行为与旧代码一致。
-     * 通过 {@code flowable.plus.countersign-rollback-strategy} 配置项可切换策略。
-     * 当前仅 {@code strict} 策略可用，{@code auto-redirect} 和 {@code auto-rebuild}
-     * 策略将在后续 Ticket 中实现。</p>
+     * <p>默认使用 {@link AutoRedirectCountersignRollbackStrategy}，运行时判断
+     * 会签节点 + 自动重定向至前置单例节点（默认行为）。通过
+     * {@code flowable.plus.countersign-rollback-strategy} 配置项可切换策略：
+     * <ul>
+     *   <li>{@code auto-redirect}（默认）— 运行时判断 + 自动重定向</li>
+     *   <li>{@code strict} — 静态 BPMN 模型检查 + 遇 MI 全拦截（旧行为）</li>
+     *   <li>{@code auto-rebuild} — 运行时判断 + SPI 原地重建 MI（待实现）</li>
+     * </ul>
      *
      * @param multiInstanceDetector 多实例检测模块
+     * @param nodeFinder            BPMN 节点遍历器
+     * @param historyService        Flowable 历史服务
      * @param rollbackProperties    会签回退配置属性
      * @return CountersignRollbackStrategy 实例
      */
@@ -259,18 +266,25 @@ public class FlowablePlusAutoConfiguration {
     @ConditionalOnMissingBean
     public CountersignRollbackStrategy countersignRollbackStrategy(
             MultiInstanceDetector multiInstanceDetector,
+            NodeFinder nodeFinder,
+            HistoryService historyService,
             FlowablePlusCountersignRollbackProperties rollbackProperties) {
         FlowablePlusCountersignRollbackProperties.CountersignRollbackStrategyType strategy =
                 rollbackProperties.getCountersignRollbackStrategy();
         switch (strategy) {
             case AUTO_REDIRECT:
+                return new AutoRedirectCountersignRollbackStrategy(
+                        nodeFinder, historyService, multiInstanceDetector);
             case AUTO_REBUILD:
-                // 尚未实现，回退到 strict 并记录警告
-                log.warn("会签回退策略 {} 尚未实现，回退到 strict 模式", strategy);
-                return new StrictCountersignRollbackStrategy(multiInstanceDetector);
+                // 尚未实现，回退到 auto-redirect 并记录警告
+                log.warn("会签回退策略 {} 尚未实现，回退到 auto-redirect 模式", strategy);
+                return new AutoRedirectCountersignRollbackStrategy(
+                        nodeFinder, historyService, multiInstanceDetector);
             case STRICT:
-            default:
                 return new StrictCountersignRollbackStrategy(multiInstanceDetector);
+            default:
+                return new AutoRedirectCountersignRollbackStrategy(
+                        nodeFinder, historyService, multiInstanceDetector);
         }
     }
 
