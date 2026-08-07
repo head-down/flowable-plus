@@ -1403,21 +1403,6 @@ public class CounterSignWorkflowTest {
         when(histTaskQuery.count()).thenReturn(count);
     }
 
-    private HistoricProcessInstance mockHistoricProcessInstance(String id, String startUserId) {
-        HistoricProcessInstance hpi = mock(HistoricProcessInstance.class);
-        when(hpi.getId()).thenReturn(id);
-        when(hpi.getStartUserId()).thenReturn(startUserId);
-        return hpi;
-    }
-
-    private void stubProcessInitiator(String processInstanceId, String initiatorId) {
-        HistoricProcessInstance hpi = mockHistoricProcessInstance(processInstanceId, initiatorId);
-        HistoricProcessInstanceQuery hpiQuery = mock(HistoricProcessInstanceQuery.class);
-        when(mockHistoryService.createHistoricProcessInstanceQuery()).thenReturn(hpiQuery);
-        when(hpiQuery.processInstanceId(processInstanceId)).thenReturn(hpiQuery);
-        when(hpiQuery.singleResult()).thenReturn(hpi);
-    }
-
     // ======================== 事件发布 ========================
 
     private CounterSignWorkflow createWorkflowWithEventPublisher(EventPublisher ep) {
