@@ -18,10 +18,13 @@ import io.github.flowable.plus.core.model.NodeFinder;
 import io.github.flowable.plus.core.spi.ExecutionTreeHelper;
 import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.strategy.PreviousNodeResolutionStrategy;
+import io.github.flowable.plus.core.strategy.CountersignRollbackStrategy;
+import io.github.flowable.plus.core.support.AssigneeResolverRegistry;
 import io.github.flowable.plus.core.support.PreviousNodeAuthorizer;
 import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.support.TaskValidation;
 import io.github.flowable.plus.core.vo.JumpableNodeVO;
+import io.github.flowable.plus.core.vo.RollbackResult;
 import cn.hutool.core.util.StrUtil;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.RuntimeService;
@@ -52,6 +55,8 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
     private final EventPublisher eventPublisher;
     private final ProcessEndDetector processEndDetector;
     private final PreviousNodeAuthorizer previousNodeAuthorizer;
+    private final CountersignRollbackStrategy countersignRollbackStrategy;
+    private final AssigneeResolverRegistry assigneeResolverRegistry;
 
     public TaskExecutionWorkflow(UserContext userContext, TaskService taskService,
                                   HistoryService historyService, RuntimeService runtimeService,
@@ -59,7 +64,9 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
                                   ExecutionTreeHelper executionTreeHelper,
                                   EventPublisher eventPublisher,
                                   ProcessEndDetector processEndDetector,
-                                  PreviousNodeAuthorizer previousNodeAuthorizer) {
+                                  PreviousNodeAuthorizer previousNodeAuthorizer,
+                                  CountersignRollbackStrategy countersignRollbackStrategy,
+                                  AssigneeResolverRegistry assigneeResolverRegistry) {
         this.userContext = userContext;
         this.taskService = taskService;
         this.historyService = historyService;
@@ -70,6 +77,8 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
         this.eventPublisher = eventPublisher;
         this.processEndDetector = processEndDetector;
         this.previousNodeAuthorizer = previousNodeAuthorizer;
+        this.countersignRollbackStrategy = countersignRollbackStrategy;
+        this.assigneeResolverRegistry = assigneeResolverRegistry;
     }
 
     @Override
@@ -386,11 +395,10 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
     }
 
     private void executeRollback(PlusTask task, String targetActivityId, String reason, String commentType) {
-        if (multiInstanceDetector.isMultiInstanceNode(task.getProcessDefinitionId(), targetActivityId)) {
-            throw new InvalidTargetNodeException(
-                    "目标节点 " + targetActivityId + " 是会签（多实例）节点，"
-                    + "驳回/撤回/跳转至已完成的会签节点会破坏多实例计数器，不支持此操作");
-        }
+        RollbackResult result = countersignRollbackStrategy.resolveRollbackTarget(
+                task, targetActivityId, assigneeResolverRegistry);
+
+        String resolvedTargetId = result.getTargetActivityId();
 
         if (StrUtil.isNotBlank(reason)) {
             taskService.addComment(task.getId(), task.getProcessInstanceId(), commentType, reason);
@@ -398,7 +406,7 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
 
         ChangeActivityStateBuilder builder = runtimeService.createChangeActivityStateBuilder();
         builder.processInstanceId(task.getProcessInstanceId())
-                .moveActivityIdTo(task.getTaskDefinitionKey(), targetActivityId)
+                .moveActivityIdTo(task.getTaskDefinitionKey(), resolvedTargetId)
                 .changeState();
     }
 }

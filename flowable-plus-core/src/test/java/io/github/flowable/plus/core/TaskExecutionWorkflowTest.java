@@ -13,6 +13,9 @@ import io.github.flowable.plus.core.model.NodeFinder;
 import io.github.flowable.plus.core.spi.ExecutionTreeHelper;
 import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.strategy.PreviousNodeResolvers;
+import io.github.flowable.plus.core.strategy.CountersignRollbackStrategy;
+import io.github.flowable.plus.core.strategy.StrictCountersignRollbackStrategy;
+import io.github.flowable.plus.core.support.AssigneeResolverRegistry;
 import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.vo.JumpableNodeVO;
 import io.github.flowable.plus.core.support.PreviousNodeAuthorizer;
@@ -71,6 +74,8 @@ public class TaskExecutionWorkflowTest {
     private TaskExecutionWorkflow workflow;
     private PreviousNodeAuthorizer mockPreviousNodeAuthorizer;
     private ChangeActivityStateBuilder mockChangeStateBuilder;
+    private CountersignRollbackStrategy mockCountersignRollbackStrategy;
+    private AssigneeResolverRegistry mockAssigneeResolverRegistry;
 
     @BeforeEach
     void setUp() {
@@ -87,13 +92,17 @@ public class TaskExecutionWorkflowTest {
         when(mockPreviousNodeAuthorizer.isAuthorized(anyString(), anyString())).thenReturn(true);
         when(mockPreviousNodeAuthorizer.isAuthorized(anyString(), anyString(), any())).thenReturn(true);
 
+        mockAssigneeResolverRegistry = new AssigneeResolverRegistry();
+        mockCountersignRollbackStrategy = new StrictCountersignRollbackStrategy(mockMultiInstanceDetector);
+
         // 默认 stub：createExecutionQuery 返回空执行对象（非并行分支场景）
         stubNoParallelBranch();
 
         workflow = new TaskExecutionWorkflow(userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockNodeFinder, mockMultiInstanceDetector,
                 mockExecutionTreeHelper, null, mockProcessEndDetector,
-                mockPreviousNodeAuthorizer);
+                mockPreviousNodeAuthorizer, mockCountersignRollbackStrategy,
+                mockAssigneeResolverRegistry);
     }
 
     // ======================== 同意 ========================
@@ -803,7 +812,8 @@ public class TaskExecutionWorkflowTest {
         return new TaskExecutionWorkflow(userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockNodeFinder, mockMultiInstanceDetector,
                 mockExecutionTreeHelper, ep, ped,
-                mockPreviousNodeAuthorizer);
+                mockPreviousNodeAuthorizer, mockCountersignRollbackStrategy,
+                mockAssigneeResolverRegistry);
     }
 
     @Test

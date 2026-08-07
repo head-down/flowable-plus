@@ -1,5 +1,8 @@
 package io.github.flowable.plus.starter;
 
+import io.github.flowable.plus.core.strategy.CountersignRollbackStrategy;
+import io.github.flowable.plus.core.strategy.StrictCountersignRollbackStrategy;
+import io.github.flowable.plus.core.support.AssigneeResolverRegistry;
 import io.github.flowable.plus.core.support.ActionInferenceStrategy;
 import io.github.flowable.plus.core.support.BpmnFormDataHelper;
 import io.github.flowable.plus.core.support.DefaultActionInferenceStrategy;
@@ -72,7 +75,8 @@ import java.util.List;
  */
 @Configuration
 @ConditionalOnClass(name = "org.flowable.engine.ProcessEngine")
-@EnableConfigurationProperties({FlowablePlusCounterSignProperties.class, FlowablePlusEventProperties.class})
+@EnableConfigurationProperties({FlowablePlusCounterSignProperties.class, FlowablePlusEventProperties.class,
+        FlowablePlusCountersignRollbackProperties.class})
 public class FlowablePlusAutoConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(FlowablePlusAutoConfiguration.class);
@@ -225,6 +229,52 @@ public class FlowablePlusAutoConfiguration {
     }
 
     /**
+     * 注册 AssigneeResolverRegistry Bean。
+     *
+     * <p>当前为空壳实现，{@code resolve()} 永远返回空列表。
+     * 后续 Ticket 将注入 {@link io.github.flowable.plus.core.spi.ApproverResolver}
+     * 实现，提供实际审批人解析能力。</p>
+     *
+     * @return AssigneeResolverRegistry 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public AssigneeResolverRegistry assigneeResolverRegistry() {
+        return new AssigneeResolverRegistry();
+    }
+
+    /**
+     * 注册 CountersignRollbackStrategy Bean。
+     *
+     * <p>默认使用 {@link StrictCountersignRollbackStrategy}，行为与旧代码一致。
+     * 通过 {@code flowable.plus.countersign-rollback-strategy} 配置项可切换策略。
+     * 当前仅 {@code strict} 策略可用，{@code auto-redirect} 和 {@code auto-rebuild}
+     * 策略将在后续 Ticket 中实现。</p>
+     *
+     * @param multiInstanceDetector 多实例检测模块
+     * @param rollbackProperties    会签回退配置属性
+     * @return CountersignRollbackStrategy 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CountersignRollbackStrategy countersignRollbackStrategy(
+            MultiInstanceDetector multiInstanceDetector,
+            FlowablePlusCountersignRollbackProperties rollbackProperties) {
+        FlowablePlusCountersignRollbackProperties.CountersignRollbackStrategyType strategy =
+                rollbackProperties.getCountersignRollbackStrategy();
+        switch (strategy) {
+            case AUTO_REDIRECT:
+            case AUTO_REBUILD:
+                // 尚未实现，回退到 strict 并记录警告
+                log.warn("会签回退策略 {} 尚未实现，回退到 strict 模式", strategy);
+                return new StrictCountersignRollbackStrategy(multiInstanceDetector);
+            case STRICT:
+            default:
+                return new StrictCountersignRollbackStrategy(multiInstanceDetector);
+        }
+    }
+
+    /**
      * 注册 ProcessLifecycleWorkflow Bean。
      *
      * <p>封装流程发起与撤销逻辑，包含自动提交能力。
@@ -275,10 +325,13 @@ public class FlowablePlusAutoConfiguration {
                                                         ExecutionTreeHelper executionTreeHelper,
                                                         @Autowired(required = false) EventPublisher eventPublisher,
                                                         ProcessEndDetector processEndDetector,
-                                                        PreviousNodeAuthorizer previousNodeAuthorizer) {
+                                                        PreviousNodeAuthorizer previousNodeAuthorizer,
+                                                        CountersignRollbackStrategy countersignRollbackStrategy,
+                                                        AssigneeResolverRegistry assigneeResolverRegistry) {
         return new TaskExecutionWorkflow(userContext, taskService, historyService,
                 processEngine.getRuntimeService(), nodeFinder, multiInstanceDetector,
-                executionTreeHelper, eventPublisher, processEndDetector, previousNodeAuthorizer);
+                executionTreeHelper, eventPublisher, processEndDetector, previousNodeAuthorizer,
+                countersignRollbackStrategy, assigneeResolverRegistry);
     }
 
     /**

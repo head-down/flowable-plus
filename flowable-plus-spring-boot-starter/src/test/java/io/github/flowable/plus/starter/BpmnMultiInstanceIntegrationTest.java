@@ -6,6 +6,8 @@ import io.github.flowable.plus.core.model.DefaultBpmnModelCache;
 import io.github.flowable.plus.core.model.DefaultNodeFinder;
 import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.model.NodeFinder;
+import io.github.flowable.plus.core.strategy.StrictCountersignRollbackStrategy;
+import io.github.flowable.plus.core.support.AssigneeResolverRegistry;
 import io.github.flowable.plus.core.support.PreviousNodeAuthorizer;
 import io.github.flowable.plus.core.domain.PlusHistoricProcessInstance;
 import io.github.flowable.plus.core.domain.PlusHistoricTask;
@@ -115,7 +117,9 @@ class BpmnMultiInstanceIntegrationTest {
                 mockRuntimeService, mockNodeFinder, multiInstanceDetector,
                 mock(io.github.flowable.plus.core.spi.ExecutionTreeHelper.class), null,
                 mock(io.github.flowable.plus.core.support.ProcessEndDetector.class),
-                mockPreviousNodeAuthorizer);
+                mockPreviousNodeAuthorizer,
+                new StrictCountersignRollbackStrategy(multiInstanceDetector),
+                new AssigneeResolverRegistry());
     }
 
     // ======================== 会签：全票通过后推进 ========================
