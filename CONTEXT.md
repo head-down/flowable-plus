@@ -48,8 +48,8 @@ _Avoid_: 竞签、抢签
 会签/或签进行中由发起人动态追加审批人，通过 RuntimeService.addMultiInstanceExecution() 实现。
 _Avoid_: 追加审批人
 
-**减签**:
-会签/或签进行中由发起人动态移除审批人，通过 RuntimeService.deleteMultiInstanceExecution() 实现。
+**减签**: _（业务层不提供，未来演进路径见 jw-zhyg-api ADR-0004 §5）_
+会签/或签进行中由发起人动态移除审批人，通过 RuntimeService.deleteMultiInstanceExecution() 实现。**引擎 API 保留，但业务层（jw-zhyg-api）已决策不对外提供**（见 jw-zhyg-api 仓库 docs/adr/0004）：通用减签语义过宽且存在投票操纵风险；选错人应通过撤回流程重提或折返后重新发起会签解决。若未来业务强需求减签，按 ADR-0004 §5 路径启用：`CounterSignRemovalValidator` SPI（引擎层 SPI 扩展点）+ 仅减未投票者 + 管理员专属接口。
 _Avoid_: 移除审批人
 
 **用户上下文**:

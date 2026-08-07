@@ -24,7 +24,7 @@ CI 矩阵覆盖 H2 / MySQL 8.0 / PostgreSQL 14 三种数据库，全量测试通
 - **任意跳转** — `jumpToNode`（跳转至任意历史审批节点）
 - **撤回** — `withdrawTask`（上一节点审批人收回已提交任务）
 - **会签** — `counterSign`（多实例投票，支持 completionCondition 自定义规则）
-- **加签/减签** — `addCounterSigner` / `removeCounterSigner`（会签中动态调整审批人）
+- **加签/减签** — `addCounterSigner` / `removeCounterSigner`（会签中动态调整审批人；**减签业务层不提供**，见 jw-zhyg-api 仓库 ADR-0004）
 - **委派与转办** — `delegateTask`（临时委派，可收回） / `transferTask`（永久转移）
 - **认领** — `claimTask`（手动认领候选任务）
 
