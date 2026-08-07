@@ -163,8 +163,8 @@ class CounterSignIntegrationTest extends AbstractIntegrationTest {
         String taskId = findActiveCounterSignTaskId(pi.getId(), USER_A);
         assertThat(taskId).isNotNull();
 
-        // 加签 EXTRA_USER（仅上一节点审批人 INITIATOR 可操作）
-        DynamicUserContext.set(INITIATOR);
+        // 加签 EXTRA_USER（活跃审批人 USER_A 可操作）
+        DynamicUserContext.set(USER_A);
         counterSignWorkflow.addCounterSigner(taskId, Arrays.asList(EXTRA_USER));
 
         // 验证 EXTRA_USER 也有待签任务
@@ -192,8 +192,8 @@ class CounterSignIntegrationTest extends AbstractIntegrationTest {
         String taskId = findActiveCounterSignTaskId(pi.getId(), USER_A);
         assertThat(taskId).isNotNull();
 
-        // 减签 USER_C（未投票、剩余 >= 2）
-        DynamicUserContext.set(INITIATOR);
+        // 减签 USER_C（未投票、剩余 >= 2，活跃审批人 USER_A 可操作）
+        DynamicUserContext.set(USER_A);
         counterSignWorkflow.removeCounterSigner(taskId, USER_C);
 
         // 验证 USER_C 的任务已移除

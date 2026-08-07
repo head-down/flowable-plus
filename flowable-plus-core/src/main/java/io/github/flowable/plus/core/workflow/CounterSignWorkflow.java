@@ -4,14 +4,12 @@ import io.github.flowable.plus.core.event.EventPublisher;
 import io.github.flowable.plus.core.event.TaskCompletedEvent;
 import io.github.flowable.plus.core.event.TaskDelegatedEvent;
 import io.github.flowable.plus.core.event.TaskRejectedEvent;
-import io.github.flowable.plus.core.exception.AmbiguousPreviousNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
 import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.support.TaskValidation;
-import io.github.flowable.plus.core.support.PreviousNodeAuthorizer;
 import io.github.flowable.plus.core.api.CounterSignOperations;
 import io.github.flowable.plus.core.domain.PlusTask;
 import io.github.flowable.plus.core.enums.CommentType;
@@ -46,6 +44,9 @@ public class CounterSignWorkflow implements CounterSignOperations {
     /** Task 局部变量名：会签轮次索引 */
     static final String CS_ROUND_INDEX_VAR = "csRoundIndex";
 
+    /** 流程实例级变量前缀：会签发起人，后接 taskDefinitionKey 实现多节点隔离 */
+    static final String COUNTERSIGN_INITIATOR_VAR_PREFIX = "countersignInitiator_";
+
     private static final Logger log = LoggerFactory.getLogger(CounterSignWorkflow.class);
 
     private final UserContext userContext;
@@ -57,15 +58,13 @@ public class CounterSignWorkflow implements CounterSignOperations {
     private final List<CounterSignCallback> counterSignCallbacks;
     private final EventPublisher eventPublisher;
     private final ProcessEndDetector processEndDetector;
-    private final PreviousNodeAuthorizer previousNodeAuthorizer;
 
     public CounterSignWorkflow(UserContext userContext, TaskService taskService,
                         HistoryService historyService, RuntimeService runtimeService,
                         MultiInstanceDetector multiInstanceDetector, NodeFinder nodeFinder,
                         List<CounterSignCallback> counterSignCallbacks,
                         EventPublisher eventPublisher,
-                        ProcessEndDetector processEndDetector,
-                        PreviousNodeAuthorizer previousNodeAuthorizer) {
+                        ProcessEndDetector processEndDetector) {
         this.userContext = userContext;
         this.taskService = taskService;
         this.historyService = historyService;
@@ -75,7 +74,6 @@ public class CounterSignWorkflow implements CounterSignOperations {
         this.counterSignCallbacks = counterSignCallbacks;
         this.eventPublisher = eventPublisher;
         this.processEndDetector = processEndDetector;
-        this.previousNodeAuthorizer = previousNodeAuthorizer;
     }
 
     @Override
@@ -164,6 +162,9 @@ public class CounterSignWorkflow implements CounterSignOperations {
         if (newAssignees.isEmpty()) {
             return;
         }
+
+        // 写入 countersignInitiator（仅伪单例首次加签）
+        trySetCounterSignInitiator(task);
 
         // 检测是否开启新轮次（全部审批完成后加签 = 新一轮）
         boolean isNewRound = isMultiInstanceFinished(task);
@@ -337,6 +338,48 @@ public class CounterSignWorkflow implements CounterSignOperations {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 判断是否为伪单例状态：活跃审批人仅 1 人且无人已完成投票。
+     */
+    private boolean isPseudoSingleton(PlusTask task) {
+        long activeCount = taskService.createTaskQuery()
+                .processInstanceId(task.getProcessInstanceId())
+                .taskDefinitionKey(task.getTaskDefinitionKey())
+                .active()
+                .count();
+        if (activeCount != 1) {
+            return false;
+        }
+        long finishedCount = historyService.createHistoricTaskInstanceQuery()
+                .processInstanceId(task.getProcessInstanceId())
+                .taskDefinitionKey(task.getTaskDefinitionKey())
+                .finished()
+                .count();
+        return finishedCount == 0;
+    }
+
+    /**
+     * 尝试设置会签发起人变量。仅在伪单例状态下首次调用加签且变量尚未设置时写入。
+     */
+    private void trySetCounterSignInitiator(PlusTask task) {
+        String varName = buildCountersignInitiatorVarName(task.getTaskDefinitionKey());
+
+        Object existing = runtimeService.getVariable(task.getProcessInstanceId(), varName);
+        if (existing != null) {
+            return;
+        }
+
+        if (!isPseudoSingleton(task)) {
+            return;
+        }
+
+        runtimeService.setVariable(task.getProcessInstanceId(), varName, userContext.getCurrentUserId());
+    }
+
+    private static String buildCountersignInitiatorVarName(String taskDefinitionKey) {
+        return COUNTERSIGN_INITIATOR_VAR_PREFIX + taskDefinitionKey;
+    }
+
     private boolean isMultiInstanceFinished(PlusTask task) {
         long activeCount = taskService.createTaskQuery()
                 .processInstanceId(task.getProcessInstanceId())
@@ -445,16 +488,43 @@ public class CounterSignWorkflow implements CounterSignOperations {
         }
     }
 
+    /**
+     * 校验加签/减签权限。
+     *
+     * <p>两种模式：
+     * <ul>
+     *   <li><b>伪单例模式</b>（countersignInitiator 已设置）：
+     *       仅会签发起人可加签/减签。</li>
+     *   <li><b>固定会签模式</b>（countersignInitiator 未设置）：
+     *       当前节点活跃审批人可加签/减签。</li>
+     * </ul>
+     * 流程发起人 <b>不再</b> 作为权限旁路。</p>
+     */
     private void validateCounterSignPermission(PlusTask task) {
         String currentUserId = userContext.getCurrentUserId();
-        try {
-            if (!previousNodeAuthorizer.isAuthorized(currentUserId, task.getId())) {
-                throw new PermissionDeniedException(
-                        "用户 " + currentUserId + " 无权操作会签任务，仅上一节点审批人可操作");
+        String activityId = task.getTaskDefinitionKey();
+
+        // 1. 查询 countersignInitiator 流程变量
+        Object initiatorObj = runtimeService.getVariable(
+                task.getProcessInstanceId(), buildCountersignInitiatorVarName(activityId));
+        String countersignInitiator = initiatorObj != null ? initiatorObj.toString() : null;
+
+        if (countersignInitiator != null) {
+            // 伪单例模式：仅 countersignInitiator 可操作
+            if (currentUserId.equals(countersignInitiator)) {
+                return;
             }
-        } catch (AmbiguousPreviousNodeException e) {
             throw new PermissionDeniedException(
-                    "当前会签任务的前置节点存在多个，无法唯一确定上一节点审批人", e);
+                    "用户 " + currentUserId + " 不是会签发起人 " + countersignInitiator + "，无权操作");
         }
+
+        // 2. 固定会签模式：活跃审批人可操作
+        List<String> currentAssignees = resolveCurrentAssignees(task);
+        if (currentAssignees.contains(currentUserId)) {
+            return;
+        }
+
+        throw new PermissionDeniedException(
+                "用户 " + currentUserId + " 不是当前会签节点活跃审批人，无权操作");
     }
 }

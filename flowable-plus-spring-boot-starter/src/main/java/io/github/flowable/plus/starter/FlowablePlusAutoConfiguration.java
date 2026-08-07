@@ -396,13 +396,12 @@ public class FlowablePlusAutoConfiguration {
                                                    @Autowired(required = false) List<CounterSignCallback> counterSignCallbacks,
                                                    FlowablePlusCounterSignProperties counterSignProps,
                                                    @Autowired(required = false) EventPublisher eventPublisher,
-                                                   ProcessEndDetector processEndDetector,
-                                                   PreviousNodeAuthorizer previousNodeAuthorizer) {
+                                                   ProcessEndDetector processEndDetector) {
         List<CounterSignCallback> callbacks = counterSignProps.isEnabled() && counterSignCallbacks != null
                 ? counterSignCallbacks : Collections.emptyList();
         return new CounterSignWorkflow(userContext, taskService, historyService,
                 processEngine.getRuntimeService(), multiInstanceDetector, nodeFinder, callbacks,
-                eventPublisher, processEndDetector, previousNodeAuthorizer);
+                eventPublisher, processEndDetector);
     }
 
     /**

@@ -1,7 +1,6 @@
 package io.github.flowable.plus.core.api;
 
 import io.github.flowable.plus.core.exception.NotFoundException;
-import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.exception.TaskAlreadyCompletedException;
 
@@ -39,7 +38,8 @@ public interface CounterSignOperations {
     /**
      * 加签：向当前会签节点动态追加审批人。
      *
-     * <p>仅上一节点审批人可操作（无上一节点时回退到流程发起人）。
+     * <p>伪单例模式下仅会签发起人可操作，固定会签模式下活跃审批人可操作。
+     * 流程发起人不再作为权限旁路。
      * 已是当前节点审批人的会被静默跳过。</p>
      *
      * <p><b>时序约束</b>：本方法通过 {@code ACT_HI_VARINST} 查询历史
@@ -52,7 +52,6 @@ public interface CounterSignOperations {
      * @throws NotFoundException            任务不存在时抛出
      * @throws TaskAlreadyCompletedException 任务已完成时抛出
      * @throws PermissionDeniedException     调用者无权操作时抛出
-     * @throws NoPreviousNodeException       并行网关汇合场景无法确定操作权限时抛出
      * @throws IllegalArgumentException     非多实例子任务时抛出
      * @see #removeCounterSigner
      */
@@ -61,7 +60,8 @@ public interface CounterSignOperations {
     /**
      * 减签：从当前会签节点移除指定审批人。
      *
-     * <p>仅上一节点审批人可操作（无上一节点时回退到流程发起人）。
+     * <p>伪单例模式下仅会签发起人可操作，固定会签模式下活跃审批人可操作。
+     * 流程发起人不再作为权限旁路。
      * 已投票的审批人不可移除，减签后至少保留一个未投票审批人。</p>
      *
      * @param taskId   任务 ID，不可为 null
@@ -69,7 +69,6 @@ public interface CounterSignOperations {
      * @throws NotFoundException            任务或审批人不存在时抛出
      * @throws TaskAlreadyCompletedException 任务已完成时抛出
      * @throws PermissionDeniedException     调用者无权操作时抛出
-     * @throws NoPreviousNodeException       并行网关汇合场景无法确定操作权限时抛出
      * @throws IllegalArgumentException     目标审批人已投票、减签后剩余人数不足或非多实例节点时抛出
      */
     void removeCounterSigner(String taskId, String assignee);
