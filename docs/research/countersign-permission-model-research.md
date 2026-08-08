@@ -1,7 +1,7 @@
 # 会签加签/减签/发起权限模型调研报告
 
 **日期**: 2026-08-07
-**状态**: 已定稿（修订：2026-08-07，作用域陷阱修正）
+**状态**: 已定稿（修订：2026-08-08，模式A权限放宽为"会签发起人 OR 活跃审批人"）
 **触发**: 下游反馈加签权限校验使用了错误的模型（流程发起人而非会签发起人）
 
 ---
@@ -116,9 +116,11 @@ Flowable 本身不定义加签/减签的权限模型，`addMultiInstanceExecutio
 flowable-plus 的"偶发性会签"模式（模式A）是区别于主流平台的重要特性：
 
 - **钉钉/飞书**：会签人员在设计时已确定，审批人之间平等
-- **flowable-plus 模式A**：会签人员由 Owner 在运行时动态决定，Owner 天然拥有控制权
+- **flowable-plus 模式A**：会签人员由 Owner 在运行时动态决定，Owner 天然拥有控制权（作为会签发起人持久化）
 
-这种差异化需求导致**不能简单套用主流平台的"任意审批人可操作"模型**。
+**修订（2026-08-08）**：差异化的核心是"会签发起人"概念的存在（Owner 动态决定人员），
+而非权限上的集中控制。权限上模式A与主流平台保持一致（当前审批人可加签），
+同时保留发起人始终可操作的旁路。
 
 ---
 
@@ -189,15 +191,15 @@ String varName = INITIATOR_VAR_PREFIX + "_" + taskDefinitionKey;
 #### 模式A：伪单例（countersignInitiator 已设置）
 
 ```
-加签/减签权限：仅会签发起人
+加签/减签权限：会签发起人 OR 当前节点活跃审批人
 投票权限    ：当前子任务的 assignee
 委派权限    ：当前子任务的 assignee
 ```
 
 **理由**：
-- Owner 发起会签，掌握控制权
-- 被加签的人不应再越权加签他人
-- 保持审批链的可控性
+- Owner 发起会签，保留控制权（发起人始终可操作）
+- 被加签的活跃审批人也可加签他人，与主流平台（钉钉/飞书"当前审批人可加签"）保持一致
+- **修订说明（2026-08-08）**：最初采用"仅会签发起人"集中控制，但下游 jw-zhyg-api 出现功能死锁——发起人加签后其待办消失（发起人不投票），而参与人虽有加签入口却无权限，加签功能整体不可用。放宽为"会签发起人 OR 活跃审批人"后：发起人有权限（回归），被加签的活跃审批人有入口也有权限（核心修复），非活跃审批人仍被拒绝（权限收窄面无回退）。
 
 #### 模式B：固定会签（countersignInitiator 未设置）
 
@@ -217,20 +219,21 @@ String varName = INITIATOR_VAR_PREFIX + "_" + taskDefinitionKey;
 | 触发点 | 条件 | 操作 |
 |--------|------|------|
 | `addCounterSigner` 首次调用 | 伪单例状态（activeCount=1, finishedCount=0） | 设 `countersignInitiator_<key>` = 当前用户 |
-| `addCounterSigner` 后续调用 | 变量已存在 | 校验当前用户 == countersignInitiator |
-| `removeCounterSigner` | 变量存在 | 校验当前用户 == countersignInitiator |
+| `addCounterSigner` 后续调用 | 变量已存在 | 校验当前用户 == countersignInitiator OR 当前用户 in 活跃审批人列表 |
+| `removeCounterSigner` | 变量存在 | 校验当前用户 == countersignInitiator OR 当前用户 in 活跃审批人列表 |
 | `removeCounterSigner` | 变量不存在 | 校验当前用户 in 活跃审批人列表 |
 
 ### 4.5 边界情况
 
 | 场景 | 行为 |
 |------|------|
-| 模式A + 非会签发起人加签 | 拒绝，抛出 PermissionDeniedException |
-| 模式A + 非会签发起人减签 | 拒绝，抛出 PermissionDeniedException |
+| 模式A + 会签发起人加签/减签 | 通过 |
+| 模式A + 活跃审批人（非发起人）加签/减签 | 通过（2026-08-08 放宽） |
+| 模式A + 非活跃审批人（非发起人且不在活跃列表）加签/减签 | 拒绝，抛出 PermissionDeniedException |
 | 模式B + 任意活跃审批人加签/减签 | 通过 |
 | 模式A + countersignInitiator 本人投票 | 通过（当前子任务 assignee 校验不变） |
 | 模式B + 非活跃审批人加签/减签 | 拒绝（不在活跃审批人列表中） |
-| 多轮会签（countersignInitiator 已设置） | 后续轮次仍由原始 countersignInitiator 控制 |
+| 多轮会签（countersignInitiator 已设置） | 后续轮次仍由原始 countersignInitiator 控制，且活跃审批人可操作 |
 | 多会签节点（技术→财务） | 各自维护 `countersignInitiator_<各自key>`，互不干扰 |
 | 模式A 初态 + addCounterSigner 全部跳过（重复人） | 不写变量，下次仍可设置 |
 
@@ -249,12 +252,16 @@ validateCounterSignPermission(task):
 
     if initiator 存在（模式A）:
         if 当前用户 == initiator → 通过
+        else if 当前用户在活跃审批人列表中 → 通过（2026-08-08 放宽）
         else → PermissionDeniedException
 
     else（模式B）:
         if 当前用户在活跃审批人列表中 → 通过
         else → PermissionDeniedException
 ```
+
+> **修订（2026-08-08）**：原方案模式A为严格模式（仅 initiator），因下游死锁放宽为"initiator OR 活跃审批人"，
+> 即原备选方案B（6.1 节）被采纳为主方案。本小节 5.1 起同步更新。
 
 ### 5.2 具体改动
 
@@ -269,7 +276,7 @@ validateCounterSignPermission(task):
 2. **重写 `validateCounterSignPermission`**：
    - 移除 `startUserId` 流程发起人校验
    - 通过 `countersignInitiator_<taskDefinitionKey>` 判断模式
-   - 模式A：仅 countersignInitiator 可操作
+   - 模式A：会签发起人 OR 活跃审批人可操作（2026-08-08 放宽）
    - 模式B：活跃审批人可操作
 
 3. **`addCounterSigner` 中设置 countersignInitiator**：
@@ -284,7 +291,8 @@ validateCounterSignPermission(task):
 | 测试类别 | 覆盖场景 |
 |---------|---------|
 | 模式A | countersignInitiator 本人加签/减签 → 通过 |
-| 模式A | 被加签人（非 countersignInitiator）加签 → 拒绝 |
+| 模式A | 活跃审批人（非 countersignInitiator）加签/减签 → 通过（2026-08-08 放宽） |
+| 模式A | 非活跃审批人（非发起人且不在活跃列表）加签/减签 → 拒绝 |
 | 模式A | 流程发起人（非 countersignInitiator）加签 → 拒绝 |
 | 模式B | 活跃审批人加签/减签 → 通过 |
 | 模式B | 非活跃审批人加签/减签 → 拒绝 |
@@ -297,23 +305,24 @@ validateCounterSignPermission(task):
 |------|---------|---------|
 | 校验对象 | startUserId（流程发起人） | countersignInitiator（会签发起人）+ 活跃审批人 |
 | 模式感知 | 无（一视同仁） | 有（模式A/B 不同规则） |
-| 模式A 控制权 | 分散（任意审批人可操作） | 集中（仅 countersignInitiator） |
+| 模式A 控制权 | 分散（任意审批人可操作） | 发起人保留，活跃审批人可操作（2026-08-08 放宽） |
 | 模式B 开放度 | 高（+流程发起人旁路） | 适中（仅活跃审批人） |
 | 多节点隔离 | N/A | taskDefinitionKey 后缀天然隔离 |
-| 与主流平台一致性 | 偏离 | 模式B 一致 |
+| 与主流平台一致性 | 偏离 | 模式A/B 均一致（当前审批人可加签） |
 
 ---
 
 ## 6. 备选方案
 
-### 6.1 方案B：countersignInitiator + 活跃审批人（宽松版）
+### 6.1 方案B：countersignInitiator + 活跃审批人（宽松版）【已采纳，2026-08-08】
 
 ```
 模式A: countersignInitiator OR 活跃审批人 → 通过
 模式B: 活跃审批人 → 通过
 ```
 
-**区别**：模式A中被加签的人也可以再加签他人。更开放，但与"会签发起人集中控制"的语义冲突。
+**区别**：模式A中被加签的人也可以再加签他人。最初因与"会签发起人集中控制"的语义冲突而被列为备选，
+后因下游 jw-zhyg-api 出现"发起人无入口、参与人无权限"的功能死锁（issue #70），被采纳为主方案。
 
 ### 6.2 方案C：仅活跃审批人（极简版）
 
@@ -321,7 +330,7 @@ validateCounterSignPermission(task):
 统一规则: 活跃审批人 → 通过
 ```
 
-与钉钉/飞书完全一致，但放弃了 flowable-plus 模式A的差异化优势。
+与钉钉/飞书完全一致，但放弃了 flowable-plus 模式A的差异化优势（会签发起人概念）。
 
 ### 6.3 方案D：SPI 回调扩展
 
@@ -342,11 +351,12 @@ public interface CounterSignPermissionValidator {
 
 ## 7. 建议
 
-推荐 **方案5.1（countersignInitiator 严格模式，带 taskDefinitionKey 后缀）**，理由：
+采用 **方案5.1（countersignInitiator 宽松模式，带 taskDefinitionKey 后缀）**，理由：
 
 1. **语义正确**：countersignInitiator 精确表达了模式A中"会签发起人"的概念
-2. **安全合理**：模式A集中控制，模式B平等协作
-3. **作用域安全**：taskDefinitionKey 后缀天然隔离多节点，消除全局变量灾难
-4. **命名统一**：沿用 `TaskExecutionOperations` 已确立的 `countersignInitiator` 领域术语
-5. **兼容主流**：模式B 与钉钉/飞书一致
-6. **改动可控**：改动集中在 `CounterSignWorkflow` 一个类，不涉及 SPI 扩展
+2. **功能可用**：模式A下发起人加签后待办消失，仅靠发起人权限会导致前端有入口但后端无权限的死锁（issue #70）；放宽为"发起人 OR 活跃审批人"后功能可用
+3. **兼容主流**：模式A/B 均与钉钉/飞书"当前审批人可加签"一致
+4. **安全收窄**：非活跃审批人仍被拒绝，权限收窄面无回退
+5. **作用域安全**：taskDefinitionKey 后缀天然隔离多节点，消除全局变量灾难
+6. **命名统一**：沿用 `TaskExecutionOperations` 已确立的 `countersignInitiator` 领域术语
+7. **改动可控**：改动集中在 `CounterSignWorkflow` 一个类，不涉及 SPI 扩展

@@ -599,7 +599,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
      * <p>两种模式：
      * <ul>
      *   <li><b>伪单例模式</b>（countersignInitiator 已设置）：
-     *       仅会签发起人可加签/减签。</li>
+     *       会签发起人 <b>或</b> 当前节点活跃审批人可加签/减签。</li>
      *   <li><b>固定会签模式</b>（countersignInitiator 未设置）：
      *       当前节点活跃审批人可加签/减签。</li>
      * </ul>
@@ -614,21 +614,25 @@ public class CounterSignWorkflow implements CounterSignOperations {
                 task.getProcessInstanceId(), buildCountersignInitiatorVarName(activityId));
         String countersignInitiator = initiatorObj != null ? initiatorObj.toString() : null;
 
-        if (countersignInitiator != null) {
-            // 伪单例模式：仅 countersignInitiator 可操作
-            if (currentUserId.equals(countersignInitiator)) {
-                return;
-            }
-            throw new PermissionDeniedException(
-                    "用户 " + currentUserId + " 不是会签发起人 " + countersignInitiator + "，无权操作");
+        // 2. 模式A：会签发起人直接放行
+        if (countersignInitiator != null && currentUserId.equals(countersignInitiator)) {
+            return;
         }
 
-        // 2. 固定会签模式：活跃审批人可操作
+        // 3. 两种模式统一收口：当前节点活跃审批人可操作
+        // 模式A放宽理由（2026-08-08）：发起人加签后其待办消失（发起人不投票），仅发起人有权限会导致
+        // 前端有入口（活跃审批人可见加签按钮）但后端无权限的死锁，与钉钉/飞书
+        // "当前审批人可加签"的主流行为不一致（见 docs/research/countersign-permission-model-research.md）。
         List<String> currentAssignees = resolveCurrentAssignees(task);
         if (currentAssignees.contains(currentUserId)) {
             return;
         }
 
+        if (countersignInitiator != null) {
+            throw new PermissionDeniedException(
+                    "用户 " + currentUserId + " 不是会签发起人 " + countersignInitiator
+                            + " 或当前节点活跃审批人，无权操作");
+        }
         throw new PermissionDeniedException(
                 "用户 " + currentUserId + " 不是当前会签节点活跃审批人，无权操作");
     }

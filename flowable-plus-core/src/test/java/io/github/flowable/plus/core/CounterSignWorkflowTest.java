@@ -813,10 +813,12 @@ public class CounterSignWorkflowTest {
     }
 
     /**
-     * 伪单例模式下，非发起人（被加签者）加签被拒绝。
+     * 模式A（伪单例）下，被加签的活跃审批人（非会签发起人）加签通过。
+     * 权限放宽（2026-08-08）：模式A从"仅会签发起人"放宽为"会签发起人 OR 当前节点活跃审批人"，
+     * 与模式B及钉钉/飞书"当前审批人可加签"保持一致。
      */
     @Test
-    void testAddCounterSignerRejectsNonInitiatorInPseudoSingleton() {
+    void testAddCounterSignerAsActiveApproverInPseudoSingleton() {
         String definitionId = "leave:1:abc";
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
@@ -827,30 +829,114 @@ public class CounterSignWorkflowTest {
         when(q1.taskId(task.getId())).thenReturn(q1);
         when(q1.singleResult()).thenReturn(mockExistTask);
 
-        // 权限: countersignInitiator_csTask = "owner"（不是 USER_ID）
+        // countersignInitiator = "owner"（非 USER_ID）→ 模式A成立，USER_ID 不是发起人
         when(mockRuntimeService.getVariable("pi-001", "countersignInitiator_csTask")).thenReturn("owner");
 
-        // Q2: resolveCurrentAssignees（仅在权限校验时调用一次）
-        Task active = createMockTask("sub-1", definitionId, "csTask", "pi-001", USER_ID);
+        // Qperm: 权限校验 resolveCurrentAssignees → [USER_ID, user2]（USER_ID 在列 → 放行）
+        Task self = createMockTask("sub-0", definitionId, "csTask", "pi-001", USER_ID);
+        Task other = createMockTask("sub-1", definitionId, "csTask", "pi-001", "user2");
+        TaskQuery qPerm = mock(TaskQuery.class);
+        when(qPerm.processInstanceId(anyString())).thenReturn(qPerm);
+        when(qPerm.taskDefinitionKey(anyString())).thenReturn(qPerm);
+        when(qPerm.active()).thenReturn(qPerm);
+        when(qPerm.list()).thenReturn(Arrays.asList(self, other));
+
+        // Qmain: 主逻辑 resolveCurrentAssignees → 同样 [self, other]
+        TaskQuery qMain = mock(TaskQuery.class);
+        when(qMain.processInstanceId(anyString())).thenReturn(qMain);
+        when(qMain.taskDefinitionKey(anyString())).thenReturn(qMain);
+        when(qMain.active()).thenReturn(qMain);
+        when(qMain.list()).thenReturn(Arrays.asList(self, other));
+
+        // Qmif: isMultiInstanceFinished — activeCount=2 → false（本轮未结束，不加新轮）
+        TaskQuery qMif = mock(TaskQuery.class);
+        when(qMif.processInstanceId(anyString())).thenReturn(qMif);
+        when(qMif.taskDefinitionKey(anyString())).thenReturn(qMif);
+        when(qMif.active()).thenReturn(qMif);
+        when(qMif.count()).thenReturn(2L);
+
+        // Qround: determineCurrentRoundIndex 活跃任务查询（getVariableLocal 默认 null → 降级）
+        TaskQuery qRound = mock(TaskQuery.class);
+        when(qRound.processInstanceId(anyString())).thenReturn(qRound);
+        when(qRound.taskDefinitionKey(anyString())).thenReturn(qRound);
+        when(qRound.active()).thenReturn(qRound);
+        when(qRound.list()).thenReturn(Arrays.asList(self, other));
+
+        // determineNextRoundIndex（降级）：周期边界 + 本节点 key 过滤（均空 → 下一轮=1）
+        HistoricTaskInstanceQuery boundaryQ = mock(HistoricTaskInstanceQuery.class);
+        when(boundaryQ.processInstanceId(anyString())).thenReturn(boundaryQ);
+        when(boundaryQ.orderByHistoricTaskInstanceStartTime()).thenReturn(boundaryQ);
+        when(boundaryQ.asc()).thenReturn(boundaryQ);
+        when(boundaryQ.list()).thenReturn(Collections.emptyList());
+        HistoricTaskInstanceQuery keyQ = mock(HistoricTaskInstanceQuery.class);
+        when(keyQ.processInstanceId(anyString())).thenReturn(keyQ);
+        when(keyQ.taskDefinitionKey(anyString())).thenReturn(keyQ);
+        when(keyQ.list()).thenReturn(Collections.emptyList());
+
+        // Qsvl: setVariableLocal 活跃任务列表
+        Task taskNew = createMockTask("sub-new", definitionId, "csTask", "pi-001", "newUser");
+        TaskQuery qSvl = mock(TaskQuery.class);
+        when(qSvl.processInstanceId(anyString())).thenReturn(qSvl);
+        when(qSvl.taskDefinitionKey(anyString())).thenReturn(qSvl);
+        when(qSvl.active()).thenReturn(qSvl);
+        when(qSvl.list()).thenReturn(Arrays.asList(self, other, taskNew));
+
+        when(mockTaskService.createTaskQuery()).thenReturn(q1, qPerm, qMain, qMif, qRound, qSvl);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(boundaryQ, keyQ);
+
+        counterSignWorkflow.addCounterSigner("task-001", Collections.singletonList("newUser"));
+
+        // 验证加签成功
+        verify(mockRuntimeService).addMultiInstanceExecution(eq("csTask"), eq("pi-001"),
+                Mockito.argThat(map -> "newUser".equals(map.get("assignee"))));
+
+        // 验证不重复写入 countersignInitiator（已存在）
+        verify(mockRuntimeService, never()).setVariable(eq("pi-001"),
+                eq("countersignInitiator_csTask"), anyString());
+    }
+
+    /**
+     * 模式A（伪单例）下，非活跃审批人（既非发起人也非当前节点活跃审批人）加签被拒绝。
+     */
+    @Test
+    void testAddCounterSignerRejectsInactiveApproverInPseudoSingleton() {
+        String definitionId = "leave:1:abc";
+        PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
+
+        // Q1: validateTaskExists
+        Task mockExistTask = createMockTask(task.getId(), definitionId, "csTask", "pi-001", USER_ID);
+        TaskQuery q1 = mock(TaskQuery.class);
+        when(q1.taskId(task.getId())).thenReturn(q1);
+        when(q1.singleResult()).thenReturn(mockExistTask);
+
+        // countersignInitiator = "owner"（非 USER_ID）→ 模式A成立
+        when(mockRuntimeService.getVariable("pi-001", "countersignInitiator_csTask")).thenReturn("owner");
+
+        // Q2: 权限校验 resolveCurrentAssignees → [owner, user2]（不含 USER_ID）
+        Task active1 = createMockTask("sub-1", definitionId, "csTask", "pi-001", "owner");
+        Task active2 = createMockTask("sub-2", definitionId, "csTask", "pi-001", "user2");
         TaskQuery q2 = mock(TaskQuery.class);
         when(q2.processInstanceId(anyString())).thenReturn(q2);
         when(q2.taskDefinitionKey(anyString())).thenReturn(q2);
         when(q2.active()).thenReturn(q2);
-        when(q2.list()).thenReturn(Collections.singletonList(active));
+        when(q2.list()).thenReturn(Arrays.asList(active1, active2));
 
         when(mockTaskService.createTaskQuery()).thenReturn(q1, q2);
 
         assertThatThrownBy(() -> counterSignWorkflow.addCounterSigner("task-001",
                 Collections.singletonList("newUser")))
                 .isInstanceOf(PermissionDeniedException.class)
-                .hasMessageContaining("会签发起人");
+                .hasMessageContaining("会签发起人")
+                .hasMessageContaining("活跃审批人");
     }
 
     /**
-     * 伪单例模式下，非发起人（被加签者）减签被拒绝。
+     * 模式A（伪单例）下，活跃审批人（非会签发起人）减签通过。
+     * validateCounterSignPermission 为加签/减签共享方法，权限同步放宽。
      */
     @Test
-    void testRemoveCounterSignerRejectsNonInitiatorInPseudoSingleton() {
+    void testRemoveCounterSignerAsActiveApproverInPseudoSingleton() {
         String definitionId = "leave:1:abc";
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
@@ -861,26 +947,89 @@ public class CounterSignWorkflowTest {
         when(q1.taskId(task.getId())).thenReturn(q1);
         when(q1.singleResult()).thenReturn(mockExistTask);
 
-        // 权限: countersignInitiator_csTask = "owner"（不是 USER_ID）
+        // countersignInitiator = "owner"（非 USER_ID）→ 模式A成立
         when(mockRuntimeService.getVariable("pi-001", "countersignInitiator_csTask")).thenReturn("owner");
 
-        Task active = createMockTask("sub-1", definitionId, "csTask", "pi-001", USER_ID);
+        // Qperm: 权限校验 resolveCurrentAssignees → [USER_ID, user2, user3]（USER_ID 在列 → 放行）
+        Task self = createMockTask("sub-0", definitionId, "csTask", "pi-001", USER_ID);
+        Task other1 = createMockTask("sub-1", definitionId, "csTask", "pi-001", "user2");
+        Task other2 = createMockTask("sub-2", definitionId, "csTask", "pi-001", "user3");
+        TaskQuery qPerm = mock(TaskQuery.class);
+        when(qPerm.processInstanceId(anyString())).thenReturn(qPerm);
+        when(qPerm.taskDefinitionKey(anyString())).thenReturn(qPerm);
+        when(qPerm.active()).thenReturn(qPerm);
+        when(qPerm.list()).thenReturn(Arrays.asList(self, other1, other2));
+
+        // hasVoted(task, "user2") → 0
+        HistoricTaskInstanceQuery hqVoted = mock(HistoricTaskInstanceQuery.class);
+        when(hqVoted.processInstanceId(anyString())).thenReturn(hqVoted);
+        when(hqVoted.taskDefinitionKey(anyString())).thenReturn(hqVoted);
+        when(hqVoted.taskAssignee(anyString())).thenReturn(hqVoted);
+        when(hqVoted.finished()).thenReturn(hqVoted);
+        when(hqVoted.count()).thenReturn(0L);
+
+        // Qmain: 主逻辑 resolveCurrentAssignees → [USER_ID, user2, user3]
+        TaskQuery qMain = mock(TaskQuery.class);
+        when(qMain.processInstanceId(anyString())).thenReturn(qMain);
+        when(qMain.taskDefinitionKey(anyString())).thenReturn(qMain);
+        when(qMain.active()).thenReturn(qMain);
+        when(qMain.list()).thenReturn(Arrays.asList(self, other1, other2));
+
+        // Qfind: findActiveTask → targetTask
+        Task targetTask = createMockTask("sub-1", definitionId, "csTask", "pi-001", "user2");
+        TaskQuery qFind = mock(TaskQuery.class);
+        when(qFind.processInstanceId(anyString())).thenReturn(qFind);
+        when(qFind.taskDefinitionKey(anyString())).thenReturn(qFind);
+        when(qFind.taskAssignee("user2")).thenReturn(qFind);
+        when(qFind.active()).thenReturn(qFind);
+        when(qFind.singleResult()).thenReturn(targetTask);
+
+        when(mockTaskService.createTaskQuery()).thenReturn(q1, qPerm, qMain, qFind);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(hqVoted);
+
+        counterSignWorkflow.removeCounterSigner("task-001", "user2");
+
+        verify(mockRuntimeService).deleteMultiInstanceExecution("exec-sub-1", false);
+    }
+
+    /**
+     * 模式A（伪单例）下，非活跃审批人（既非发起人也非当前节点活跃审批人）减签被拒绝。
+     */
+    @Test
+    void testRemoveCounterSignerRejectsInactiveApproverInPseudoSingleton() {
+        String definitionId = "leave:1:abc";
+        PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
+
+        // Q1: validateTaskExists
+        Task mockExistTask = createMockTask(task.getId(), definitionId, "csTask", "pi-001", USER_ID);
+        TaskQuery q1 = mock(TaskQuery.class);
+        when(q1.taskId(task.getId())).thenReturn(q1);
+        when(q1.singleResult()).thenReturn(mockExistTask);
+
+        // countersignInitiator = "owner"（非 USER_ID）→ 模式A成立
+        when(mockRuntimeService.getVariable("pi-001", "countersignInitiator_csTask")).thenReturn("owner");
+
+        // Q2: 权限校验 resolveCurrentAssignees → [owner, user2]（不含 USER_ID）
+        Task active1 = createMockTask("sub-1", definitionId, "csTask", "pi-001", "owner");
+        Task active2 = createMockTask("sub-2", definitionId, "csTask", "pi-001", "user2");
         TaskQuery q2 = mock(TaskQuery.class);
         when(q2.processInstanceId(anyString())).thenReturn(q2);
         when(q2.taskDefinitionKey(anyString())).thenReturn(q2);
         when(q2.active()).thenReturn(q2);
-        when(q2.list()).thenReturn(Collections.singletonList(active));
+        when(q2.list()).thenReturn(Arrays.asList(active1, active2));
 
         when(mockTaskService.createTaskQuery()).thenReturn(q1, q2);
 
         assertThatThrownBy(() -> counterSignWorkflow.removeCounterSigner("task-001", "user2"))
                 .isInstanceOf(PermissionDeniedException.class)
-                .hasMessageContaining("会签发起人");
+                .hasMessageContaining("会签发起人")
+                .hasMessageContaining("活跃审批人");
     }
 
     /**
-     * 伪单例模式下，流程发起人（非会签发起人）加签被拒绝。
-     * 直接验证旧 startUserId 旁路已被移除。
+     * 模式A（伪单例）下，流程发起人（非会签发起人，也不在当前节点活跃审批人中）加签被拒绝。
+     * 直接验证旧 startUserId 旁路已被移除，且流程发起人不会因"曾是流程发起人"获得加签权限。
      */
     @Test
     void testAddCounterSignerRejectsProcessInitiatorInPseudoSingleton() {
@@ -896,6 +1045,7 @@ public class CounterSignWorkflowTest {
         // 权限: countersignInitiator_csTask = "owner"（不是 USER_ID）
         when(mockRuntimeService.getVariable("pi-001", "countersignInitiator_csTask")).thenReturn("owner");
 
+        // Q2: 权限校验 resolveCurrentAssignees → ["owner"]（不含 USER_ID）
         Task active = createMockTask("sub-1", definitionId, "csTask", "pi-001", "owner");
         TaskQuery q2 = mock(TaskQuery.class);
         when(q2.processInstanceId(anyString())).thenReturn(q2);
@@ -909,7 +1059,8 @@ public class CounterSignWorkflowTest {
         assertThatThrownBy(() -> counterSignWorkflow.addCounterSigner("task-001",
                 Collections.singletonList("newUser")))
                 .isInstanceOf(PermissionDeniedException.class)
-                .hasMessageContaining("会签发起人");
+                .hasMessageContaining("会签发起人")
+                .hasMessageContaining("活跃审批人");
     }
 
     // ======================== 新权限模型：固定会签模式（模式B） ========================
