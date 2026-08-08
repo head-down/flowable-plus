@@ -13,6 +13,7 @@ import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
 import org.flowable.engine.repository.Deployment;
 import org.flowable.engine.runtime.ProcessInstance;
+import org.flowable.engine.task.Comment;
 import org.flowable.task.api.Task;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,6 +25,7 @@ import org.springframework.context.annotation.Import;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -177,6 +179,193 @@ class CounterSignIntegrationTest extends AbstractIntegrationTest {
 
         // EXTRA_USER 可以完成投票
         counterSign(pi.getId(), EXTRA_USER, true, "加签同意");
+    }
+
+    /**
+     * 模式 A（伪单例）：当前轮次只剩操作者一人未投时加签，
+     * 新加签人应并入当前轮（csRoundIndex=0），不开启新一轮（评论不含"第 N 轮"）。
+     * 回归：bug 报告"当前轮次只剩操作者一人未投时加签，新加签人被错误归入新一轮"。
+     */
+    @Test
+    void testAddCounterSignerModeALastUnvotedMergesIntoCurrentRound() {
+        // 模式 A：伪单例发起（assigneeList 只放发起人）
+        ProcessInstance pi = startProcessWithSigners("biz-cs-a-001", INITIATOR);
+        processInstanceIds.add(pi.getId());
+
+        completeTask(pi.getId(), "draft", INITIATOR);
+
+        // 发起人（伪单例）加签 USER_A → 并入第 1 轮（csRoundIndex=0）
+        String ownerTaskId = findActiveCounterSignTaskId(pi.getId(), INITIATOR);
+        assertThat(ownerTaskId).isNotNull();
+        DynamicUserContext.set(INITIATOR);
+        counterSignWorkflow.addCounterSigner(ownerTaskId, Collections.singletonList(USER_A));
+        // 按 ADR-0019 时序：调用方将发起任务与子任务归到同一轮次
+        taskService.setVariableLocal(ownerTaskId, "csRoundIndex", 0);
+
+        // USER_A 投票 → 当前轮次只剩发起人一人未投
+        counterSign(pi.getId(), USER_A, true, "同意");
+
+        // 发起人（唯一未投者）再加签 USER_B → 应并入当前轮
+        DynamicUserContext.set(INITIATOR);
+        counterSignWorkflow.addCounterSigner(ownerTaskId, Collections.singletonList(USER_B));
+
+        // USER_B 归入当前轮 csRoundIndex=0（而非新一轮 1）
+        String userBTaskId = findActiveCounterSignTaskId(pi.getId(), USER_B);
+        assertThat(userBTaskId).isNotNull();
+        assertThat(taskService.getVariableLocal(userBTaskId, "csRoundIndex")).isEqualTo(0);
+
+        // 评论不含"开启第 2 轮"
+        List<Comment> comments = taskService.getProcessInstanceComments(pi.getId());
+        assertThat(comments).extracting(Comment::getFullMessage)
+                .anyMatch(m -> m.contains("加签审批人: " + USER_B) && !m.contains("第 2 轮"));
+    }
+
+    /**
+     * 模式 B（固定会签）：当前轮次只剩操作者一人未投时加签，
+     * 模式 B 无轮次概念，单执行周期内加签永远并入当前轮（csRoundIndex=0）。
+     */
+    @Test
+    void testAddCounterSignerModeBLastUnvotedMergesIntoCurrentRound() {
+        // 模式 B：固定会签 [USER_A, USER_B]
+        ProcessInstance pi = startProcessWithSigners("biz-cs-b-001", USER_A, USER_B);
+        processInstanceIds.add(pi.getId());
+
+        completeTask(pi.getId(), "draft", INITIATOR);
+
+        // USER_A 投票 → 只剩 USER_B 一人未投
+        counterSign(pi.getId(), USER_A, true, "同意");
+
+        // USER_B（唯一未投者）加签 USER_C → 应并入当前轮
+        String userBTaskId = findActiveCounterSignTaskId(pi.getId(), USER_B);
+        assertThat(userBTaskId).isNotNull();
+        DynamicUserContext.set(USER_B);
+        counterSignWorkflow.addCounterSigner(userBTaskId, Collections.singletonList(USER_C));
+
+        // USER_C 归入当前轮 csRoundIndex=0（而非新一轮 1）
+        String userCTaskId = findActiveCounterSignTaskId(pi.getId(), USER_C);
+        assertThat(userCTaskId).isNotNull();
+        assertThat(taskService.getVariableLocal(userCTaskId, "csRoundIndex")).isEqualTo(0);
+
+        // 评论不含"开启第 2 轮"
+        List<Comment> comments = taskService.getProcessInstanceComments(pi.getId());
+        assertThat(comments).extracting(Comment::getFullMessage)
+                .anyMatch(m -> m.contains("加签审批人: " + USER_C) && !m.contains("第 2 轮"));
+    }
+
+    /**
+     * 模式 B（固定会签）：经 removeCounterSigner 减签至只剩 1 人未投、且无人投过票时加签。
+     * 回归 review 隐患 A：isPseudoSingleton 若用全局 finished 判据，减签后可能误判为伪单例
+     * 而写入 countersignInitiator，把模式 B 永久翻转为模式 A。修复后按「全局历史任务数==1」
+     * 判据，减签场景历史任务数 > 1 → 非伪单例 → 不写 initiator → 加签永远并入当前轮。
+     */
+    @Test
+    void testAddCounterSignerModeBAfterRemoveSignerDownToOneDoesNotFlipToModeA() {
+        // 模式 B：固定会签 [USER_A, USER_B, USER_C]，全部未投票
+        ProcessInstance pi = startProcessWithSigners("biz-cs-b-rm-001", USER_A, USER_B, USER_C);
+        processInstanceIds.add(pi.getId());
+
+        completeTask(pi.getId(), "draft", INITIATOR);
+
+        // USER_A（活跃审批人）减签 USER_B、USER_C → 只剩 USER_A 一人未投，无人投过票
+        String userATaskId = findActiveCounterSignTaskId(pi.getId(), USER_A);
+        assertThat(userATaskId).isNotNull();
+        DynamicUserContext.set(USER_A);
+        counterSignWorkflow.removeCounterSigner(userATaskId, USER_B);
+        counterSignWorkflow.removeCounterSigner(userATaskId, USER_C);
+
+        // 只剩 1 人未投
+        List<Task> activeTasks = taskService.createTaskQuery()
+                .processInstanceId(pi.getId())
+                .taskDefinitionKey("counterSign")
+                .active()
+                .list();
+        assertThat(activeTasks).hasSize(1);
+
+        // USER_A 加签 USER_C → 模式 B 应保持：不写 countersignInitiator，并入当前轮（csRoundIndex=0）
+        DynamicUserContext.set(USER_A);
+        counterSignWorkflow.addCounterSigner(userATaskId, Collections.singletonList(USER_C));
+
+        // 不写 initiator（未翻转为模式 A）
+        assertThat(runtimeService.getVariable(pi.getId(), "countersignInitiator_counterSign"))
+                .isNull();
+
+        // USER_C 归入当前轮 csRoundIndex=0（而非新一轮 1）
+        String userCTaskId = findActiveCounterSignTaskId(pi.getId(), USER_C);
+        assertThat(userCTaskId).isNotNull();
+        assertThat(taskService.getVariableLocal(userCTaskId, "csRoundIndex")).isEqualTo(0);
+
+        // 评论不含"开启第 N 轮"
+        List<Comment> comments = taskService.getProcessInstanceComments(pi.getId());
+        assertThat(comments).extracting(Comment::getFullMessage)
+                .anyMatch(m -> m.contains("加签审批人: " + USER_C) && !m.contains("第"));
+    }
+
+    /**
+     * 折返后轮次编号重置（隐患 C 修复后的语义）：
+     * <ol>
+     *   <li>周期 1 内发起人多次加签<b>并入当前轮</b>（内化打标后 owner 首次加签即获显式 csRoundIndex=0，
+     *       后续加签走 roundVar 分支并入当前轮，不再因缺显式轮次而误开新一轮——隐患 C 回归验证）</li>
+     *   <li>手工注入 csRoundIndex=2 历史变量模拟上一周期存在多轮</li>
+     *   <li>折返重新进入会签节点后（新执行周期），加签应并入周期 2 的当前轮（csRoundIndex=0），
+     *       不沿用上一周期的全局 max+1</li>
+     * </ol>
+     */
+    @Test
+    void testAddCounterSignerRoundResetsAfterRebuild() {
+        // 模式 A：伪单例发起
+        ProcessInstance pi = startProcessWithSigners("biz-cs-rebuild-001", INITIATOR);
+        processInstanceIds.add(pi.getId());
+
+        completeTask(pi.getId(), "draft", INITIATOR);
+
+        // 周期 1：第 1 轮加签 USER_A（csRoundIndex=0），且发起人任务被内化打标（不再依赖调用方时序）
+        String ownerTaskId = findActiveCounterSignTaskId(pi.getId(), INITIATOR);
+        assertThat(ownerTaskId).isNotNull();
+        DynamicUserContext.set(INITIATOR);
+        counterSignWorkflow.addCounterSigner(ownerTaskId, Collections.singletonList(USER_A));
+        String userATaskId = findActiveCounterSignTaskId(pi.getId(), USER_A);
+        assertThat(userATaskId).isNotNull();
+        assertThat(taskService.getVariableLocal(userATaskId, "csRoundIndex")).isEqualTo(0);
+        assertThat(taskService.getVariableLocal(ownerTaskId, "csRoundIndex")).isEqualTo(0);
+
+        // USER_A 投票 → 发起人再加签 USER_B → 本轮未结束，并入当前轮（csRoundIndex=0，不开启新一轮）
+        counterSign(pi.getId(), USER_A, true, "同意");
+        DynamicUserContext.set(INITIATOR);
+        counterSignWorkflow.addCounterSigner(ownerTaskId, Collections.singletonList(USER_B));
+        String userBTaskId = findActiveCounterSignTaskId(pi.getId(), USER_B);
+        assertThat(userBTaskId).isNotNull();
+        assertThat(taskService.getVariableLocal(userBTaskId, "csRoundIndex")).isEqualTo(0);
+
+        // 手工将发起人任务轮次标记为 2，构造"上一周期存在 csRoundIndex=2"的历史（模拟多轮会签旧数据），
+        // 用于验证折返后 determineNextRoundIndex 不沿用全局 max
+        taskService.setVariableLocal(ownerTaskId, "csRoundIndex", 2);
+
+        // 周期 1 完成 → confirmTask
+        counterSign(pi.getId(), INITIATOR, true, "同意");
+        counterSign(pi.getId(), USER_B, true, "同意");
+
+        // 折返：confirmTask 跳回 counterSign → 引擎重建新执行周期（重新解析 counterSignUsers=[INITIATOR]）
+        DynamicUserContext.set(INITIATOR);
+        Task confirmTask = taskService.createTaskQuery()
+                .processInstanceId(pi.getId())
+                .taskDefinitionKey("confirmTask")
+                .active()
+                .singleResult();
+        assertThat(confirmTask).isNotNull();
+        runtimeService.createChangeActivityStateBuilder()
+                .processInstanceId(pi.getId())
+                .moveActivityIdTo("confirmTask", "counterSign")
+                .changeState();
+
+        // 周期 2：发起人加签 USER_C → 应并入周期 2 当前轮（csRoundIndex=0，不沿用周期 1 的 max=2）
+        String owner2TaskId = findActiveCounterSignTaskId(pi.getId(), INITIATOR);
+        assertThat(owner2TaskId).isNotNull();
+        DynamicUserContext.set(INITIATOR);
+        counterSignWorkflow.addCounterSigner(owner2TaskId, Collections.singletonList(USER_C));
+
+        String userCTaskId = findActiveCounterSignTaskId(pi.getId(), USER_C);
+        assertThat(userCTaskId).isNotNull();
+        assertThat(taskService.getVariableLocal(userCTaskId, "csRoundIndex")).isEqualTo(0);
     }
 
     // ======================== 减签 ========================

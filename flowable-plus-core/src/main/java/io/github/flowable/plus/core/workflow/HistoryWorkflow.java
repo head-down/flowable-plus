@@ -41,7 +41,11 @@ public class HistoryWorkflow {
     private static final Set<String> INCLUDED_ACTIVITY_TYPES = Collections.unmodifiableSet(
             new HashSet<>(Arrays.asList("startEvent", "userTask")));
 
-    /** multiInstanceBody 模式匹配，用于识别多实例体活动类型 */
+    /**
+     * multiInstanceBody 模式匹配，用于识别多实例体活动类型。
+     * Flowable 6.8.0 中不存在此类型（多实例节点的历史活动即子实例的 userTask），
+     * 保留作未来版本防御，见 {@link #isMultiInstanceBodyActivity}。
+     */
     private static final String MULTI_INSTANCE_BODY_PATTERN = "multiinstance";
 
     /** Task 局部变量名：会签轮次索引 */
@@ -150,7 +154,7 @@ public class HistoryWorkflow {
                         activity.getProcessDefinitionId(), baseId);
 
                 if (isMultiInstance) {
-                    // 贪心吞噬会签归组（同一 baseId 的全部活动归入一组，miBody 的 taskId=null 在构建时被过滤）
+                    // 贪心吞噬会签归组（同一 baseId 的全部活动归入一组；taskId 为 null 的无任务活动在构建时被过滤）
                     List<HistoricActivityInstance> miGroup = new ArrayList<>();
                     do {
                         miGroup.add(filteredActivities.get(i));
@@ -179,7 +183,8 @@ public class HistoryWorkflow {
     // ======================== 活动类型过滤 ========================
 
     /**
-     * 过滤 HistoricActivityInstance，仅保留 startEvent、userTask 和 multiInstanceBody 类型。
+     * 过滤 HistoricActivityInstance，仅保留 startEvent、userTask 类型
+     * （以及理论上的 multiInstanceBody 类型——6.8.0 下不存在，见 {@link #isMultiInstanceBodyActivity}）。
      */
     private List<HistoricActivityInstance> filterActivities(
             List<HistoricActivityInstance> activities) {
@@ -205,8 +210,8 @@ public class HistoryWorkflow {
     private boolean isSameMultiInstanceGroup(String currentActivityId,
                                               String baseId,
                                               String processDefinitionId) {
-        // ADR-0020: 不以 miBody 作为轮次边界，统一由 splitIntoExplicitRounds 按 csRoundIndex 拆分。
-        // miBody 活动本身 taskId 为 null，在 buildMultiInstanceRecords 中会被 continue 跳过。
+        // ADR-0020: 轮次边界统一由 splitIntoExplicitRounds 按 csRoundIndex 拆分，
+        // 不依赖任何"体活动"边界（6.8.0 无 miBody 历史活动，子实例记录即 userTask）。
         String currentBaseId = baseActivityId(currentActivityId);
         if (!baseId.equals(currentBaseId)) {
             return false;
@@ -215,7 +220,14 @@ public class HistoryWorkflow {
     }
 
     /**
-     * 检查 activityType 是否为 multiInstanceBody 类型（轮次边界标记）。
+     * 检查 activityType 是否为 multiInstanceBody 类型。
+     *
+     * <p><b>死代码说明（2026-08-08）</b>：Flowable 6.8.0 中不存在 multiInstanceBody
+     * 历史活动——实测引擎源码 {@code multiInstanceBody} 字符串零出现，多实例节点的
+     * {@code ACT_HI_ACTINST} 记录即各子实例的 userTask 活动，此方法在 6.8.0 下恒返回
+     * false，{@link #isIncludedActivityType} 的该分支永不命中。<b>保留</b>作为未来
+     * Flowable 版本（6.8.1+ 存在 MI 跳转回归，升级时需回归）引入新活动类型时的防御性
+     * 过滤，勿删除。</p>
      */
     private boolean isMultiInstanceBodyActivity(String activityType) {
         return activityType != null
@@ -364,7 +376,7 @@ public class HistoryWorkflow {
             Map<String, List<Comment>> commentsByTaskId,
             String processInstanceId) {
 
-        // 1. 构建所有子记录（排除 miBody 体活动）
+        // 1. 构建所有子记录（排除 taskId 为 null 的无任务活动，如服务任务等）
         List<CountersignSubRecord> allSubRecords = new ArrayList<>();
 
         for (HistoricActivityInstance activity : miGroup) {
@@ -437,7 +449,7 @@ public class HistoryWorkflow {
     }
 
     /**
-     * 从 miGroup 中提取第一个非 miBody 活动的信息构建单个子记录。
+     * 从 miGroup 中提取第一个有关联任务的活动构建单个子记录。
      */
     private CountersignSubRecord buildSubRecord(HistoricActivityInstance activity,
                                                  String taskId,

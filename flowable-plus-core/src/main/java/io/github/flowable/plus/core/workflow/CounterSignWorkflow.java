@@ -26,6 +26,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -126,6 +127,12 @@ public class CounterSignWorkflow implements CounterSignOperations {
      * 查询历史 {@code csRoundIndex} 最大值 + 1 计算。<em>调用方不得在调用本方法前
      * 将发起任务的 {@code csRoundIndex} 写入历史表</em>，否则当前任务会"自引用污染"
      * 历史查询结果，导致新建子任务轮次偏移。</p>
+     *
+     * <p><b>发起任务打标</b>（ADR-0019 时序内化，2026-08-08）：本方法会在打标阶段将
+     * 操作者任务与新增审批人一起写入 {@code csRoundIndex}，调用方无需再按 ADR-0019
+     * 原时序手动为发起任务打标。这保证原始审批人（owner）首次加签即获得显式轮次，
+     * 后续加签并入当前轮，不会因运行时缺显式轮次而被 {@link #isMultiInstanceFinished}
+     * 误判"本轮将尽"而开启新一轮（隐患 C）。</p>
      */
     @Override
     public void addCounterSigner(String taskId, List<String> assignees) {
@@ -167,7 +174,15 @@ public class CounterSignWorkflow implements CounterSignOperations {
         trySetCounterSignInitiator(task);
 
         // 检测是否开启新轮次（全部审批完成后加签 = 新一轮）
-        boolean isNewRound = isMultiInstanceFinished(task);
+        // 模式分派（ADR-0022）：模式 A（伪单例，countersignInitiator 已写入）才有轮次概念，
+        // 由 isMultiInstanceFinished 判定是否本轮已结束；模式 B（固定会签）无轮次概念，
+        // 单执行周期内加签必然发生在本轮未投完时，永远并入当前轮。
+        boolean modeA = runtimeService.getVariable(processInstanceId,
+                buildCountersignInitiatorVarName(activityId)) != null;
+        boolean isNewRound = false;
+        if (modeA) {
+            isNewRound = isMultiInstanceFinished(task);
+        }
         int roundIndex;
         if (isNewRound) {
             roundIndex = determineNextRoundIndex(processInstanceId, activityId);
@@ -182,7 +197,11 @@ public class CounterSignWorkflow implements CounterSignOperations {
             runtimeService.addMultiInstanceExecution(activityId, processInstanceId, executionVariables);
         }
 
-        // 始终为新任务打上 csRoundIndex（批量查询 + 内存过滤 + 统一打标，N→1 降维）
+        // 始终为新任务打上 csRoundIndex，并将操作者任务（发起任务）归入同一轮次（批量查询 + 内存过滤 + 统一打标，N→1 降维）
+        // 隐患 C 修复（2026-08-08）：此前仅给新加签人打标，原始审批人（owner）运行时无 csRoundIndex，
+        // 其再次加签时 isMultiInstanceFinished 误判"本轮将尽"而开启新一轮（round 1+）。
+        // 内化打标后 owner 首次加签即获显式轮次，后续加签走 roundVar 分支并入当前轮，
+        // ADR-0019 的"调用方时序"要求相应放宽（调用方无需再手动为发起任务打标）。
         Set<String> newAssigneeSet = new HashSet<>(newAssignees);
         List<Task> activeTasks = taskService.createTaskQuery()
                 .processInstanceId(processInstanceId)
@@ -190,7 +209,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
                 .active()
                 .list();
         for (Task t : activeTasks) {
-            if (newAssigneeSet.contains(t.getAssignee())) {
+            if (newAssigneeSet.contains(t.getAssignee()) || t.getId().equals(task.getId())) {
                 taskService.setVariableLocal(t.getId(), "csRoundIndex", roundIndex);
             }
         }
@@ -339,7 +358,15 @@ public class CounterSignWorkflow implements CounterSignOperations {
     }
 
     /**
-     * 判断是否为伪单例状态：活跃审批人仅 1 人且无人已完成投票。
+     * 判断是否为伪单例状态：活跃审批人仅 1 人，且该节点自进入以来从未出现过第二个任务。
+     *
+     * <p>判据：全局历史任务数（含活跃/已完成/被减签删除）== 1，即只有当前这一个活跃任务。
+     * 与 finished 计数口径无关，因此：
+     * <ul>
+     *   <li>模式 A 伪单例首次加签：历史任务数 == 1 → 伪单例 ✓</li>
+     *   <li>模式 B 固定会签减签至 1 人：历史任务数 &gt; 1 → 非伪单例，不会被误翻转 ✓</li>
+     *   <li>模式 B 折返后新周期 1 人：全局历史任务数仍 &gt; 1（含上一周期）→ 非伪单例 ✓</li>
+     * </ul></p>
      */
     private boolean isPseudoSingleton(PlusTask task) {
         long activeCount = taskService.createTaskQuery()
@@ -350,12 +377,11 @@ public class CounterSignWorkflow implements CounterSignOperations {
         if (activeCount != 1) {
             return false;
         }
-        long finishedCount = historyService.createHistoricTaskInstanceQuery()
+        long historyTaskCount = historyService.createHistoricTaskInstanceQuery()
                 .processInstanceId(task.getProcessInstanceId())
                 .taskDefinitionKey(task.getTaskDefinitionKey())
-                .finished()
                 .count();
-        return finishedCount == 0;
+        return historyTaskCount == 1;
     }
 
     /**
@@ -394,11 +420,12 @@ public class CounterSignWorkflow implements CounterSignOperations {
             // 区分"伪单例"和"真正的最后一人"：
             // 伪单例（只有 1 人且无人已完成）：未完成
             // 真正最后一人（他人已完成，只剩当前任务）：即将完成
-            long finishedCount = historyService.createHistoricTaskInstanceQuery()
-                    .processInstanceId(task.getProcessInstanceId())
-                    .taskDefinitionKey(task.getTaskDefinitionKey())
-                    .finished()
-                    .count();
+            // 已完成数按当前执行周期限定——折返（重新进入会签节点）后，
+            // 上一周期的已完成任务不计入本轮，否则会误判"本轮即将结束"。
+            Date cycleBoundary = findCurrentCycleBoundary(task.getProcessInstanceId(),
+                    task.getTaskDefinitionKey());
+            long finishedCount = countFinishedInCurrentCycle(task.getProcessInstanceId(),
+                    task.getTaskDefinitionKey(), cycleBoundary);
             if (finishedCount == 0) {
                 return false;
             }
@@ -407,17 +434,52 @@ public class CounterSignWorkflow implements CounterSignOperations {
                     .taskDefinitionKey(task.getTaskDefinitionKey())
                     .active()
                     .singleResult();
-            return sole != null && sole.getId().equals(task.getId());
+            if (sole != null && sole.getId().equals(task.getId())) {
+                // 唯一活跃任务 == 操作者自己（加签场景）：操作者任务仍活跃，本轮尚未结束。
+                // 隐患 C 修复（2026-08-08）：无论操作者是否带 csRoundIndex，一律返回 false 并入当前轮。
+                // 此前"无 csRoundIndex → 判定新一轮"的残留路径已消除——该路径在折返重建后
+                // （多实例重建注入多人、owner 本轮未加签过）仍可达，会与单实例路径行为不一致。
+                return false;
+            }
+            // 唯一活跃任务不是操作者自己（counterSign 场景，task 已完成）：本轮同样未结束。
+            return false;
         }
         return false;
+    }
+
+    /**
+     * 统计当前执行周期内（开始时间不早于 {@code cycleBoundary}）的已完成会签任务数。
+     * 无周期边界（首个周期/老数据）时不做过滤，等价于历史全局计数。
+     */
+    private long countFinishedInCurrentCycle(String processInstanceId, String taskDefinitionKey,
+                                             Date cycleBoundary) {
+        List<HistoricTaskInstance> finished = historyService
+                .createHistoricTaskInstanceQuery()
+                .processInstanceId(processInstanceId)
+                .taskDefinitionKey(taskDefinitionKey)
+                .finished()
+                .list();
+        if (cycleBoundary == null) {
+            return finished.size();
+        }
+        return finished.stream()
+                // startTime 为 null（历史数据异常）视为早于周期边界，不计入当前周期
+                .filter(t -> t.getStartTime() != null && !t.getStartTime().before(cycleBoundary))
+                .count();
     }
 
     /**
      * 确定下一个会签轮次索引。
      * 查询历史 csRoundIndex Task 局部变量，按 taskDefinitionKey 过滤以避免跨节点污染，
      * 然后计算 max + 1。若无历史数据（老数据或首轮），返回 1（原始审批人轮次为隐式 0）。
+     *
+     * <p><b>执行周期限定</b>：折返（驳回/退回/跳转重新进入会签节点）会创建新的执行周期，
+     * 轮次编号应在周期内重新计数。通过 {@link #findCurrentCycleBoundary} 确定当前周期
+     * 的历史边界，仅统计边界之后的 csRoundIndex，避免沿用上一周期的全局 max。</p>
      */
     private int determineNextRoundIndex(String processInstanceId, String taskDefinitionKey) {
+        Date cycleBoundary = findCurrentCycleBoundary(processInstanceId, taskDefinitionKey);
+
         // 按 taskDefinitionKey 获取所有历史任务 ID，用于 csRoundIndex 范围限定
         List<HistoricTaskInstance> tasks = historyService
                 .createHistoricTaskInstanceQuery()
@@ -426,6 +488,9 @@ public class CounterSignWorkflow implements CounterSignOperations {
                 .list();
 
         java.util.Set<String> taskIds = tasks.stream()
+                // startTime 为 null（历史数据异常）视为早于周期边界，不计入当前周期
+                .filter(t -> cycleBoundary == null
+                        || (t.getStartTime() != null && !t.getStartTime().before(cycleBoundary)))
                 .map(HistoricTaskInstance::getId)
                 .collect(Collectors.toSet());
 
@@ -447,6 +512,46 @@ public class CounterSignWorkflow implements CounterSignOperations {
             }
         }
         return maxRound > 0 ? maxRound + 1 : 1;
+    }
+
+    /**
+     * 确定当前执行周期的历史边界：按开始时间升序遍历历史任务，
+     * 取最后一组连续同 {@code taskDefinitionKey} 任务中最早任务的开始时间。
+     *
+     * <p>折返重新进入会签节点后，新周期任务与上一周期之间必然隔着其它节点任务
+     * （如 confirmTask），据此切分周期。当前周期内多次加签/轮次仍属同一周期，
+     * 不会被拆分。无历史任务或无法切分时返回 {@code null}（不做过滤，兼容老数据）。</p>
+     *
+     * <p><b>建模约束（隐患 D，2026-08-08）</b>：周期切分依赖折返路径上存在
+     * <b>非本节点 key 的中间任务</b>。若建模让会签节点<b>直接环回自己</b>（无中间节点），
+     * 时间线上同 key 任务连续，边界会退化为全历史最早任务，导致周期重置失效、
+     * 轮次沿用上一周期全局 max。折返路径应至少经过一个中间节点（如确认/回迁节点）；
+     * 约束行为由单元测试 {@code testAddCounterSignerDirectLoopKeepsGlobalMaxRound} 固定。</p>
+     */
+    private Date findCurrentCycleBoundary(String processInstanceId, String taskDefinitionKey) {
+        List<HistoricTaskInstance> tasks = historyService
+                .createHistoricTaskInstanceQuery()
+                .processInstanceId(processInstanceId)
+                .orderByHistoricTaskInstanceStartTime().asc()
+                .list();
+
+        Date boundary = null;
+        boolean inCurrentRun = false;
+        for (int i = tasks.size() - 1; i >= 0; i--) {
+            HistoricTaskInstance t = tasks.get(i);
+            // startTime 为 null（历史数据异常）无法参与边界切分，跳过避免污染边界
+            if (t.getStartTime() == null) {
+                continue;
+            }
+            if (taskDefinitionKey.equals(t.getTaskDefinitionKey())) {
+                // 从后向前持续更新：最终停留在本周期 run 中最早任务（周期起始点）
+                inCurrentRun = true;
+                boundary = t.getStartTime();
+            } else if (inCurrentRun) {
+                break;
+            }
+        }
+        return boundary;
     }
 
     /**

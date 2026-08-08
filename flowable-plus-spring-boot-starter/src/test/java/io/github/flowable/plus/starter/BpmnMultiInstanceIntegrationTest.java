@@ -617,12 +617,45 @@ class BpmnMultiInstanceIntegrationTest {
 
         // HQ: hasVoted → createHistoricTaskInstanceQuery()...count()
         HistoricTaskInstanceQuery histQ = mock(HistoricTaskInstanceQuery.class);
-        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(histQ);
+        // isMultiInstanceFinished：周期边界查询 + 当前周期 finished list 查询
+        HistoricTaskInstanceQuery boundaryQ = stubBoundaryQuery();
+        HistoricTaskInstanceQuery finishedQ = stubFinishedListQuery(finishedCount);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(histQ, boundaryQ, finishedQ);
         when(histQ.processInstanceId(anyString())).thenReturn(histQ);
         when(histQ.taskDefinitionKey(anyString())).thenReturn(histQ);
         when(histQ.taskAssignee(anyString())).thenReturn(histQ);
         when(histQ.finished()).thenReturn(histQ);
         when(histQ.count()).thenReturn(finishedCount);
+    }
+
+    /**
+     * 周期边界查询 mock：历史任务列表为空 → 边界为 null → 不过滤。
+     */
+    private HistoricTaskInstanceQuery stubBoundaryQuery() {
+        HistoricTaskInstanceQuery q = mock(HistoricTaskInstanceQuery.class);
+        when(q.processInstanceId(anyString())).thenReturn(q);
+        when(q.orderByHistoricTaskInstanceStartTime()).thenReturn(q);
+        when(q.asc()).thenReturn(q);
+        when(q.list()).thenReturn(Collections.emptyList());
+        return q;
+    }
+
+    /**
+     * 当前周期已完成任务查询 mock：finished().list() 返回 n 个已完成任务。
+     */
+    private HistoricTaskInstanceQuery stubFinishedListQuery(long count) {
+        HistoricTaskInstanceQuery q = mock(HistoricTaskInstanceQuery.class);
+        when(q.processInstanceId(anyString())).thenReturn(q);
+        when(q.taskDefinitionKey(anyString())).thenReturn(q);
+        when(q.finished()).thenReturn(q);
+        List<HistoricTaskInstance> finished = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            HistoricTaskInstance t = mock(HistoricTaskInstance.class);
+            when(t.getStartTime()).thenReturn(new Date());
+            finished.add(t);
+        }
+        when(q.list()).thenReturn(finished);
+        return q;
     }
 
     private void stubSignManageMocks(PlusTask task, List<PlusTask> allActiveList) {
@@ -639,7 +672,7 @@ class BpmnMultiInstanceIntegrationTest {
         when(q1.singleResult()).thenReturn(mockExistTask);
 
         // Q2: validateCounterSignPermission / resolveCurrentAssignees
-        // Q3: isPseudoSingleton + isMultiInstanceFinished activeCount
+        // Q3: isPseudoSingleton activeCount
         // Q4: determineCurrentRoundIndex + setVariableLocal after add
         TaskQuery q2 = mock(TaskQuery.class);
         when(q2.processInstanceId(anyString())).thenReturn(q2);
@@ -659,15 +692,17 @@ class BpmnMultiInstanceIntegrationTest {
         when(q4.active()).thenReturn(q4);
         when(q4.list()).thenReturn(mockList);
 
-        when(mockTaskService.createTaskQuery()).thenReturn(q1, q2, q2, q3, q3, q4);
+        // 模式分派后 mode B 不调用 isMultiInstanceFinished（少一次 active count 查询），
+        // determineCurrentRoundIndex 与 setVariableLocal 均落到 q4。
+        when(mockTaskService.createTaskQuery()).thenReturn(q1, q2, q2, q3, q4);
 
-        // historyService: hasVoted + isPseudoSingleton + isMultiInstanceFinished
+        // historyService: isPseudoSingleton 的历史任务数（伪单例场景仅当前活跃任务 → 1）
         HistoricTaskInstanceQuery histQ = mock(HistoricTaskInstanceQuery.class);
         when(histQ.processInstanceId(anyString())).thenReturn(histQ);
         when(histQ.taskDefinitionKey(anyString())).thenReturn(histQ);
         when(histQ.taskAssignee(anyString())).thenReturn(histQ);
         when(histQ.finished()).thenReturn(histQ);
-        when(histQ.count()).thenReturn(0L);
+        when(histQ.count()).thenReturn(1L);
         when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(histQ);
 
         // csRoundIndex for determineCurrentRoundIndex
