@@ -199,6 +199,12 @@
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>${maven-surefire-plugin.version}</version>
+                    <configuration>
+                        <!-- Flowable CommentEntity 使用默认字符集做 String<->byte[] 转换，
+                             在非 UTF-8 平台（如 windows-latest 的 windows-1252）中文评论会乱码。
+                             统一测试 JVM 编码，保证 CI 矩阵跨平台行为一致。 -->
+                        <argLine>-Dfile.encoding=${project.build.sourceEncoding}</argLine>
+                    </configuration>
                 </plugin>
             </plugins>
         </pluginManagement>
