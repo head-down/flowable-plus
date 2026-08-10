@@ -42,6 +42,9 @@ public class ApprovalRecordVO {
     /** 审批意见 */
     private String comment;
 
+    /** 操作注释（ADR-0025）：加签/减签等操作记录文本，如 "加签审批人: xxx"，与 {@code comment} 语义解耦 */
+    private String operationComment;
+
     /** 任务开始时间 */
     private Date startTime;
 

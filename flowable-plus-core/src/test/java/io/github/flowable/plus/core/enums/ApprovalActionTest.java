@@ -221,7 +221,7 @@ public class ApprovalActionTest {
         ApprovalRecordVO record = new ApprovalRecordVO(
                 "task-001", "node-approval", "审批节点",
                 ApprovalAction.REJECT, "actor-id", "actor-name",
-                "不同意", start, end, 1000L, null
+                "不同意", null, start, end, 1000L, null
         );
 
         assertThat(record.getTaskId()).isEqualTo("task-001");
@@ -274,7 +274,7 @@ public class ApprovalActionTest {
         CountersignSubRecord record = new CountersignSubRecord(
                 "task-cs-001", "node-countersign", "部门会签",
                 ApprovalAction.COUNTER_SIGN_REJECT, "actor-id", "actor-name",
-                "有异议", start, end, 1000L, null
+                "有异议", null, start, end, 1000L, null
         );
 
         assertThat(record.getTaskId()).isEqualTo("task-cs-001");

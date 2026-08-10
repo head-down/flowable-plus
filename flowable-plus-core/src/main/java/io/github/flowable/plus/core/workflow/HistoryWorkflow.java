@@ -273,12 +273,23 @@ public class HistoryWorkflow {
 
     /**
      * 从 Comment 中提取审批意见文本。
-     * 取时间倒序第一个匹配 CommentType 的业务 Comment 的 fullMessage。
+     * 取时间倒序第一个匹配业务意见组 CommentType 的业务 Comment 的 fullMessage（ADR-0025：跳过操作注释组）。
      */
     private String extractCommentText(String taskId, Map<String, List<Comment>> commentsByTaskId) {
         List<Comment> taskComments = commentsByTaskId.getOrDefault(taskId, Collections.emptyList());
         Comment businessComment = actionInferenceStrategy.findFirstBusinessComment(taskComments);
         return businessComment != null ? businessComment.getFullMessage() : null;
+    }
+
+    /**
+     * 从 Comment 中提取操作注释文本（ADR-0025）。
+     * 取时间倒序第一个操作注释（ADD_SIGN / DELETE_SIGN / DELEGATE / RESOLVE_DELEGATE / TRANSFER）的 fullMessage，
+     * 与业务审批意见 {@code comment} 语义解耦。
+     */
+    private String extractOperationCommentText(String taskId, Map<String, List<Comment>> commentsByTaskId) {
+        List<Comment> taskComments = commentsByTaskId.getOrDefault(taskId, Collections.emptyList());
+        Comment operationComment = actionInferenceStrategy.findFirstOperationComment(taskComments);
+        return operationComment != null ? operationComment.getFullMessage() : null;
     }
 
     // ======================== 记录构建 ========================
@@ -322,6 +333,7 @@ public class HistoryWorkflow {
         ApprovalAction action = actionInferenceStrategy.inferAction(
                 task.getId(), task.getDeleteReason(), taskComments);
         String comment = extractCommentText(task.getId(), commentsByTaskId);
+        String operationComment = extractOperationCommentText(task.getId(), commentsByTaskId);
         String actorName = identityResolver.resolve(task.getAssignee());
 
         return ApprovalRecordVO.builder()
@@ -332,6 +344,7 @@ public class HistoryWorkflow {
                 .actorId(task.getAssignee())
                 .actorName(actorName)
                 .comment(comment)
+                .operationComment(operationComment)
                 .startTime(activity.getStartTime())
                 .endTime(task.getEndTime())
                 .duration(calcDuration(task.getCreateTime(), task.getEndTime()))
@@ -461,6 +474,8 @@ public class HistoryWorkflow {
                 ? actionInferenceStrategy.inferAction(task.getId(), task.getDeleteReason(), taskComments)
                 : null;
         String comment = task != null ? extractCommentText(task.getId(), commentsByTaskId) : null;
+        String operationComment = task != null
+                ? extractOperationCommentText(task.getId(), commentsByTaskId) : null;
         String actorName = task != null ? identityResolver.resolve(task.getAssignee()) : null;
 
         return CountersignSubRecord.builder()
@@ -471,6 +486,7 @@ public class HistoryWorkflow {
                 .actorId(task != null ? task.getAssignee() : null)
                 .actorName(actorName)
                 .comment(comment)
+                .operationComment(operationComment)
                 .startTime(task != null ? task.getCreateTime() : activity.getStartTime())
                 .endTime(task != null ? task.getEndTime() : activity.getEndTime())
                 .duration(task != null

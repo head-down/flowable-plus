@@ -597,6 +597,42 @@ public class ProcessQueryOperationsTest {
     }
 
     @Test
+    public void testApprovalTraceOperationCommentDoesNotPolluteComment() {
+        String instanceId = "pi-opcomment";
+        Date t1Start = new Date(1000);
+        Date t1End = new Date(2000);
+
+        PlusHistoricTask ht1 = createPlusHistoricTask("ht-1", instanceId, "node1", "部门审批",
+                "user1", t1Start, t1End, null);
+
+        // 业务意见（时间早）+ ADD_SIGN 操作注释（时间新）并存
+        Comment agree = mock(Comment.class);
+        when(agree.getTaskId()).thenReturn("ht-1");
+        when(agree.getType()).thenReturn(CommentType.AGREE.name());
+        when(agree.getFullMessage()).thenReturn("同意，请继续");
+        when(agree.getTime()).thenReturn(t1End);
+
+        Comment addSign = mock(Comment.class);
+        when(addSign.getTaskId()).thenReturn("ht-1");
+        when(addSign.getType()).thenReturn(CommentType.ADD_SIGN.name());
+        when(addSign.getFullMessage()).thenReturn("加签审批人: user2");
+        when(addSign.getTime()).thenReturn(new Date(t1End.getTime() + 100));
+
+        HistoricTaskInstance mockHt1 = toMockHistoricTask(ht1);
+        stubApprovalTraceQueries(Collections.emptyList(), instanceId, null,
+                Collections.singletonList(mockHt1));
+        when(mockTaskService.getProcessInstanceComments(instanceId))
+                .thenReturn(Arrays.asList(agree, addSign));
+
+        List<ApprovalTraceVO> result = processQueryWorkflow.getApprovalTrace(instanceId);
+
+        assertThat(result).hasSize(1);
+        // ADR-0025：comment 返回真实业务意见，操作注释独立承载
+        assertThat(result.get(0).getComment()).isEqualTo("同意，请继续");
+        assertThat(result.get(0).getOperationComment()).isEqualTo("加签审批人: user2");
+    }
+
+    @Test
     public void testApprovalTraceEmptyTasks() {
         String instanceId = "pi-no-tasks";
 

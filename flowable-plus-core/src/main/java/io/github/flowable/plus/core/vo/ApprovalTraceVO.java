@@ -43,6 +43,9 @@ public class ApprovalTraceVO {
     /** 审批意见（来自 Comment 表） */
     private String comment;
 
+    /** 操作注释（ADR-0025）：加签/减签等操作记录文本，如 "加签审批人: xxx"，与 {@code comment} 语义解耦 */
+    private String operationComment;
+
     /** 是否同意（由 deleteReason 推断） */
     private Boolean approved;
 

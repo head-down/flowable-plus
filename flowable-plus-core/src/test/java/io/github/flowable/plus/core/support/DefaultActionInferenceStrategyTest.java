@@ -1,5 +1,6 @@
 package io.github.flowable.plus.core.support;
 
+import io.github.flowable.plus.core.enums.ApprovalAction;
 import io.github.flowable.plus.core.enums.CommentType;
 import org.flowable.engine.task.Comment;
 import org.junit.jupiter.api.Test;
@@ -15,11 +16,13 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * {@link DefaultActionInferenceStrategy#findFirstBusinessComment} 的两遍扫描行为测试。
+ * {@link DefaultActionInferenceStrategy} 的两遍扫描行为测试。
  *
- * <p>验证 ADD_SIGN 与 INITIATE_COUNTERSIGN 时间戳相同时，INITIATE_COUNTERSIGN 优先匹配。
+ * <p>验证 ADD_SIGN 与 INITIATE_COUNTERSIGN 时间戳相同时，INITIATE_COUNTERSIGN 优先匹配；
+ * ADR-0025 验证业务意见与操作注释分组解耦。
  *
  * @see <a href="https://github.com/head-down/flowable-plus/issues/63">Issue #63</a>
+ * @see <a href="https://github.com/head-down/flowable-plus/issues/72">Issue #72</a>
  */
 public class DefaultActionInferenceStrategyTest {
 
@@ -50,12 +53,66 @@ public class DefaultActionInferenceStrategyTest {
     }
 
     @Test
-    public void shouldReturnAddSignWhenOnlyAddSignExists() {
+    public void shouldNotReturnAddSignAsBusinessCommentWhenOnlyAddSignExists() {
         Comment addSign = createComment(CommentType.ADD_SIGN.name(), "加签", new Date());
         List<Comment> comments = Collections.singletonList(addSign);
 
+        // ADR-0025：ADD_SIGN 属于操作注释组，不参与 comment 槽位竞争
+        assertThat(strategy.findFirstBusinessComment(comments)).isNull();
+        // 但通过 findFirstOperationComment 可识别，action 推断仍为 ADD_SIGN
+        Comment operationComment = strategy.findFirstOperationComment(comments);
+        assertThat(operationComment).isNotNull();
+        assertThat(operationComment.getType()).isEqualTo(CommentType.ADD_SIGN.name());
+        assertThat(strategy.inferAction("t1", null, comments)).isEqualTo(ApprovalAction.ADD_SIGN);
+    }
+
+    @Test
+    public void shouldReturnBusinessCommentWhenBusinessAndOperationCommentCoexist() {
+        // ADR-0025：业务意见（时间早）+ ADD_SIGN（时间新）并存 → comment 槽位取业务意见
+        Date earlyTime = new Date();
+        Date lateTime = new Date(earlyTime.getTime() + 1000);
+        Comment agree = createComment(CommentType.COUNTER_SIGN_AGREE.name(), "同意", earlyTime);
+        Comment addSign = createComment(CommentType.ADD_SIGN.name(), "加签审批人: 003162", lateTime);
+        List<Comment> comments = Arrays.asList(addSign, agree);
+
         Comment result = strategy.findFirstBusinessComment(comments);
-        assertThat(result.getType()).isEqualTo(CommentType.ADD_SIGN.name());
+        assertThat(result.getType()).isEqualTo(CommentType.COUNTER_SIGN_AGREE.name());
+        assertThat(result.getFullMessage()).isEqualTo("同意");
+        // 操作注释独立可取
+        Comment operationComment = strategy.findFirstOperationComment(comments);
+        assertThat(operationComment).isNotNull();
+        assertThat(operationComment.getType()).isEqualTo(CommentType.ADD_SIGN.name());
+        // action 推断业务意见优先（任务真实投票动作），加签由 operationComment 承载
+        assertThat(strategy.inferAction("t1", null, comments)).isEqualTo(ApprovalAction.COUNTER_SIGN_AGREE);
+    }
+
+    @Test
+    public void shouldInferDeleteSignWhenOnlyDeleteSignExists() {
+        Comment deleteSign = createComment(CommentType.DELETE_SIGN.name(), "移除审批人: 003162", new Date());
+        List<Comment> comments = Collections.singletonList(deleteSign);
+
+        assertThat(strategy.findFirstBusinessComment(comments)).isNull();
+        Comment operationComment = strategy.findFirstOperationComment(comments);
+        assertThat(operationComment).isNotNull();
+        assertThat(strategy.inferAction("t1", null, comments)).isEqualTo(ApprovalAction.DELETE_SIGN);
+    }
+
+    @Test
+    public void shouldReturnBusinessCommentWhenBusinessAndDeleteSignCoexist() {
+        // ADR-0025：业务意见（时间早）+ DELETE_SIGN（时间新）并存 → comment 槽位取业务意见，action 取业务投票动作
+        Date earlyTime = new Date();
+        Date lateTime = new Date(earlyTime.getTime() + 1000);
+        Comment reject = createComment(CommentType.COUNTER_SIGN_REJECT.name(), "不同意", earlyTime);
+        Comment deleteSign = createComment(CommentType.DELETE_SIGN.name(), "移除审批人: 003162", lateTime);
+        List<Comment> comments = Arrays.asList(deleteSign, reject);
+
+        Comment result = strategy.findFirstBusinessComment(comments);
+        assertThat(result.getType()).isEqualTo(CommentType.COUNTER_SIGN_REJECT.name());
+        assertThat(result.getFullMessage()).isEqualTo("不同意");
+        Comment operationComment = strategy.findFirstOperationComment(comments);
+        assertThat(operationComment).isNotNull();
+        assertThat(operationComment.getType()).isEqualTo(CommentType.DELETE_SIGN.name());
+        assertThat(strategy.inferAction("t1", null, comments)).isEqualTo(ApprovalAction.COUNTER_SIGN_REJECT);
     }
 
     @Test
@@ -80,6 +137,8 @@ public class DefaultActionInferenceStrategyTest {
     public void shouldReturnNullForEmptyOrNullList() {
         assertThat(strategy.findFirstBusinessComment(null)).isNull();
         assertThat(strategy.findFirstBusinessComment(new ArrayList<>())).isNull();
+        assertThat(strategy.findFirstOperationComment(null)).isNull();
+        assertThat(strategy.findFirstOperationComment(new ArrayList<>())).isNull();
     }
 
     @Test
@@ -89,6 +148,7 @@ public class DefaultActionInferenceStrategyTest {
 
         Comment result = strategy.findFirstBusinessComment(comments);
         assertThat(result).isNull();
+        assertThat(strategy.findFirstOperationComment(comments)).isNull();
     }
 
     private static Comment createComment(String type, String fullMessage, Date time) {

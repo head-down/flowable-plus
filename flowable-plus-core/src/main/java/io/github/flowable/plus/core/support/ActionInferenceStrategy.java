@@ -35,12 +35,25 @@ public interface ActionInferenceStrategy {
     ApprovalAction inferAction(String taskId, String deleteReason, List<Comment> taskComments);
 
     /**
-     * 从 Comment 列表中查找第一个业务 Comment。
+     * 从 Comment 列表中查找第一个业务 Comment（ADR-0025）。
      *
-     * <p>跳过非业务类型（如普通留言），仅返回 {@code CommentType} 枚举能识别的 Comment。</p>
+     * <p>跳过非业务类型（如普通留言）与操作注释类型（ADD_SIGN / DELETE_SIGN / DELEGATE /
+     * RESOLVE_DELEGATE / TRANSFER），仅返回承载审批人业务投票语义的 Comment
+     * （AGREE / REJECT / COUNTER_SIGN_AGREE / COUNTER_SIGN_REJECT 等）。</p>
      *
      * @param taskComments 该任务的 Comment 列表，按时间倒序排列
      * @return 第一个匹配的业务 Comment，如果没有则返回 null
      */
     Comment findFirstBusinessComment(List<Comment> taskComments);
+
+    /**
+     * 从 Comment 列表中查找第一个操作注释（ADR-0025）。
+     *
+     * <p>操作注释（ADD_SIGN / DELETE_SIGN / TRANSFER 等）不参与 {@code comment} 槽位竞争，
+     * 仅供 {@link #inferAction} 识别加签/减签等操作动作，并供上层展示操作信息。</p>
+     *
+     * @param taskComments 该任务的 Comment 列表，按时间倒序排列
+     * @return 第一个匹配的操作注释 Comment，如果没有则返回 null
+     */
+    Comment findFirstOperationComment(List<Comment> taskComments);
 }

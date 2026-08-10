@@ -295,6 +295,7 @@ public class ProcessQueryWorkflow {
         ApprovalAction action = actionInferenceStrategy.inferAction(
                 ht.getId(), ht.getDeleteReason(), taskComments);
         String comment = extractCommentText(taskComments);
+        String operationComment = extractOperationCommentText(taskComments);
 
         return ApprovalTraceVO.builder()
                 .taskId(ht.getId())
@@ -305,6 +306,7 @@ public class ProcessQueryWorkflow {
                 .endTime(ht.getEndTime())
                 .durationMillis(durationMillis)
                 .comment(comment)
+                .operationComment(operationComment)
                 .approved(toApproved(action))
                 .isRejected(toRejected(action))
                 .countersignDetails(null)
@@ -314,6 +316,7 @@ public class ProcessQueryWorkflow {
     private ApprovalTraceVO buildActiveTraceVO(PlusTask at, Map<String, List<Comment>> commentsByTaskId) {
         List<Comment> taskComments = commentsByTaskId.getOrDefault(at.getId(), Collections.emptyList());
         String comment = extractCommentText(taskComments);
+        String operationComment = extractOperationCommentText(taskComments);
         return ApprovalTraceVO.builder()
                 .taskId(at.getId())
                 .taskName(at.getName())
@@ -323,6 +326,7 @@ public class ProcessQueryWorkflow {
                 .endTime(null)
                 .durationMillis(null)
                 .comment(comment)
+                .operationComment(operationComment)
                 .approved(null)
                 .isRejected(null)
                 .countersignDetails(null)
@@ -426,11 +430,19 @@ public class ProcessQueryWorkflow {
     }
 
     /**
-     * 从 Comment 列表中提取审批意见文本（取第一个业务 Comment 的 fullMessage）。
+     * 从 Comment 列表中提取审批意见文本（取第一个业务 Comment 的 fullMessage，ADR-0025：跳过操作注释组）。
      */
     private String extractCommentText(List<Comment> taskComments) {
         Comment businessComment = actionInferenceStrategy.findFirstBusinessComment(taskComments);
         return businessComment != null ? businessComment.getFullMessage() : null;
+    }
+
+    /**
+     * 从 Comment 列表中提取操作注释文本（ADR-0025），与业务审批意见 {@code comment} 语义解耦。
+     */
+    private String extractOperationCommentText(List<Comment> taskComments) {
+        Comment operationComment = actionInferenceStrategy.findFirstOperationComment(taskComments);
+        return operationComment != null ? operationComment.getFullMessage() : null;
     }
 
     /**

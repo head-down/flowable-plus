@@ -272,6 +272,86 @@ public class HistoryWorkflowTest {
         assertThat(sub3.getActorId()).isEqualTo("userC");
     }
 
+    // ======================== ADR-0025：操作注释不抢占业务意见槽位 ========================
+
+    @Test
+    public void testCounterSignSubRecordWithOperationCommentNotPollutingComment() {
+        Date startEventTime = new Date(1000);
+        Date csStart1 = new Date(2000);
+        Date csEnd1 = new Date(3000);
+        Date csStart2 = new Date(2100);
+        Date csEnd2 = new Date(3100);
+
+        // 活动实例：startEvent → csTask(多实例，2个实例)
+        List<HistoricActivityInstance> activities = Arrays.asList(
+                createActivity("start", "startEvent", "开始", startEventTime, startEventTime, null),
+                createActivity("csTask", "userTask", "会签审批", csStart1, csStart1, "ht-cs-1"),
+                createActivity("csTask", "userTask", "会签审批", csStart2, csStart2, "ht-cs-2")
+        );
+
+        HistoricTaskInstance ht1 = createHistoricTask("ht-cs-1", "csTask", "会签审批", "userA",
+                csStart1, csEnd1, "completed");
+        HistoricTaskInstance ht2 = createHistoricTask("ht-cs-2", "csTask", "会签审批", "userB",
+                csStart2, csEnd2, "completed");
+
+        // ht-cs-1 同时存在业务意见（投票时写入）与更晚的 ADD_SIGN 操作注释
+        Comment comment1 = createComment("ht-cs-1", "COUNTER_SIGN_AGREE", "同意", csEnd1);
+        Comment addSign = createComment("ht-cs-1", "ADD_SIGN", "加签审批人: userC", new Date(csEnd1.getTime() + 100));
+        Comment comment2 = createComment("ht-cs-2", "COUNTER_SIGN_AGREE", "同意", csEnd2);
+
+        stubNormalFlow(activities, Arrays.asList(ht1, ht2),
+                Arrays.asList(comment1, addSign, comment2));
+        stubBpmnModel(buildMultiInstanceModel());
+        when(mockMultiInstanceDetector.isMultiInstanceNode(PROCESS_DEF_ID, "csTask")).thenReturn(true);
+
+        List<ApprovalRecordVO> result = historyWorkflow.getApprovalHistory(INSTANCE_ID);
+
+        assertThat(result).hasSize(2); // START + 会签父记录
+        ApprovalRecordVO csParent = result.get(1);
+        assertThat(csParent.getCountersignRecords()).hasSize(2);
+
+        // 子记录1：comment 返回真实业务意见，operationComment 独立承载加签信息，action 为业务投票动作
+        CountersignSubRecord sub1 = csParent.getCountersignRecords().get(0);
+        assertThat(sub1.getAction()).isEqualTo(ApprovalAction.COUNTER_SIGN_AGREE);
+        assertThat(sub1.getComment()).isEqualTo("同意");
+        assertThat(sub1.getOperationComment()).isEqualTo("加签审批人: userC");
+
+        // 子记录2：无操作注释，operationComment 为 null
+        CountersignSubRecord sub2 = csParent.getCountersignRecords().get(1);
+        assertThat(sub2.getAction()).isEqualTo(ApprovalAction.COUNTER_SIGN_AGREE);
+        assertThat(sub2.getComment()).isEqualTo("同意");
+        assertThat(sub2.getOperationComment()).isNull();
+    }
+
+    @Test
+    public void testActiveTaskWithOnlyOperationComment() {
+        Date startEventTime = new Date(1000);
+        Date taskStart = new Date(2000);
+
+        // 活跃任务（未投票，仅加签注释）：startEvent → task1
+        List<HistoricActivityInstance> activities = Arrays.asList(
+                createActivity("start", "startEvent", "开始", startEventTime, startEventTime, null),
+                createActivity("task1", "userTask", "部门审批", taskStart, taskStart, "ht-task1")
+        );
+
+        HistoricTaskInstance ht1 = createHistoricTask("ht-task1", "task1", "部门审批", "user1",
+                taskStart, null, null);
+
+        Comment addSign = createComment("ht-task1", "ADD_SIGN", "加签审批人: user2", taskStart);
+
+        stubNormalFlow(activities, Collections.singletonList(ht1), Collections.singletonList(addSign));
+        stubBpmnModel(buildSimpleModel());
+
+        List<ApprovalRecordVO> result = historyWorkflow.getApprovalHistory(INSTANCE_ID);
+
+        assertThat(result).hasSize(2);
+        ApprovalRecordVO record = result.get(1);
+        // 活跃节点仅加签：action 仍识别为 ADD_SIGN，comment 为空，operationComment 独立承载
+        assertThat(record.getAction()).isEqualTo(ApprovalAction.ADD_SIGN);
+        assertThat(record.getComment()).isNull();
+        assertThat(record.getOperationComment()).isEqualTo("加签审批人: user2");
+    }
+
     // ======================== 多轮会签：同一多实例节点被多次访问 ========================
 
     @Test
