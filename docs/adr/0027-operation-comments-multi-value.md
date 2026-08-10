@@ -40,7 +40,8 @@ ADR-0025 备选方案"钉钉式独立记录"曾被否决，本 issue 是其遗�
 ### 3. 修复范围：HistoryWorkflow 与 ProcessQueryWorkflow 都修
 
 `HistoryWorkflow`（审批历史 `getApprovalHistory`）与 `ProcessQueryWorkflow`
-（流程跟踪 `getApprovalTrace`）**都填充** `operationComments`，避免两接口展示不一致。
+（流程跟踪 `getApprovalTrace`，后已并入 `getApprovalHistory`，见 ADR-0028）**都填充**
+`operationComments`，避免两接口展示不一致。
 
 ### 4. 聚合类型：全部操作注释组，不做类型特判
 

@@ -650,23 +650,19 @@ public class FlowablePlusAutoConfiguration {
     /**
      * 注册 ProcessQueryWorkflow Bean。
      *
-     * <p>封装批量流程实例摘要查询与审批轨迹查询。</p>
+     * <p>封装批量流程实例摘要查询与 businessKey 查询。</p>
      *
-     * @param runtimeService         Flowable 运行时服务
-     * @param taskService            Flowable 任务服务
-     * @param historyService         Flowable 历史服务
-     * @param multiInstanceDetector  多实例检测模块
+     * @param runtimeService Flowable 运行时服务
+     * @param taskService    Flowable 任务服务
+     * @param historyService Flowable 历史服务
      * @return ProcessQueryWorkflow 实例
      */
     @Bean
     @ConditionalOnMissingBean
     public ProcessQueryWorkflow processQueryWorkflow(RuntimeService runtimeService,
                                                       TaskService taskService,
-                                                      HistoryService historyService,
-                                                      MultiInstanceDetector multiInstanceDetector,
-                                                      ActionInferenceStrategy actionInferenceStrategy) {
-        return new ProcessQueryWorkflow(runtimeService, taskService, historyService,
-                multiInstanceDetector, actionInferenceStrategy);
+                                                      HistoryService historyService) {
+        return new ProcessQueryWorkflow(runtimeService, taskService, historyService);
     }
 
     /**

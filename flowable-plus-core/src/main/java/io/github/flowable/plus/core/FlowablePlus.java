@@ -2,7 +2,6 @@ package io.github.flowable.plus.core;
 
 import io.github.flowable.plus.core.vo.ApprovalPersonnelVO;
 import io.github.flowable.plus.core.vo.ApprovalRecordVO;
-import io.github.flowable.plus.core.vo.ApprovalTraceVO;
 import io.github.flowable.plus.core.vo.ApproverInfoVO;
 import io.github.flowable.plus.core.vo.DoneTaskVO;
 import io.github.flowable.plus.core.vo.NextTaskNodeVO;
@@ -180,11 +179,6 @@ public class FlowablePlus implements QueryOperations, DiagramOperations, History
     @Override
     public Map<String, ProcessSummaryVO> batchQueryProcessSummaries(List<String> processInstanceIds) {
         return processQueryWorkflow.batchQueryProcessSummaries(processInstanceIds);
-    }
-
-    @Override
-    public List<ApprovalTraceVO> getApprovalTrace(String processInstanceId) {
-        return processQueryWorkflow.getApprovalTrace(processInstanceId);
     }
 
     @Override

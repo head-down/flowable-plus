@@ -33,6 +33,12 @@ import java.util.stream.Collectors;
  * 审批历史查询工作流模块，实现 ADR-0009 三级 Comment→Action 推断策略，
  * 从三张历史表聚合完整审批时间线。
  *
+ * <p><b>审批轨迹规范内核（ADR-0028）</b>：本类是「审批轨迹」的唯一实现载体，
+ * 公开入口为 {@link #getApprovalHistory}。历史存在任务级构造的
+ * {@code ProcessQueryWorkflow.getApprovalTrace}（返回 {@code ApprovalTraceVO}）
+ * 与之双胞胎重复，已于 ADR-0028 删除，全部轨迹语义由本类的活动级时间线承载
+ * （START 记录 + 贪心归组 + csRoundIndex 轮次切分）。</p>
+ *
  * @author flowable-plus
  */
 public class HistoryWorkflow {
@@ -47,9 +53,6 @@ public class HistoryWorkflow {
      * 保留作未来版本防御，见 {@link #isMultiInstanceBodyActivity}。
      */
     private static final String MULTI_INSTANCE_BODY_PATTERN = "multiinstance";
-
-    /** Task 局部变量名：会签轮次索引 */
-    private static final String CS_ROUND_INDEX_VAR = "csRoundIndex";
 
     private final HistoryService historyService;
     private final TaskService taskService;
@@ -469,7 +472,7 @@ public class HistoryWorkflow {
         List<HistoricVariableInstance> vars = historyService
                 .createHistoricVariableInstanceQuery()
                 .processInstanceId(processInstanceId)
-                .variableName(CS_ROUND_INDEX_VAR)
+                .variableName(CounterSignWorkflow.CS_ROUND_INDEX_VAR)
                 .list();
 
         for (HistoricVariableInstance var : vars) {

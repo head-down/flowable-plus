@@ -32,8 +32,7 @@ CI 矩阵覆盖 H2 / MySQL 8.0 / PostgreSQL 14 三种数据库，全量测试通
 
 - **待办/已办列表** — `queryTodoTasks` / `queryDoneTasks`，支持分页、关键字搜索、自定义过滤回调
 - **批量补充流程信息** — `batchQueryProcessSummaries`（解决列表页 N+1 查询）
-- **审批轨迹** — `getApprovalTrace`（流程节点审批时间线，含审批人/时间/意见/耗时）
-- **审批历史** — `getApprovalHistory`（完整审批记录，含操作类型推断与会签子记录）
+- **审批历史** — `getApprovalHistory`（完整审批记录时间线，含操作类型推断与会签子记录）
 
 ### 可视化
 
@@ -68,7 +67,7 @@ flowable-plus (父 POM, packaging=pom)
 | `ProcessLifecycleOperations` | 2 | `startProcess`, `revokeProcess` |
 | `TaskExecutionOperations` | 8 | `completeTask`, `claimTask`, `rejectTask`, `rejectTaskToInitiator`, `withdrawTask`, `transferTask`, `jumpToNode`, `getJumpableNodes` |
 | `CounterSignOperations` | 5 | `counterSign`, `addCounterSigner`, `removeCounterSigner`, `delegateTask`, `resolveDelegate` |
-| `QueryOperations` | 10 | `queryTodoTasks`×2, `queryDoneTasks`×2, 节点预览×5, `batchQueryProcessSummaries`, `getApprovalTrace` |
+| `QueryOperations` | 9 | `queryTodoTasks`×2, `queryDoneTasks`×2, 节点预览×5, `batchQueryProcessSummaries` |
 | `HistoryOperations` | 1 | `getApprovalHistory` |
 | `DiagramOperations` | 1 | `getProcessDiagram` |
 

@@ -6,7 +6,7 @@ import io.github.flowable.plus.core.dto.TaskQueryDTO;
 import io.github.flowable.plus.core.spi.GroupResolver;
 import io.github.flowable.plus.core.spi.TaskQueryEnhancer;
 import io.github.flowable.plus.core.spi.UserContext;
-import io.github.flowable.plus.core.vo.ApprovalTraceVO;
+import io.github.flowable.plus.core.vo.ApprovalRecordVO;
 import io.github.flowable.plus.core.vo.DoneTaskVO;
 import io.github.flowable.plus.core.vo.NextTaskNodeVO;
 import io.github.flowable.plus.core.vo.NodeApproverVO;
@@ -305,7 +305,7 @@ class BpmnQueryIntegrationTest extends AbstractIntegrationTest {
     // ======================== S4: 审批轨迹 ========================
 
     @Test
-    void testApprovalTrace() {
+    void testApprovalHistory() {
         DynamicUserContext.set(INITIATOR);
         ProcessInstance pi = runtimeService.startProcessInstanceByKey(PROCESS_KEY, "biz-006",
                 Collections.singletonMap("initiator", (Object) INITIATOR));
@@ -324,9 +324,10 @@ class BpmnQueryIntegrationTest extends AbstractIntegrationTest {
         taskService.addComment(approveTask.getId(), pi.getId(), "同意");
         taskService.complete(approveTask.getId());
 
-        List<ApprovalTraceVO> trace = flowablePlus.getApprovalTrace(pi.getId());
-        assertThat(trace).isNotEmpty();
-        assertThat(trace.size()).isGreaterThanOrEqualTo(2);
+        // ADR-0028：审批轨迹统一由 getApprovalHistory 承载（原 getApprovalTrace 已删除）
+        List<ApprovalRecordVO> history = flowablePlus.getApprovalHistory(pi.getId());
+        assertThat(history).isNotEmpty();
+        assertThat(history.size()).isGreaterThanOrEqualTo(2);
     }
 
     // ======================== GroupResolver 替换验证 ========================

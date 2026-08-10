@@ -165,3 +165,4 @@ Core 模块已实现审批核心操作（发起、同意、驳回、撤回、撤
 | ADR-0025 | CommentType 业务/操作分组解耦审批意见提取与操作注释识别 | 2026-08-10 |
 | ADR-0026 | 会签节点 assignee 必须引用元素变量（建模约束体系） | 2026-08-10 |
 | ADR-0027 | 操作注释多值化（operationComments 列表字段） | 2026-08-10 |
+| ADR-0028 | 审批轨迹收敛为单一入口 getApprovalHistory（删除 getApprovalTrace） | 2026-08-10 |
