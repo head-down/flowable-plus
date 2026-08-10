@@ -5,6 +5,7 @@ flowable-plus 为会签（多实例）节点提供两种接入模式，覆盖不
 ## 目录
 
 - [前置知识](#前置知识)
+- [核心约束：assignee 必须引用元素变量](#核心约束assignee-必须引用元素变量)
 - [模式概览](#模式概览)
 - [模式 A：偶发性会签（动态加签）](#模式-a偶发性会签动态加签)
 - [模式 B：固定/前置会签（预填充列表）](#模式-b固定前置会签预填充列表)
@@ -28,6 +29,24 @@ flowable-plus 为会签（多实例）节点提供两种接入模式，覆盖不
 ```
 
 > 关于 `completionCondition` 表达式的详细说明，参见 [CompletionCondition 表达式编写指南](./completion-condition.md)。
+
+## 核心约束：assignee 必须引用元素变量
+
+> 本约束为会签节点的**硬性建模要求**，违反将导致加签任务错分。来源与机制详见 [ADR-0026](./adr/0026-countersign-assignee-element-variable-constraint.md)。
+
+会签节点的 `flowable:assignee` **必须写 `${assignee}`**（引用元素变量，与 `flowable:elementVariable` 同名）。**三处命名必须一致**：
+
+| 位置 | 要求 |
+|------|------|
+| `flowable:elementVariable` | `assignee` |
+| `flowable:assignee` 表达式 | `${assignee}` |
+| `addCounterSigner` 加签写入的变量名 | `assignee`（框架固定值，不可配置） |
+
+**为什么必须**：任务创建时，引擎在**当前子执行**上求值 assignee 表达式（`UserTaskActivityBehavior.handleAssignments`）。`${assignee}` 命中子执行局部的元素变量，把任务分给"该子实例对应的人"；若写成 `${nextApprover}` 等其他变量，引擎会**沿作用域链向上查找**，命中流程实例级变量（上一步流转设置的旧值，所有子实例共享同一个），导致**所有加签任务错分给同一个人**，加签人收不到任务。
+
+**"恰好正确"陷阱**：节点首次进入时，流程级 `nextApprover` 恰好等于第一个审批人（伪单例 `assigneeList=[第一审批人]`），初始任务看起来正常；**一旦加签**（`addMultiInstanceExecution` 创建新子执行）必现错分，是隐性 bug。
+
+**非会签节点不受此约束**：普通单例节点继续使用 `flowable:assignee="${nextApprover}"`，由流程变量 `nextApprover` 指定下一审批人。
 
 ## 模式概览
 

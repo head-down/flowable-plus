@@ -141,6 +141,17 @@ public class CounterSignWorkflow implements CounterSignOperations {
      *   <li>维度二：与本轮（当前执行周期内、{@code csRoundIndex} 匹配）已投过票的审批人重复</li>
      * </ol>
      * 全部查重通过后才执行副作用（写 initiator / 批量加签 / 打标 / comment）。</p>
+     *
+     * <p><b>建模约束</b>（ADR-0026，2026-08-10）：本方法通过
+     * {@code RuntimeService#addMultiInstanceExecution} 新建子执行时，写入的变量名
+     * 固定为 {@code assignee}（见 {@code executionVariables.put("assignee", assignee)}）。
+     * 因此 BPMN 会签节点必须满足<b>三处命名一致</b>：
+     * {@code flowable:elementVariable="assignee"}、
+     * {@code flowable:assignee="${assignee}"}、本方法写入的 {@code assignee}。
+     * 若 assignee 表达式引用其它变量（如 {@code ${nextApprover}}），任务创建时
+     * {@code UserTaskActivityBehavior} 在子执行上求值该表达式，会沿作用域链命中
+     * 流程实例级变量 {@code nextApprover}（上一步流转设置的旧值，所有子实例共享），
+     * 导致<b>所有加签任务错分给同一个人</b>，加签人收不到任务。详见 ADR-0026。</p>
      */
     @Override
     public void addCounterSigner(String taskId, List<String> assignees) {
