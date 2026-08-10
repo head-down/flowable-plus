@@ -133,6 +133,14 @@ public class CounterSignWorkflow implements CounterSignOperations {
      * 原时序手动为发起任务打标。这保证原始审批人（owner）首次加签即获得显式轮次，
      * 后续加签并入当前轮，不会因运行时缺显式轮次而被 {@link #isMultiInstanceFinished}
      * 误判"本轮将尽"而开启新一轮（隐患 C）。</p>
+     *
+     * <p><b>查重 fast fail</b>（ADR-0024，2026-08-10）：两层查重命中任一即抛
+     * {@link IllegalArgumentException}，不创建任何任务、不写 comment、不产生副作用：
+     * <ol>
+     *   <li>维度一：与当前活跃会签人重复（含名单内自重复 {@code [A, A]}）</li>
+     *   <li>维度二：与本轮（当前执行周期内、{@code csRoundIndex} 匹配）已投过票的审批人重复</li>
+     * </ol>
+     * 全部查重通过后才执行副作用（写 initiator / 批量加签 / 打标 / comment）。</p>
      */
     @Override
     public void addCounterSigner(String taskId, List<String> assignees) {
@@ -151,6 +159,12 @@ public class CounterSignWorkflow implements CounterSignOperations {
         String processInstanceId = task.getProcessInstanceId();
         String activityId = task.getTaskDefinitionKey();
 
+        // 名单内自重复检测（如 [A, A]）：整体失败，避免创建两个同 assignee 的重复任务
+        if (new HashSet<>(assignees).size() != assignees.size()) {
+            throw new IllegalArgumentException(
+                    "加签名单存在重复审批人，无法加签: " + String.join(", ", assignees));
+        }
+
         List<String> currentAssignees = resolveCurrentAssignees(task);
 
         List<String> newAssignees = new ArrayList<>();
@@ -166,17 +180,21 @@ public class CounterSignWorkflow implements CounterSignOperations {
             }
         }
 
-        if (newAssignees.isEmpty()) {
-            return;
+        // 维度一：与当前活跃会签人重复 → 整体失败（ADR-0024，替换原"全部重复时静默 return"）
+        if (!skippedAssignees.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "审批人 " + String.join(", ", skippedAssignees) + " 已在本轮会签中，无法重复加签");
         }
-
-        // 写入 countersignInitiator（仅伪单例首次加签）
-        trySetCounterSignInitiator(task);
+        if (newAssignees.isEmpty()) {
+            throw new IllegalArgumentException("加签名单无有效审批人，无法加签");
+        }
 
         // 检测是否开启新轮次（全部审批完成后加签 = 新一轮）
         // 模式分派（ADR-0022）：模式 A（伪单例，countersignInitiator 已写入）才有轮次概念，
         // 由 isMultiInstanceFinished 判定是否本轮已结束；模式 B（固定会签）无轮次概念，
         // 单执行周期内加签必然发生在本轮未投完时，永远并入当前轮。
+        // trySetCounterSignInitiator 后移（ADR-0024）：查重前置要求不产生任何副作用，
+        // 首次伪单例加签两种时序下 isNewRound 均 false、roundIndex=0，等价性已验证。
         boolean modeA = runtimeService.getVariable(processInstanceId,
                 buildCountersignInitiatorVarName(activityId)) != null;
         boolean isNewRound = false;
@@ -189,6 +207,21 @@ public class CounterSignWorkflow implements CounterSignOperations {
         } else {
             roundIndex = determineCurrentRoundIndex(processInstanceId, activityId);
         }
+
+        // 维度二：与本轮（当前执行周期内、csRoundIndex 匹配）已投过票的审批人重复 → 整体失败
+        //（ADR-0024：roundIndex==0 时无标历史任务视为隐式轮次 0，覆盖模式 B 无打标场景）
+        Set<String> votedAssigneesInRound = resolveVotedAssigneesInRound(
+                processInstanceId, activityId, roundIndex);
+        List<String> alreadyVoted = newAssignees.stream()
+                .filter(votedAssigneesInRound::contains)
+                .collect(Collectors.toList());
+        if (!alreadyVoted.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "审批人 " + String.join(", ", alreadyVoted) + " 已在本轮投过票，无法重复加签");
+        }
+
+        // 通过全部查重后才执行副作用：写入 countersignInitiator（仅伪单例首次加签）
+        trySetCounterSignInitiator(task);
 
         // 批量加签
         for (String assignee : newAssignees) {
@@ -216,9 +249,6 @@ public class CounterSignWorkflow implements CounterSignOperations {
 
         StringBuilder commentMsg = new StringBuilder("加签审批人: ")
                 .append(String.join(", ", newAssignees));
-        if (!skippedAssignees.isEmpty()) {
-            commentMsg.append("，跳过重复: ").append(String.join(", ", skippedAssignees));
-        }
         if (isNewRound) {
             commentMsg.append("，开启第 ").append(roundIndex + 1).append(" 轮会签");
         }
@@ -463,9 +493,72 @@ public class CounterSignWorkflow implements CounterSignOperations {
             return finished.size();
         }
         return finished.stream()
-                // startTime 为 null（历史数据异常）视为早于周期边界，不计入当前周期
-                .filter(t -> t.getStartTime() != null && !t.getStartTime().before(cycleBoundary))
+                .filter(t -> isWithinCycle(t, cycleBoundary))
                 .count();
+    }
+
+    /**
+     * 判断历史任务是否属于当前执行周期（startTime 不早于 {@code cycleBoundary}）。
+     * 周期边界为 null（无历史周期分隔/老数据）时不过滤；startTime 为 null（历史数据异常）
+     * 视为早于周期边界，不计入当前周期。
+     */
+    private boolean isWithinCycle(HistoricTaskInstance task, Date cycleBoundary) {
+        return cycleBoundary == null
+                || (task.getStartTime() != null && !task.getStartTime().before(cycleBoundary));
+    }
+
+    /**
+     * 解析当前执行周期内、指定轮次已投过票的审批人集合（ADR-0024）。
+     *
+     * <p>判定口径：仅统计 {@code findCurrentCycleBoundary} 限定周期内的同节点已完成任务；
+     * 轮次匹配规则（{@link #matchesRound}）：{@code roundIndex > 0} 时要求任务局部变量
+     * {@code csRoundIndex == roundIndex}；{@code roundIndex == 0} 时无 csRoundIndex
+     * 或 {@code csRoundIndex == 0} 均视为隐式轮次 0（原始审批人/模式 B 固定会签未打标）。</p>
+     *
+     * <p><b>周期限定</b>修复折返后跨周期撞号误拦：上一周期已投票人的 csRoundIndex 可能与本周期
+     * 撞号，按 startTime 限定周期后不参与本周期匹配（漏洞 B）。</p>
+     *
+     * <p><b>剔除被删除任务</b>：减签（{@code deleteMultiInstanceExecution}）也会留下 finished
+     * 历史记录（{@code deleteReason} 非 null），被减签者从未投票，不应误判为"已投票"
+     * （否则"减签后再加签回"被误拦）。</p>
+     */
+    private Set<String> resolveVotedAssigneesInRound(String processInstanceId, String activityId,
+                                                     int roundIndex) {
+        Date cycleBoundary = findCurrentCycleBoundary(processInstanceId, activityId);
+
+        List<HistoricTaskInstance> finishedTasks = historyService
+                .createHistoricTaskInstanceQuery()
+                .processInstanceId(processInstanceId)
+                .taskDefinitionKey(activityId)
+                .finished()
+                .includeTaskLocalVariables()
+                .list();
+
+        return finishedTasks.stream()
+                // 剔除被删除（减签/终止）的任务：deleteReason 非 null 表示从未投票，
+                // 仅统计正常投票完成（deleteReason 为 null）的任务
+                .filter(t -> t.getDeleteReason() == null)
+                // 周期限定：仅统计当前执行周期内的任务
+                .filter(t -> isWithinCycle(t, cycleBoundary))
+                .filter(t -> matchesRound(t, roundIndex))
+                .map(HistoricTaskInstance::getAssignee)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * 轮次匹配：{@code roundIndex > 0} 时要求 {@code csRoundIndex == roundIndex}；
+     * {@code roundIndex == 0} 时无标（缺失）或 == 0 均视为隐式轮次 0。
+     */
+    private boolean matchesRound(HistoricTaskInstance task, int roundIndex) {
+        Map<String, Object> taskLocalVariables = task.getTaskLocalVariables();
+        Object roundVar = taskLocalVariables != null
+                ? taskLocalVariables.get(CS_ROUND_INDEX_VAR) : null;
+        if (roundIndex > 0) {
+            return roundVar instanceof Integer && ((Integer) roundVar).intValue() == roundIndex;
+        }
+        return roundVar == null
+                || (roundVar instanceof Integer && ((Integer) roundVar).intValue() == 0);
     }
 
     /**
@@ -488,9 +581,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
                 .list();
 
         java.util.Set<String> taskIds = tasks.stream()
-                // startTime 为 null（历史数据异常）视为早于周期边界，不计入当前周期
-                .filter(t -> cycleBoundary == null
-                        || (t.getStartTime() != null && !t.getStartTime().before(cycleBoundary)))
+                .filter(t -> isWithinCycle(t, cycleBoundary))
                 .map(HistoricTaskInstance::getId)
                 .collect(Collectors.toSet());
 

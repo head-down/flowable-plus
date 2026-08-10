@@ -3,6 +3,7 @@ package io.github.flowable.plus.starter;
 import io.github.flowable.plus.core.FlowablePlus;
 import io.github.flowable.plus.core.domain.PageResult;
 import io.github.flowable.plus.core.dto.TaskQueryDTO;
+import io.github.flowable.plus.core.enums.CommentType;
 import io.github.flowable.plus.core.workflow.CounterSignWorkflow;
 import io.github.flowable.plus.core.workflow.TaskExecutionWorkflow;
 
@@ -32,6 +33,7 @@ import java.util.Map;
 
 import static io.github.flowable.plus.starter.BpmnQueryIntegrationTest.DynamicUserContext;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Layer 2 集成测试：会签操作。
@@ -179,6 +181,73 @@ class CounterSignIntegrationTest extends AbstractIntegrationTest {
 
         // EXTRA_USER 可以完成投票
         counterSign(pi.getId(), EXTRA_USER, true, "加签同意");
+    }
+
+    /**
+     * 加签名单含当前活跃会签人（维度一）→ fast fail 抛 IllegalArgumentException，
+     * 不创建任何任务（ADR-0024）。
+     */
+    @Test
+    void testAddCounterSignerRejectsDuplicateActiveApprover() {
+        ProcessInstance pi = startProcessWithSigners("biz-addsign-dup-001", USER_A, USER_B);
+        processInstanceIds.add(pi.getId());
+
+        completeTask(pi.getId(), "draft", INITIATOR);
+
+        // USER_A 加签 USER_B（当前活跃会签人）→ fast fail
+        String taskId = findActiveCounterSignTaskId(pi.getId(), USER_A);
+        assertThat(taskId).isNotNull();
+        DynamicUserContext.set(USER_A);
+        assertThatThrownBy(() -> counterSignWorkflow.addCounterSigner(taskId,
+                Collections.singletonList(USER_B)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("已在本轮会签中");
+
+        // 零副作用：无新增任务（仍为 USER_A、USER_B 两个活跃任务）
+        List<Task> activeTasks = taskService.createTaskQuery()
+                .processInstanceId(pi.getId())
+                .taskDefinitionKey("counterSign")
+                .active()
+                .list();
+        assertThat(activeTasks).hasSize(2);
+        // 无 ADD_SIGN comment 写入
+        assertThat(taskService.getProcessInstanceComments(pi.getId()))
+                .noneMatch(c -> CommentType.ADD_SIGN.name().equals(c.getType()));
+    }
+
+    /**
+     * 加签名单含本轮已投过票的人（维度二，模式 B 无打标）→ fast fail 抛 IllegalArgumentException，
+     * 不创建任务（ADR-0024，覆盖漏洞 A）。
+     */
+    @Test
+    void testAddCounterSignerRejectsAlreadyVotedInRound() {
+        ProcessInstance pi = startProcessWithSigners("biz-addsign-voted-001", USER_A, USER_B);
+        processInstanceIds.add(pi.getId());
+
+        completeTask(pi.getId(), "draft", INITIATOR);
+
+        // USER_A 已投票（任务完成）
+        counterSign(pi.getId(), USER_A, true, "同意");
+
+        // USER_B 加签 USER_A（本轮已投票）→ fast fail
+        String userBTaskId = findActiveCounterSignTaskId(pi.getId(), USER_B);
+        assertThat(userBTaskId).isNotNull();
+        DynamicUserContext.set(USER_B);
+        assertThatThrownBy(() -> counterSignWorkflow.addCounterSigner(userBTaskId,
+                Collections.singletonList(USER_A)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("已在本轮投过票");
+
+        // 零副作用：无新增任务（仅剩 USER_B 一个活跃任务）
+        List<Task> activeTasks = taskService.createTaskQuery()
+                .processInstanceId(pi.getId())
+                .taskDefinitionKey("counterSign")
+                .active()
+                .list();
+        assertThat(activeTasks).hasSize(1);
+        // 无 ADD_SIGN comment 写入
+        assertThat(taskService.getProcessInstanceComments(pi.getId()))
+                .noneMatch(c -> CommentType.ADD_SIGN.name().equals(c.getType()));
     }
 
     /**

@@ -241,15 +241,22 @@ class BpmnMultiInstanceIntegrationTest {
         assertThat(onStartCount.get()).isEqualTo(1);
     }
 
+    /**
+     * 全部重复（名单均为当前活跃会签人）→ fast fail 抛 IllegalArgumentException（ADR-0024），
+     * 不创建任务。
+     */
     @Test
-    void testAddCounterSignerAllDuplicateSkips() {
+    void testAddCounterSignerAllDuplicateRejected() {
         BpmnModel model = buildAddRemoveModel();
         when(mockRepoService.getBpmnModel("proc-sign")).thenReturn(model);
 
         PlusTask task = createPlusTask("task-001", "pi-001", "proc-sign", "csTask", USER_ID);
         stubSignManageMocks(task, Collections.singletonList(task));
 
-        counterSignWorkflow.addCounterSigner("task-001", Collections.singletonList(USER_ID));
+        assertThatThrownBy(() -> counterSignWorkflow.addCounterSigner("task-001",
+                Collections.singletonList(USER_ID)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("已在本轮会签中");
 
         verify(mockRuntimeService, never()).addMultiInstanceExecution(
                 anyString(), anyString(), any());
@@ -347,8 +354,8 @@ class BpmnMultiInstanceIntegrationTest {
         when(q1.taskId(task.getId())).thenReturn(q1);
         when(q1.singleResult()).thenReturn(mockExistTask);
 
-        // Q2: validateCounterSignPermission → resolveCurrentAssignees
-        Task active = toMockTask(task);
+        // Q2: validateCounterSignPermission → resolveCurrentAssignees（活跃审批人为 user2，不含 USER_ID）
+        Task active = toMockTask(createPlusTask("task-active", "pi-001", "proc-sign", "csTask", "user2"));
         TaskQuery q2 = mock(TaskQuery.class);
         when(q2.processInstanceId(anyString())).thenReturn(q2);
         when(q2.taskDefinitionKey(anyString())).thenReturn(q2);
@@ -357,7 +364,7 @@ class BpmnMultiInstanceIntegrationTest {
 
         when(mockTaskService.createTaskQuery()).thenReturn(q1, q2);
 
-        // USER_ID="admin" ≠ "owner" → PermissionDeniedException
+        // USER_ID="admin" ≠ "owner" 且非活跃审批人（ADR-0023：发起人 OR 活跃审批人）→ PermissionDeniedException
         assertThatThrownBy(() -> counterSignWorkflow.addCounterSigner("task-001",
                 Collections.singletonList("newUser")))
                 .isInstanceOf(io.github.flowable.plus.core.exception.PermissionDeniedException.class)
@@ -658,6 +665,20 @@ class BpmnMultiInstanceIntegrationTest {
         return q;
     }
 
+    /**
+     * resolveVotedAssigneesInRound 的已完成任务查询 mock
+     * （finished + includeTaskLocalVariables，ADR-0024）。
+     */
+    private HistoricTaskInstanceQuery stubVotedListQuery(List<HistoricTaskInstance> finishedTasks) {
+        HistoricTaskInstanceQuery q = mock(HistoricTaskInstanceQuery.class);
+        when(q.processInstanceId(anyString())).thenReturn(q);
+        when(q.taskDefinitionKey(anyString())).thenReturn(q);
+        when(q.finished()).thenReturn(q);
+        when(q.includeTaskLocalVariables()).thenReturn(q);
+        when(q.list()).thenReturn(finishedTasks);
+        return q;
+    }
+
     private void stubSignManageMocks(PlusTask task, List<PlusTask> allActiveList) {
         // Pre-create all mock tasks
         Task mockExistTask = toMockTask(task);
@@ -692,18 +713,20 @@ class BpmnMultiInstanceIntegrationTest {
         when(q4.active()).thenReturn(q4);
         when(q4.list()).thenReturn(mockList);
 
-        // 模式分派后 mode B 不调用 isMultiInstanceFinished（少一次 active count 查询），
-        // determineCurrentRoundIndex 与 setVariableLocal 均落到 q4。
-        when(mockTaskService.createTaskQuery()).thenReturn(q1, q2, q2, q3, q4);
+        // ADR-0024 时序：查重前置 → 轮次计算（determineCurrentRoundIndex 活跃列表）→ trySet(isPseudoSingleton activeCount)
+        // → 批量加签后 setVariableLocal 活跃列表
+        when(mockTaskService.createTaskQuery()).thenReturn(q1, q2, q2, q4, q3, q4);
 
-        // historyService: isPseudoSingleton 的历史任务数（伪单例场景仅当前活跃任务 → 1）
+        // historyService: 本轮已投票查重（边界 + 已投票列表，均空）→ isPseudoSingleton 历史任务数
+        HistoricTaskInstanceQuery boundaryQ = stubBoundaryQuery();
+        HistoricTaskInstanceQuery votedQ = stubVotedListQuery(Collections.emptyList());
         HistoricTaskInstanceQuery histQ = mock(HistoricTaskInstanceQuery.class);
         when(histQ.processInstanceId(anyString())).thenReturn(histQ);
         when(histQ.taskDefinitionKey(anyString())).thenReturn(histQ);
         when(histQ.taskAssignee(anyString())).thenReturn(histQ);
         when(histQ.finished()).thenReturn(histQ);
         when(histQ.count()).thenReturn(1L);
-        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(histQ);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(boundaryQ, votedQ, histQ);
 
         // csRoundIndex for determineCurrentRoundIndex
         when(mockTaskService.getVariableLocal(anyString(), eq("csRoundIndex"))).thenReturn(0);
