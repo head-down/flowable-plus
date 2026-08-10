@@ -56,4 +56,20 @@ public interface ActionInferenceStrategy {
      * @return 第一个匹配的操作注释 Comment，如果没有则返回 null
      */
     Comment findFirstOperationComment(List<Comment> taskComments);
+
+    /**
+     * 从 Comment 列表中查找全部操作注释（ADR-0027）。
+     *
+     * <p>同一任务可能多次执行同类操作（如连续加签、委派-收回委派循环），
+     * 单值 {@link #findFirstOperationComment} 只返回最新一条，本方法返回全部操作注释，
+     * 供上层聚合展示。不做类型特判：ADD_SIGN / DELETE_SIGN / DELEGATE /
+     * RESOLVE_DELEGATE / TRANSFER 五种类型统一聚合。</p>
+     *
+     * <p><b>实现约定</b>：入参 {@code taskComments} 按时间倒序排列，
+     * 返回结果需<b>反转成时间正序</b>（最早在前），保证列表从最早操作开始展示。</p>
+     *
+     * @param taskComments 该任务的 Comment 列表，按时间倒序排列
+     * @return 全部匹配的操作注释 Comment 列表（时间正序），无操作注释时返回空列表
+     */
+    List<Comment> findAllOperationComments(List<Comment> taskComments);
 }

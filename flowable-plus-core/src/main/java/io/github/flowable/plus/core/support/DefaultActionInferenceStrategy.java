@@ -7,6 +7,7 @@ import org.flowable.engine.task.Comment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
@@ -122,8 +123,26 @@ public class DefaultActionInferenceStrategy implements ActionInferenceStrategy {
 
     @Override
     public Comment findFirstOperationComment(List<Comment> taskComments) {
+        List<Comment> operationComments = collectOperationComments(taskComments);
+        return operationComments.isEmpty() ? null : operationComments.get(0);
+    }
+
+    @Override
+    public List<Comment> findAllOperationComments(List<Comment> taskComments) {
+        // 入参按时间倒序，收集操作注释组后反转成正序返回（ADR-0027）
+        List<Comment> operationComments = collectOperationComments(taskComments);
+        Collections.reverse(operationComments);
+        return operationComments;
+    }
+
+    /**
+     * 按入参顺序收集操作注释组 Comment（ADR-0025 类型过滤），供 {@link #findFirstOperationComment}
+     * 与 {@link #findAllOperationComments} 共用，避免重复的类型过滤扫描。
+     */
+    private List<Comment> collectOperationComments(List<Comment> taskComments) {
+        List<Comment> result = new ArrayList<>();
         if (taskComments == null || taskComments.isEmpty()) {
-            return null;
+            return result;
         }
         for (Comment comment : taskComments) {
             String typeStr = comment.getType();
@@ -133,12 +152,12 @@ public class DefaultActionInferenceStrategy implements ActionInferenceStrategy {
             try {
                 CommentType ct = CommentType.valueOf(typeStr);
                 if (OPERATION_COMMENT_TYPES.contains(ct)) {
-                    return comment;
+                    result.add(comment);
                 }
             } catch (IllegalArgumentException ignored) {
                 // 非操作类型，跳过
             }
         }
-        return null;
+        return result;
     }
 }

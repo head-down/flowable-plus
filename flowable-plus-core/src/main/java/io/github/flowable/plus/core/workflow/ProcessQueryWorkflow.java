@@ -296,6 +296,7 @@ public class ProcessQueryWorkflow {
                 ht.getId(), ht.getDeleteReason(), taskComments);
         String comment = extractCommentText(taskComments);
         String operationComment = extractOperationCommentText(taskComments);
+        List<String> operationComments = extractOperationCommentsText(taskComments);
 
         return ApprovalTraceVO.builder()
                 .taskId(ht.getId())
@@ -307,6 +308,7 @@ public class ProcessQueryWorkflow {
                 .durationMillis(durationMillis)
                 .comment(comment)
                 .operationComment(operationComment)
+                .operationComments(operationComments)
                 .approved(toApproved(action))
                 .isRejected(toRejected(action))
                 .countersignDetails(null)
@@ -317,6 +319,7 @@ public class ProcessQueryWorkflow {
         List<Comment> taskComments = commentsByTaskId.getOrDefault(at.getId(), Collections.emptyList());
         String comment = extractCommentText(taskComments);
         String operationComment = extractOperationCommentText(taskComments);
+        List<String> operationComments = extractOperationCommentsText(taskComments);
         return ApprovalTraceVO.builder()
                 .taskId(at.getId())
                 .taskName(at.getName())
@@ -327,6 +330,7 @@ public class ProcessQueryWorkflow {
                 .durationMillis(null)
                 .comment(comment)
                 .operationComment(operationComment)
+                .operationComments(operationComments)
                 .approved(null)
                 .isRejected(null)
                 .countersignDetails(null)
@@ -443,6 +447,23 @@ public class ProcessQueryWorkflow {
     private String extractOperationCommentText(List<Comment> taskComments) {
         Comment operationComment = actionInferenceStrategy.findFirstOperationComment(taskComments);
         return operationComment != null ? operationComment.getFullMessage() : null;
+    }
+
+    /**
+     * 从 Comment 列表中提取全部操作注释文本（ADR-0027）。
+     * 返回该任务全部操作注释（ADD_SIGN / DELETE_SIGN / DELEGATE / RESOLVE_DELEGATE / TRANSFER）的
+     * fullMessage 列表，按时间正序排列（最早在前）；无操作注释时返回 null。
+     */
+    private List<String> extractOperationCommentsText(List<Comment> taskComments) {
+        List<Comment> operationComments = actionInferenceStrategy.findAllOperationComments(taskComments);
+        if (operationComments == null || operationComments.isEmpty()) {
+            return null;
+        }
+        List<String> result = new ArrayList<>(operationComments.size());
+        for (Comment comment : operationComments) {
+            result.add(comment.getFullMessage());
+        }
+        return result;
     }
 
     /**

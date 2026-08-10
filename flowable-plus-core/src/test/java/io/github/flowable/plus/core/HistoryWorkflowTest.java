@@ -315,12 +315,14 @@ public class HistoryWorkflowTest {
         assertThat(sub1.getAction()).isEqualTo(ApprovalAction.COUNTER_SIGN_AGREE);
         assertThat(sub1.getComment()).isEqualTo("同意");
         assertThat(sub1.getOperationComment()).isEqualTo("加签审批人: userC");
+        assertThat(sub1.getOperationComments()).containsExactly("加签审批人: userC");
 
-        // 子记录2：无操作注释，operationComment 为 null
+        // 子记录2：无操作注释，operationComment 与 operationComments 均为 null
         CountersignSubRecord sub2 = csParent.getCountersignRecords().get(1);
         assertThat(sub2.getAction()).isEqualTo(ApprovalAction.COUNTER_SIGN_AGREE);
         assertThat(sub2.getComment()).isEqualTo("同意");
         assertThat(sub2.getOperationComment()).isNull();
+        assertThat(sub2.getOperationComments()).isNull();
     }
 
     @Test
@@ -350,6 +352,98 @@ public class HistoryWorkflowTest {
         assertThat(record.getAction()).isEqualTo(ApprovalAction.ADD_SIGN);
         assertThat(record.getComment()).isNull();
         assertThat(record.getOperationComment()).isEqualTo("加签审批人: user2");
+        assertThat(record.getOperationComments()).containsExactly("加签审批人: user2");
+    }
+
+    // ======================== ADR-0027：同一任务多次操作注释（连续加签/委派循环） ========================
+
+    @Test
+    public void testCounterSignSubRecordWithMultipleOperationComments() {
+        Date startEventTime = new Date(1000);
+        Date csStart1 = new Date(2000);
+        Date csEnd1 = new Date(3000);
+        Date csStart2 = new Date(2100);
+        Date csEnd2 = new Date(3100);
+
+        // 活动实例：startEvent → csTask(多实例，2个实例)
+        List<HistoricActivityInstance> activities = Arrays.asList(
+                createActivity("start", "startEvent", "开始", startEventTime, startEventTime, null),
+                createActivity("csTask", "userTask", "会签审批", csStart1, csStart1, "ht-cs-1"),
+                createActivity("csTask", "userTask", "会签审批", csStart2, csStart2, "ht-cs-2")
+        );
+
+        HistoricTaskInstance ht1 = createHistoricTask("ht-cs-1", "csTask", "会签审批", "userA",
+                csStart1, csEnd1, "completed");
+        HistoricTaskInstance ht2 = createHistoricTask("ht-cs-2", "csTask", "会签审批", "userB",
+                csStart2, csEnd2, "completed");
+
+        // ht-cs-1 同一任务连续两次加签（时间正序），另含业务意见
+        Comment comment1 = createComment("ht-cs-1", "COUNTER_SIGN_AGREE", "同意", csEnd1);
+        Comment addSign1 = createComment("ht-cs-1", "ADD_SIGN", "加签审批人: userC", new Date(csEnd1.getTime() + 100));
+        Comment addSign2 = createComment("ht-cs-1", "ADD_SIGN", "加签审批人: userD", new Date(csEnd1.getTime() + 200));
+        Comment comment2 = createComment("ht-cs-2", "COUNTER_SIGN_AGREE", "同意", csEnd2);
+
+        stubNormalFlow(activities, Arrays.asList(ht1, ht2),
+                Arrays.asList(comment1, addSign1, addSign2, comment2));
+        stubBpmnModel(buildMultiInstanceModel());
+        when(mockMultiInstanceDetector.isMultiInstanceNode(PROCESS_DEF_ID, "csTask")).thenReturn(true);
+
+        List<ApprovalRecordVO> result = historyWorkflow.getApprovalHistory(INSTANCE_ID);
+
+        assertThat(result).hasSize(2); // START + 会签父记录
+        ApprovalRecordVO csParent = result.get(1);
+        assertThat(csParent.getCountersignRecords()).hasSize(2);
+
+        // 子记录1：连续两次加签全部保留（时间正序），单值 operationComment 为最新一条
+        CountersignSubRecord sub1 = csParent.getCountersignRecords().get(0);
+        assertThat(sub1.getAction()).isEqualTo(ApprovalAction.COUNTER_SIGN_AGREE);
+        assertThat(sub1.getComment()).isEqualTo("同意");
+        assertThat(sub1.getOperationComment()).isEqualTo("加签审批人: userD");
+        assertThat(sub1.getOperationComments())
+                .containsExactly("加签审批人: userC", "加签审批人: userD");
+
+        // 子记录2：无操作注释，operationComments 为 null
+        CountersignSubRecord sub2 = csParent.getCountersignRecords().get(1);
+        assertThat(sub2.getOperationComment()).isNull();
+        assertThat(sub2.getOperationComments()).isNull();
+    }
+
+    @Test
+    public void testNormalRecordWithDelegateAndResolveOperations() {
+        Date startEventTime = new Date(1000);
+        Date taskStart = new Date(2000);
+        Date taskEnd = new Date(3000);
+
+        // 活动实例：startEvent → task1（普通节点）
+        List<HistoricActivityInstance> activities = Arrays.asList(
+                createActivity("start", "startEvent", "开始", startEventTime, startEventTime, null),
+                createActivity("task1", "userTask", "部门审批", taskStart, taskStart, "ht-1")
+        );
+
+        HistoricTaskInstance ht1 = createHistoricTask("ht-1", "task1", "部门审批", "user1",
+                taskStart, taskEnd, "completed");
+
+        // 委派 → 收回委派（时间正序），另有最终业务意见
+        Comment delegate = createComment("ht-1", "DELEGATE", "委派给: user2", new Date(2200));
+        Comment resolve = createComment("ht-1", "RESOLVE_DELEGATE", "收回委派", new Date(2500));
+        Comment agree = createComment("ht-1", "AGREE", "同意通过", taskEnd);
+
+        stubNormalFlow(activities, Collections.singletonList(ht1),
+                Arrays.asList(delegate, resolve, agree));
+        stubBpmnModel(buildSimpleModel());
+        when(mockMultiInstanceDetector.isMultiInstanceNode(PROCESS_DEF_ID, "task1")).thenReturn(false);
+
+        List<ApprovalRecordVO> result = historyWorkflow.getApprovalHistory(INSTANCE_ID);
+
+        assertThat(result).hasSize(2);
+        ApprovalRecordVO record = result.get(1);
+        // action/comment 仍取业务意见，操作注释由 operationComment / operationComments 独立承载
+        assertThat(record.getAction()).isEqualTo(ApprovalAction.AGREE);
+        assertThat(record.getComment()).isEqualTo("同意通过");
+        // 单值取最新一条（收回委派），多值按时间正序全量返回
+        assertThat(record.getOperationComment()).isEqualTo("收回委派");
+        assertThat(record.getOperationComments())
+                .containsExactly("委派给: user2", "收回委派");
     }
 
     // ======================== 多轮会签：同一多实例节点被多次访问 ========================

@@ -139,6 +139,82 @@ public class DefaultActionInferenceStrategyTest {
         assertThat(strategy.findFirstBusinessComment(new ArrayList<>())).isNull();
         assertThat(strategy.findFirstOperationComment(null)).isNull();
         assertThat(strategy.findFirstOperationComment(new ArrayList<>())).isNull();
+        assertThat(strategy.findAllOperationComments(null)).isEmpty();
+        assertThat(strategy.findAllOperationComments(new ArrayList<>())).isEmpty();
+    }
+
+    // ======================== ADR-0027：全部操作注释 findAllOperationComments ========================
+
+    @Test
+    public void shouldReturnAllOperationCommentsInAscendingTimeOrder() {
+        // 同一任务连续两次加签（时间正序入参为 ADD_SIGN1 < ADD_SIGN2，倒序入参为 ADD_SIGN2, ADD_SIGN1）
+        Date firstAddTime = new Date(1000);
+        Date secondAddTime = new Date(2000);
+        Comment addSign1 = createComment(CommentType.ADD_SIGN.name(), "加签审批人: 003161", firstAddTime);
+        Comment addSign2 = createComment(CommentType.ADD_SIGN.name(), "加签审批人: 003162", secondAddTime);
+        // 入参按现有约定为时间倒序
+        List<Comment> comments = Arrays.asList(addSign2, addSign1);
+
+        List<Comment> result = strategy.findAllOperationComments(comments);
+
+        // 返回时间正序（最早在前），两次加签都保留
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).getFullMessage()).isEqualTo("加签审批人: 003161");
+        assertThat(result.get(1).getFullMessage()).isEqualTo("加签审批人: 003162");
+        assertThat(strategy.findFirstOperationComment(comments).getFullMessage()).isEqualTo("加签审批人: 003162");
+    }
+
+    @Test
+    public void shouldMixMultipleOperationTypesInAscendingTimeOrder() {
+        // 委派-收回委派循环：DELEGATE → RESOLVE_DELEGATE（时间正序）
+        Date delegateTime = new Date(1000);
+        Date resolveTime = new Date(2000);
+        Comment delegate = createComment(CommentType.DELEGATE.name(), "委派给: userB", delegateTime);
+        Comment resolve = createComment(CommentType.RESOLVE_DELEGATE.name(), "收回委派", resolveTime);
+        // 倒序入参
+        List<Comment> comments = Arrays.asList(resolve, delegate);
+
+        List<Comment> result = strategy.findAllOperationComments(comments);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).getFullMessage()).isEqualTo("委派给: userB");
+        assertThat(result.get(1).getFullMessage()).isEqualTo("收回委派");
+    }
+
+    @Test
+    public void shouldReturnOnlyOperationCommentsWhenBusinessCommentsExist() {
+        // 业务意见（时间早）+ 两条 ADD_SIGN（时间新）并存 → 只返回操作注释，不含业务意见
+        Date agreeTime = new Date(1000);
+        Date addSign1Time = new Date(2000);
+        Date addSign2Time = new Date(3000);
+        Comment agree = createComment(CommentType.COUNTER_SIGN_AGREE.name(), "同意", agreeTime);
+        Comment addSign1 = createComment(CommentType.ADD_SIGN.name(), "加签审批人: 003161", addSign1Time);
+        Comment addSign2 = createComment(CommentType.ADD_SIGN.name(), "加签审批人: 003162", addSign2Time);
+        // 入参按接口约定为时间倒序
+        List<Comment> comments = Arrays.asList(addSign2, addSign1, agree);
+
+        List<Comment> result = strategy.findAllOperationComments(comments);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).getFullMessage()).isEqualTo("加签审批人: 003161");
+        assertThat(result.get(1).getFullMessage()).isEqualTo("加签审批人: 003162");
+    }
+
+    @Test
+    public void shouldReturnEmptyListWhenNoOperationComment() {
+        Comment agree = createComment(CommentType.AGREE.name(), "同意", new Date());
+        Comment normalMsg = createComment("comment", "普通留言", new Date());
+        List<Comment> comments = Arrays.asList(normalMsg, agree);
+
+        assertThat(strategy.findAllOperationComments(comments)).isEmpty();
+    }
+
+    @Test
+    public void shouldReturnEmptyListForCommentWithNullType() {
+        Comment commentWithNullType = createComment(null, "无类型", new Date());
+        List<Comment> comments = Collections.singletonList(commentWithNullType);
+
+        assertThat(strategy.findAllOperationComments(comments)).isEmpty();
     }
 
     @Test

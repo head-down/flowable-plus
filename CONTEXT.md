@@ -107,3 +107,7 @@ _Avoid_: 撤销委派、取消委派
 **转办**:
 审批人将单实例任务所有权彻底转移给他人，不可收回。通过 TaskService.setAssignee 变更审批人并记录 TRANSFER 类型的审批意见。
 _Avoid_: 任务转移
+
+**操作注释**:
+加签/减签/委派/收回委派/转办等操作在任务上追加的记录文本（ADD_SIGN / DELETE_SIGN / DELEGATE / RESOLVE_DELEGATE / TRANSFER 类型的 Comment），与审批人的业务意见（comment）语义解耦。单值 `operationComment` 为最新一条（任务最后执行的操作）；多值 `operationComments` 为全部操作注释、按时间正序排列（同一任务连续多次加签时逐条保留）。
+_Avoid_: 操作日志、系统记录

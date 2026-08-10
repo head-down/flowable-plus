@@ -630,6 +630,83 @@ public class ProcessQueryOperationsTest {
         // ADR-0025：comment 返回真实业务意见，操作注释独立承载
         assertThat(result.get(0).getComment()).isEqualTo("同意，请继续");
         assertThat(result.get(0).getOperationComment()).isEqualTo("加签审批人: user2");
+        // ADR-0027：单条操作注释时 operationComments 为单元素列表
+        assertThat(result.get(0).getOperationComments()).containsExactly("加签审批人: user2");
+    }
+
+    // ======================== ADR-0027：同一任务多次操作注释 ========================
+
+    @Test
+    public void testApprovalTraceMultipleOperationComments() {
+        String instanceId = "pi-multi-op";
+        Date t1Start = new Date(1000);
+        Date t1End = new Date(2000);
+
+        PlusHistoricTask ht1 = createPlusHistoricTask("ht-1", instanceId, "node1", "部门审批",
+                "user1", t1Start, t1End, null);
+
+        // 同一任务连续两次加签（时间正序），另含业务意见
+        Comment agree = mock(Comment.class);
+        when(agree.getTaskId()).thenReturn("ht-1");
+        when(agree.getType()).thenReturn(CommentType.AGREE.name());
+        when(agree.getFullMessage()).thenReturn("同意，请继续");
+        when(agree.getTime()).thenReturn(t1End);
+
+        Comment addSign1 = mock(Comment.class);
+        when(addSign1.getTaskId()).thenReturn("ht-1");
+        when(addSign1.getType()).thenReturn(CommentType.ADD_SIGN.name());
+        when(addSign1.getFullMessage()).thenReturn("加签审批人: user2");
+        when(addSign1.getTime()).thenReturn(new Date(t1End.getTime() + 100));
+
+        Comment addSign2 = mock(Comment.class);
+        when(addSign2.getTaskId()).thenReturn("ht-1");
+        when(addSign2.getType()).thenReturn(CommentType.ADD_SIGN.name());
+        when(addSign2.getFullMessage()).thenReturn("加签审批人: user3");
+        when(addSign2.getTime()).thenReturn(new Date(t1End.getTime() + 200));
+
+        HistoricTaskInstance mockHt1 = toMockHistoricTask(ht1);
+        stubApprovalTraceQueries(Collections.emptyList(), instanceId, null,
+                Collections.singletonList(mockHt1));
+        when(mockTaskService.getProcessInstanceComments(instanceId))
+                .thenReturn(Arrays.asList(agree, addSign1, addSign2));
+
+        List<ApprovalTraceVO> result = processQueryWorkflow.getApprovalTrace(instanceId);
+
+        assertThat(result).hasSize(1);
+        // 单值取最新一条，多值按时间正序全量返回
+        assertThat(result.get(0).getComment()).isEqualTo("同意，请继续");
+        assertThat(result.get(0).getOperationComment()).isEqualTo("加签审批人: user3");
+        assertThat(result.get(0).getOperationComments())
+                .containsExactly("加签审批人: user2", "加签审批人: user3");
+    }
+
+    @Test
+    public void testApprovalTraceOperationCommentsNullWhenNoOperationComment() {
+        String instanceId = "pi-no-op";
+        Date t1Start = new Date(1000);
+        Date t1End = new Date(2000);
+
+        PlusHistoricTask ht1 = createPlusHistoricTask("ht-1", instanceId, "node1", "部门审批",
+                "user1", t1Start, t1End, null);
+
+        Comment agree = mock(Comment.class);
+        when(agree.getTaskId()).thenReturn("ht-1");
+        when(agree.getType()).thenReturn(CommentType.AGREE.name());
+        when(agree.getFullMessage()).thenReturn("同意，请继续");
+        when(agree.getTime()).thenReturn(t1End);
+
+        HistoricTaskInstance mockHt1 = toMockHistoricTask(ht1);
+        stubApprovalTraceQueries(Collections.emptyList(), instanceId, null,
+                Collections.singletonList(mockHt1));
+        when(mockTaskService.getProcessInstanceComments(instanceId))
+                .thenReturn(Collections.singletonList(agree));
+
+        List<ApprovalTraceVO> result = processQueryWorkflow.getApprovalTrace(instanceId);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getComment()).isEqualTo("同意，请继续");
+        assertThat(result.get(0).getOperationComment()).isNull();
+        assertThat(result.get(0).getOperationComments()).isNull();
     }
 
     @Test

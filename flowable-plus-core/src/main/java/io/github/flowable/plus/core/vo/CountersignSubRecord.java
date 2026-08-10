@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.Date;
+import java.util.List;
 
 /**
  * 会签子记录 VO，用于表示会签节点中单个参与者的投票记录。
@@ -43,6 +44,9 @@ public class CountersignSubRecord {
 
     /** 操作注释（ADR-0025）：加签/减签等操作记录文本，如 "加签审批人: xxx"，与 {@code comment} 语义解耦 */
     private String operationComment;
+
+    /** 全部操作注释（ADR-0027）：该任务全部操作注释文本，按时间正序排列（最早在前），无操作注释时为 null */
+    private List<String> operationComments;
 
     /** 任务开始时间 */
     private Date startTime;

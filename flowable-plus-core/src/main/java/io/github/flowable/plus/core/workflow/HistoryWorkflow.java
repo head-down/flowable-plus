@@ -292,6 +292,24 @@ public class HistoryWorkflow {
         return operationComment != null ? operationComment.getFullMessage() : null;
     }
 
+    /**
+     * 从 Comment 中提取全部操作注释文本（ADR-0027）。
+     * 返回该任务全部操作注释（ADD_SIGN / DELETE_SIGN / DELEGATE / RESOLVE_DELEGATE / TRANSFER）的
+     * fullMessage 列表，按时间正序排列（最早在前）；无操作注释时返回 null。
+     */
+    private List<String> extractOperationCommentsText(String taskId, Map<String, List<Comment>> commentsByTaskId) {
+        List<Comment> taskComments = commentsByTaskId.getOrDefault(taskId, Collections.emptyList());
+        List<Comment> operationComments = actionInferenceStrategy.findAllOperationComments(taskComments);
+        if (operationComments == null || operationComments.isEmpty()) {
+            return null;
+        }
+        List<String> result = new ArrayList<>(operationComments.size());
+        for (Comment comment : operationComments) {
+            result.add(comment.getFullMessage());
+        }
+        return result;
+    }
+
     // ======================== 记录构建 ========================
 
     /**
@@ -334,6 +352,7 @@ public class HistoryWorkflow {
                 task.getId(), task.getDeleteReason(), taskComments);
         String comment = extractCommentText(task.getId(), commentsByTaskId);
         String operationComment = extractOperationCommentText(task.getId(), commentsByTaskId);
+        List<String> operationComments = extractOperationCommentsText(task.getId(), commentsByTaskId);
         String actorName = identityResolver.resolve(task.getAssignee());
 
         return ApprovalRecordVO.builder()
@@ -345,6 +364,7 @@ public class HistoryWorkflow {
                 .actorName(actorName)
                 .comment(comment)
                 .operationComment(operationComment)
+                .operationComments(operationComments)
                 .startTime(activity.getStartTime())
                 .endTime(task.getEndTime())
                 .duration(calcDuration(task.getCreateTime(), task.getEndTime()))
@@ -476,6 +496,8 @@ public class HistoryWorkflow {
         String comment = task != null ? extractCommentText(task.getId(), commentsByTaskId) : null;
         String operationComment = task != null
                 ? extractOperationCommentText(task.getId(), commentsByTaskId) : null;
+        List<String> operationComments = task != null
+                ? extractOperationCommentsText(task.getId(), commentsByTaskId) : null;
         String actorName = task != null ? identityResolver.resolve(task.getAssignee()) : null;
 
         return CountersignSubRecord.builder()
@@ -487,6 +509,7 @@ public class HistoryWorkflow {
                 .actorName(actorName)
                 .comment(comment)
                 .operationComment(operationComment)
+                .operationComments(operationComments)
                 .startTime(task != null ? task.getCreateTime() : activity.getStartTime())
                 .endTime(task != null ? task.getEndTime() : activity.getEndTime())
                 .duration(task != null
