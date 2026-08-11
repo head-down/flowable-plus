@@ -1,0 +1,664 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>架构审查 — flowable-plus</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+    </script>
+    <style>
+      .seam { stroke-dasharray: 4 4; }
+      .leak { stroke: #dc2626; }
+      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
+      .mermaid-card { border-radius: 0.5rem; border: 1px solid #e2e8f0; background: #fff; padding: 0.75rem; }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 font-sans">
+    <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
+
+      <!-- ============ HEADER ============ -->
+      <header class="space-y-4">
+        <div class="flex items-baseline justify-between">
+          <h1 class="font-serif text-3xl font-bold">架构审查 · flowable-plus</h1>
+          <p class="text-sm text-slate-500">2026-08-10</p>
+        </div>
+        <div class="flex flex-wrap gap-3 text-xs text-slate-600">
+          <span class="inline-flex items-center gap-1.5"><span class="inline-block w-3 h-3 border-2 border-slate-700 bg-white rounded-sm"></span>模块</span>
+          <span class="inline-flex items-center gap-1.5"><span class="inline-block w-6 border-t-2 border-dashed border-slate-400"></span>接缝</span>
+          <span class="inline-flex items-center gap-1.5"><span class="inline-block w-3 h-3 bg-red-200 border border-red-600 rounded-sm"></span>泄漏 / 重复</span>
+          <span class="inline-flex items-center gap-1.5"><span class="inline-block w-3 h-3 deep rounded-sm"></span>深层模块</span>
+        </div>
+      </header>
+
+      <!-- ============ 0807 遗留追踪 ============ -->
+      <section class="rounded-xl border border-slate-300 bg-white p-6 shadow-sm space-y-3">
+        <h2 class="font-serif text-lg font-bold">并入 2026-08-07 审查的遗留项目</h2>
+        <p class="text-xs text-slate-500">2026-08-07 审查（core 模块深层化候选，5 项）与本次审查的对照及处置：</p>
+        <ul class="text-sm text-slate-700 space-y-1.5 list-disc list-inside">
+          <li><b>审批轨迹双轨并存</b>（Strong）→ <span class="text-emerald-700">已实现</span>：ADR-0028 收敛为单一入口 getApprovalHistory，getApprovalTrace / ApprovalTraceVO 已删除。</li>
+          <li><b>FlowablePlus 门面 seam 不完整</b>（Worth exploring）→ <span class="text-slate-500">已确认不做</span>：ADR-0010 明确「写操作有意不进门面」，写操作以独立接口作为 seam、按需注入；本报告不保留此候选。</li>
+          <li><b>会签轮次读写分裂</b>（Worth exploring）→ <span class="text-slate-500">大部分已解决</span>：csRoundIndex 常量已收敛为 CounterSignWorkflow.CS_ROUND_INDEX_VAR 单一归属（HistoryWorkflow 改为引用）；读写两侧为「展示分轮」与「写时计算」的不同职责，不再构成独立候选。</li>
+          <li><b>会签回退策略接口膨胀</b>（Worth exploring）→ <span class="text-emerald-700">已实现</span>：<a href="#card-d" class="underline">Card D</a> 于 2026-08-11 落地——新建工厂 CountersignRollbackStrategies，三实现退居包私有，接口去掉死参数 registry，静态工具移入工厂。</li>
+          <li><b>NodeFinder 内部无 seam</b>（Speculative）→ <span class="text-slate-500">未解决</span>：已并入本报告 <a href="#card-i" class="underline">Card I</a>（保持 Speculative）。</li>
+        </ul>
+      </section>
+
+      <!-- ============ CANDIDATES ============ -->
+      <section id="candidates" class="space-y-10">
+
+        <!-- ================= CARD A ================= -->
+        <article class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+          <div class="flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3 flex-wrap">
+              <h2 class="font-serif text-xl font-bold">合并双胞胎「审批轨迹」模块</h2>
+              <span class="shrink-0 rounded-full border border-emerald-300 bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">Strong</span>
+              <span class="shrink-0 rounded-full border border-slate-300 bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">已实现 · ADR-0028 (2026-08-10)</span>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-2 text-xs">
+            <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-600">in-process</span>
+            <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-600">概念跳转 6-7 文件</span>
+          </div>
+
+          <div class="font-mono text-sm text-slate-600 space-y-0.5">
+            <p>workflow/HistoryWorkflow.java:253-305 — Comment 四件套副本 ①</p>
+            <p>workflow/ProcessQueryWorkflow.java:417-460 — Comment 四件套副本 ②（逐字重复）</p>
+            <p>vo/ApprovalTraceVO vs vo/ApprovalRecordVO + CountersignSubRecord — 近重复模型</p>
+            <p>csRoundIndex 常量定义 ×2（HistoryWorkflow 私有 + CounterSignWorkflow 包级）</p>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <!-- before -->
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">之前 — 两条并行管线，内核重复</p>
+              <div class="mermaid-card">
+                <pre class="mermaid">
+flowchart LR
+  subgraph L["getApprovalHistory"]
+    L1["Comment 四件套 ①<br/>groupComments / extract×3"]
+  end
+  subgraph R["getApprovalTrace"]
+    R1["Comment 四件套 ②<br/>逐字重复"]
+  end
+  L1 --> LVO["ApprovalRecordVO"]
+  R1 --> RVO["ApprovalTraceVO"]
+  CS["csRoundIndex 常量 ×2"]
+  CS -. 切分轮次 .-> L1
+  CS -. 不消费 .-> R1
+  classDef dup fill:#fee2e2,stroke:#dc2626,stroke-width:2px;
+  class L1,R1 dup
+  classDef shell stroke:#64748b,stroke-dasharray:4 4;
+  class CS shell
+                </pre>
+              </div>
+            </div>
+            <!-- after -->
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">之后 — 一个深层模块，两个薄视图适配器</p>
+              <div class="flex flex-col gap-3 h-full">
+                <div class="flex items-stretch flex-1">
+                  <div class="w-1/3 rounded-l-lg border-2 border-emerald-600 bg-emerald-50 p-3 flex flex-col justify-center">
+                    <p class="text-xs uppercase tracking-wider text-emerald-800 font-semibold">接口面</p>
+                    <p class="font-mono text-xs mt-1">getApprovalTrace(instanceId)</p>
+                  </div>
+                  <div class="w-2/3 deep rounded-r-lg p-3 text-slate-100 flex flex-col justify-center gap-1.5">
+                    <p class="text-xs uppercase tracking-wider text-slate-300 font-semibold">深层实现 · 审批轨迹</p>
+                    <p class="text-xs">· 轮次切分（csRoundIndex）</p>
+                    <p class="text-xs">· Comment 分组内核（一处）</p>
+                    <p class="text-xs">· 事件时间线 / 节点聚合</p>
+                  </div>
+                </div>
+                <div class="flex gap-2">
+                  <div class="flex-1 rounded border border-slate-300 bg-slate-50 p-2 text-center text-xs text-slate-500">视图适配器<br/>ApprovalTraceVO</div>
+                  <div class="flex-1 rounded border border-slate-300 bg-slate-50 p-2 text-center text-xs text-slate-500">视图适配器<br/>ApprovalRecordVO</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2 text-sm">
+            <p><strong class="text-slate-700">Problem</strong> — 同一领域概念「审批轨迹」由两个并行模块实现，产出两套近重复 VO（duration vs durationMillis、actorId+actorName vs assignee、布尔 vs ApprovalAction），核心的四件套逻辑逐字重复两份；理解一个概念要跳 6-7 个文件。</p>
+            <p><strong class="text-slate-700">Solution</strong> — 收敛为单一深层「审批轨迹」模块：统一接口面，内部承载轮次切分、Comment 分组内核、事件时间线；两种 VO 退化为两个薄展示适配器。</p>
+            <div>
+              <p class="font-semibold text-slate-700 mb-1">Wins</p>
+              <ul class="list-disc list-inside space-y-0.5">
+                <li>局部性：轮次切分 / 意见提取只修一份</li>
+                <li>杠杆：一个内核，两个视图消费</li>
+                <li>接口面收缩：两个 public 方法 → 一个</li>
+                <li>测试：跨同一个接缝驱动，不再摸 mock 链</li>
+              </ul>
+            </div>
+            <div class="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              ADR 兼容：不推翻任何 ADR。ADR-0009 三级推断、ADR-0020 csRoundIndex 边界、ADR-0025/0027 CommentType 分组与多值化全部保留，只是收敛到单一模块内。
+            </div>
+          </div>
+        </article>
+
+        <!-- ================= CARD B ================= -->
+        <article class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+          <div class="flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3 flex-wrap">
+              <h2 class="font-serif text-xl font-bold">事件发布收敛为深层模块</h2>
+              <span class="shrink-0 rounded-full border border-emerald-300 bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">Strong</span>
+              <span class="shrink-0 rounded-full border border-slate-300 bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">已实现 (2026-08-11)</span>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-2 text-xs">
+            <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-600">in-process</span>
+            <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-600">重复 ×11 → 已收敛</span>
+          </div>
+
+          <div class="font-mono text-sm text-slate-600 space-y-0.5">
+            <p>event/EventBus.java — 9 个领域语义方法 + 通用 publish（新增，见 commit 5036ba9）</p>
+            <p>workflow/TaskExecutionWorkflow.java — 6 处内联已改为 eventBus 语义方法</p>
+            <p>workflow/CounterSignWorkflow.java — 2 处内联已改为 eventBus 语义方法</p>
+            <p>workflow/ProcessLifecycleWorkflow.java — 2 处内联已改为 eventBus 语义方法</p>
+            <p>support/ProcessEndDetector.java — checkAndPublish 经 eventBus.isEnabled() 短路</p>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <!-- before: cross-section -->
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">之前 — 每次发布都穿过同样的四层薄壳</p>
+              <div class="space-y-1.5">
+                <div class="flex items-center gap-2">
+                  <span class="w-24 text-xs text-slate-500">TaskExecutionWorkflow</span>
+                  <div class="flex-1 h-10 rounded border border-slate-300 bg-slate-50 flex items-center px-2 text-xs text-red-700">if (eventPublisher != null) {</div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="w-24 text-xs text-slate-500">CounterSignWorkflow</span>
+                  <div class="flex-1 h-10 rounded border border-slate-300 bg-slate-50 flex items-center px-2 text-xs text-red-700">if (eventPublisher != null) {</div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="w-24 text-xs text-slate-500">ProcessLifecycleWorkflow</span>
+                  <div class="flex-1 h-10 rounded border border-slate-300 bg-slate-50 flex items-center px-2 text-xs text-red-700">if (eventPublisher != null) {</div>
+                </div>
+                <div class="pl-28 text-xs text-slate-400">publish(XxxEvent.of(task, ...)) ← 每处各自构造</div>
+                <div class="pl-28 flex items-center gap-2 text-xs">
+                  <span class="text-slate-400">事件类 ×11</span>
+                  <span class="rounded border border-slate-300 bg-slate-50 px-2 py-0.5 text-slate-500">of / getter / accept / toString</span>
+                </div>
+              </div>
+            </div>
+            <!-- after -->
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">之后 — 一条发布路径，null 容忍在内部</p>
+              <div class="flex flex-col gap-3">
+                <div class="flex items-stretch">
+                  <div class="w-1/3 rounded-l-lg border-2 border-emerald-600 bg-emerald-50 p-3 flex flex-col justify-center">
+                    <p class="text-xs uppercase tracking-wider text-emerald-800 font-semibold">接口面</p>
+                    <p class="font-mono text-xs mt-1">eventBus.taskXxx() / processXxx()</p>
+                  </div>
+                  <div class="w-2/3 deep rounded-r-lg p-3 text-slate-100 flex flex-col justify-center gap-1.5">
+                    <p class="text-xs uppercase tracking-wider text-slate-300 font-semibold">深层实现 · 事件发布</p>
+                    <p class="text-xs">· null 发布者容忍（一处判定）</p>
+                    <p class="text-xs">· 事件构造工厂（of() 参数展开 + 时间戳）</p>
+                    <p class="text-xs">· 委托 EventPublisher → DispatchableEvent 分发</p>
+                  </div>
+                </div>
+                <p class="text-xs text-slate-500 text-center">写操作只调一条路径，11 处分支删除</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2 text-sm">
+            <p><strong class="text-slate-700">Problem</strong> — `if (eventPublisher != null) { publish(XxxEvent.of(...)) }` 模式重复 11 次；每个事件类重复 of/getter/accept/toString 样板，接口面与实现一样宽。</p>
+            <p><strong class="text-slate-700">Solution</strong> — 收敛为一个深层事件发布模块：内部容忍 null 发布者、持有事件构造工厂，写操作只面对一条 `publish(event)` 路径。</p>
+            <div>
+              <p class="font-semibold text-slate-700 mb-1">Wins</p>
+              <ul class="list-disc list-inside space-y-0.5">
+                <li>局部性：null 判定 / 构造只写一处</li>
+                <li>删除 11 处重复分支</li>
+                <li>接口面收缩：事件类瘦身为纯数据</li>
+                <li>测试：发布语义在一个模块内验证</li>
+              </ul>
+            </div>
+            <div class="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              ADR-0011（DispatchableEvent 自分发）保留不变 — 只是把「谁调用 publish」收敛起来。
+            </div>
+          </div>
+        </article>
+
+        <!-- ================= CARD C ================= -->
+        <article class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+          <div class="flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3 flex-wrap">
+              <h2 class="font-serif text-xl font-bold">已办查询 Phase 2 去重</h2>
+              <span class="shrink-0 rounded-full border border-emerald-300 bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">Worth exploring</span>
+              <span class="shrink-0 rounded-full border border-slate-300 bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">已实现 (2026-08-11)</span>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-2 text-xs">
+            <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-600">in-process</span>
+            <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-600">复制粘贴而非抽取 → 已收敛</span>
+          </div>
+
+          <div class="font-mono text-sm text-slate-600 space-y-0.5">
+            <p>workflow/TaskQueryModule.java — 私有 assembleDoneVOs（共享 Phase 2：批量取任务 + 去重 + VO 装配）</p>
+            <p>queryDoneTasks / queryDoneTasksPrecise — 各自仅保留 Phase 1 差异 + 空结果早退</p>
+            <p>同一文件内私有 escapeSql / escapeLike / formatDate（Native SQL，ADR-0013）</p>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">之前 — 两条已办管线各带一份 Phase 2</p>
+              <div class="mermaid-card">
+                <pre class="mermaid">
+flowchart TB
+  subgraph A["queryDoneTasks（标准两阶段）"]
+    A1["Phase 1 取实例列表"]
+    A2["Phase 2 批量取任务 + 去重"]
+  end
+  subgraph B["queryDoneTasksPrecise（Native SQL）"]
+    B1["Phase 1 Native SQL 精确计数"]
+    B2["Phase 2 批量取任务 + 去重"]
+  end
+  A2 --> V1["VO 装配"]
+  B2 --> V1
+  classDef dup fill:#fee2e2,stroke:#dc2626,stroke-width:2px;
+  class A2,B2 dup
+                </pre>
+              </div>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">之后 — 共享 Phase 2，差异钉在 Phase 1</p>
+              <div class="mermaid-card">
+                <pre class="mermaid">
+flowchart TB
+  subgraph A["queryDoneTasks"]
+    A1["Phase 1 取实例列表"]
+  end
+  subgraph B["queryDoneTasksPrecise"]
+    B1["Phase 1 Native SQL 精确计数"]
+  end
+  A1 --> SHARED["共享 Phase 2<br/>批量取任务 + 去重 + VO 装配"]
+  B1 --> SHARED
+  classDef core fill:#d1fae5,stroke:#059669,stroke-width:2px;
+  class SHARED core
+                </pre>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2 text-sm">
+            <p><strong class="text-slate-700">Problem</strong> — 两条已办查询路径共享「批量取任务 + 去重」逻辑，却是复制粘贴：一处修复不会自动传导到另一处，ADR-0013 的精确分页差异散落在两个方法里。</p>
+            <p><strong class="text-slate-700">Solution</strong> — 抽取共享 Phase 2（取任务 + 按实例去重 + VO 装配）为单一私有步骤，两条查询只保留各自的取实例列表差异。</p>
+            <div>
+              <p class="font-semibold text-slate-700 mb-1">Wins</p>
+              <ul class="list-disc list-inside space-y-0.5">
+                <li>局部性：去重 / 批量逻辑一份</li>
+                <li>Native 与标准查询的差异点被钉在一个接缝</li>
+                <li>测试：Phase 2 独立覆盖</li>
+              </ul>
+            </div>
+            <div class="rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+              <b>已实现（2026-08-11）</b>：抽取私有 <code>assembleDoneVOs(processes, userId)</code> 承载共享 Phase 2（批量取任务 + <code>putIfAbsent</code> 按实例去重 + VO 装配），两条查询仅保留各自的 Phase 1 与空结果早退，日志行为逐字节保留。core 27 + starter 17 相关测试全绿。行为不变，未引入新测试（Solution 要求私有步骤，现有集成测试经公共 API 间接覆盖）。
+            </div>
+          </div>
+        </article>
+
+        <!-- ================= CARD D ================= -->
+        <article id="card-d" class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+          <div class="flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3 flex-wrap">
+              <h2 class="font-serif text-xl font-bold">会签回退策略族整合</h2>
+              <span class="shrink-0 rounded-full border border-emerald-300 bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">Worth exploring</span>
+              <span class="shrink-0 rounded-full border border-slate-300 bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">已实现 (2026-08-11)</span>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-2 text-xs">
+            <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-600">in-process</span>
+            <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-600">理解需跨 6 文件 → 收敛</span>
+          </div>
+
+          <div class="font-mono text-sm text-slate-600 space-y-0.5">
+            <p>strategy/CountersignRollbackStrategies.java — 新增工厂：strict / autoRedirect / autoRebuild + resolveMultiInstancePredecessor</p>
+            <p>strategy/CountersignRollbackStrategy.java — 接口去死参数 registry，resolveRollbackTarget(task, targetActivityId)</p>
+            <p>strategy/Strict / AutoRedirect / AutoRebuild — public → 包私有（退居内部）</p>
+            <p>workflow/TaskExecutionWorkflow.java — 移除 assigneeResolverRegistry 字段/构造参数，静态工具改引工厂</p>
+            <p>workflow/CounterSignWorkflow.java — addCounterSigner 拆分为 6 个可命名步骤（校验/查重/轮次/副作用）</p>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">之前 — 回退裁决散落成一张网</p>
+              <div class="mermaid-card">
+                <pre class="mermaid">
+flowchart TD
+  TW["TaskExecutionWorkflow<br/>executeRollback"] --> IS["CountersignRollbackStrategy 接口"]
+  IS --> S1["Strict 实现"]
+  IS --> S2["AutoRedirect 实现"]
+  IS --> S3["AutoRebuild 实现"]
+  S1 --> STAT["静态 resolveMultiInstancePredecessor"]
+  S2 --> REG["AssigneeResolverRegistry"]
+  S3 --> RR["RollbackResult VO"]
+  STAT --> MD["MultiInstanceDetector"]
+  REG --> NF["NodeFinder"]
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class STAT,REG,RR leak
+                </pre>
+              </div>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">之后 — 一个深层回退模块</p>
+              <div class="flex flex-col gap-3 h-full">
+                <div class="flex items-stretch flex-1">
+                  <div class="w-1/3 rounded-l-lg border-2 border-emerald-600 bg-emerald-50 p-3 flex flex-col justify-center">
+                    <p class="text-xs uppercase tracking-wider text-emerald-800 font-semibold">接口面</p>
+                    <p class="font-mono text-xs mt-1">resolveRollbackTarget(task, targetActivityId)</p>
+                  </div>
+                  <div class="w-2/3 deep rounded-r-lg p-3 text-slate-100 flex flex-col justify-center gap-1.5">
+                    <p class="text-xs uppercase tracking-wider text-slate-300 font-semibold">深层实现 · 会签回退</p>
+                    <p class="text-xs">· 策略裁决（三实现退居内部，工厂创建）</p>
+                    <p class="text-xs">· 前驱解析 / 自动重定向</p>
+                    <p class="text-xs">· 结果模型收敛</p>
+                  </div>
+                </div>
+                <p class="text-xs text-slate-500 text-center">接口收窄为「给定任务 + 目标节点 → 回退结果」</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2 text-sm">
+            <p><strong class="text-slate-700">Problem</strong> — 会签回退的理解要跨 6 个文件：接口 + 3 实现 + 静态解析 + 注册表 + 结果 VO；addCounterSigner 一件操作做五件事（三层查重 + 写变量 + 批量加签 + 打标 + 回调）。</p>
+            <p><strong class="text-slate-700">Solution</strong> — 回退策略族收敛为一个深层回退模块（接口收窄为「给定任务 + 策略 → 回退结果」），三实现退居内部；addCounterSigner 拆分为可命名的内部步骤。</p>
+            <div>
+              <p class="font-semibold text-slate-700 mb-1">Wins</p>
+              <ul class="list-disc list-inside space-y-0.5">
+                <li>局部性：回退裁决逻辑一处</li>
+                <li>接口面收缩：策略实现不再对调用方暴露</li>
+                <li>加签的五个步骤可各自单测</li>
+              </ul>
+            </div>
+            <div class="rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+              <b>已实现（2026-08-11，commit 04126dc）</b>：新建工厂 <code>CountersignRollbackStrategies</code> 承载三静态工厂 + 前驱解析工具；三实现改包私有、仅经工厂创建；接口去掉死参数 <code>assigneeResolverRegistry</code>；<code>TaskExecutionWorkflow</code> 彻底移除 registry 依赖；<code>addCounterSigner</code> 拆为 6 个可命名步骤（行为逐条比对不变，core 452 + starter 92 测试全绿）。ADR-0021 第 5 节同步。
+            </div>
+            <div class="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              ADR-0021（运行时检测与自动重定向）与 ADR-0022（双模式建模 + AssigneeResolver SPI）的决策保留 — 本候选只动模块形状，不动决策内容。
+            </div>
+          </div>
+        </article>
+
+        <!-- ================= CARD E ================= -->
+        <article class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+          <div class="flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3 flex-wrap">
+              <h2 class="font-serif text-xl font-bold">权限校验收敛</h2>
+              <span class="shrink-0 rounded-full border border-emerald-300 bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">Worth exploring</span>
+              <span class="shrink-0 rounded-full border border-slate-300 bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">已实现 (2026-08-11)</span>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-2 text-xs">
+            <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-600">in-process</span>
+            <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-600">校验与操作纠缠 → PreviousNodeAuthorizer 已删除</span>
+          </div>
+
+          <div class="font-mono text-sm text-slate-600 space-y-0.5">
+            <p>support/TaskValidation.java — 静态工具类 5 方法（新增 validatePreviousNodeAssignee）</p>
+            <p>support/PreviousNodeAuthorizer.java — 已删除（-135 行；含重复的上一节点解析与文档脱节 javadoc）</p>
+            <p>workflow/CounterSignWorkflow.java — 私有 validateCounterSignPermission 保留（会签领域规则，ADR-0023）</p>
+            <p>workflow/TaskExecutionWorkflow.java — withdrawTask 经 TaskValidation 收敛校验，移除授权器依赖</p>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">之前 — 校验散在三处，逐方法内联</p>
+              <div class="mermaid-card">
+                <pre class="mermaid">
+flowchart LR
+  subgraph OPS["写操作 ×11"]
+    M1["completeTask"]
+    M2["rejectTask"]
+    M3["withdrawTask"]
+    M4["transferTask"]
+  end
+  TV["TaskValidation（静态）"]
+  PA["PreviousNodeAuthorizer"]
+  CP["CounterSignWorkflow 私有校验"]
+  M1 --> TV
+  M2 --> TV
+  M3 --> PA
+  M4 --> TV
+  CP --> TV
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class PA,CP leak
+                </pre>
+              </div>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">之后 — 一个权限校验模块</p>
+              <div class="flex items-stretch h-64">
+                <div class="w-1/3 rounded-l-lg border-2 border-emerald-600 bg-emerald-50 p-3 flex flex-col justify-center">
+                  <p class="text-xs uppercase tracking-wider text-emerald-800 font-semibold">接口面</p>
+                  <p class="font-mono text-xs mt-1">require(身份, 资源)</p>
+                </div>
+                <div class="w-2/3 deep rounded-r-lg p-3 text-slate-100 flex flex-col justify-center gap-1.5">
+                  <p class="text-xs uppercase tracking-wider text-slate-300 font-semibold">深层实现 · 权限校验</p>
+                  <p class="text-xs">· 任务存在 / 活跃校验</p>
+                  <p class="text-xs">· assignee / owner / 发起人身份</p>
+                  <p class="text-xs">· 会签权限规则集中</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2 text-sm">
+            <p><strong class="text-slate-700">Problem</strong> — 权限校验与操作逻辑纠缠：散在静态类 + 一个专用授权器 + 私有方法三处；PreviousNodeAuthorizer 的文档声称与实际用途脱节（javadoc 说供 CounterSign 用，实际无人调用）。</p>
+            <p><strong class="text-slate-700">Solution</strong> — 收敛为单一权限校验模块，写操作在接缝处声明所需身份；PreviousNodeAuthorizer 并入或删除，文档脱节自愈。</p>
+            <div>
+              <p class="font-semibold text-slate-700 mb-1">Wins</p>
+              <ul class="list-disc list-inside space-y-0.5">
+                <li>局部性：校验规则一处</li>
+                <li>PreviousNodeAuthorizer 文档脱节自愈</li>
+                <li>测试：权限矩阵一个模块覆盖</li>
+              </ul>
+            </div>
+            <div class="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              ADR-0023（模式 A 加签/减签权限放宽）与 ADR-0015（权限校验是领域增值）保留 — 本候选只收敛实现位置。
+            </div>
+            <div class="rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+              <b>已实现（2026-08-11）</b>：删除 <code>PreviousNodeAuthorizer</code>（-135 行类 + -236 行单测 + Bean 注册），其唯一职责「上一节点审批人身份校验」收敛为 <code>TaskValidation.validatePreviousNodeAssignee</code> 静态方法，与既有 <code>validateCurrentUserIsAssignee</code> 平行；<code>withdrawTask</code> 改用之并消除重复的上一节点解析。<code>validateCounterSignPermission</code> 保留在 CounterSignWorkflow（会签领域规则，依赖其私有方法与 runtimeService，移动破坏内聚）。行为等价，补充「上一节点无历史任务」拒绝测试。core 443 + starter 92 测试全绿。
+            </div>
+          </div>
+        </article>
+
+        <!-- ================= CARD F ================= -->
+        <article class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+          <div class="flex items-center justify-between gap-4">
+            <h2 class="font-serif text-xl font-bold">删除测试通过的残留：extension 空壳 + 死接口</h2>
+            <span class="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">Worth exploring</span>
+          </div>
+          <div class="flex flex-wrap gap-2 text-xs">
+            <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-600">in-process</span>
+            <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-600">删除测试：复杂性直接消失</span>
+          </div>
+
+          <div class="font-mono text-sm text-slate-600 space-y-0.5">
+            <p>flowable-plus-extension/ — 仅 pom.xml + package-info.java（宣称的功能已在 core 实现）</p>
+            <p>spi/TaskQueryEnhancer.java — 全库零引用的死接口</p>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">之前 — 两个假承诺</p>
+              <div class="space-y-2">
+                <div class="rounded border border-red-300 bg-red-50 p-3 text-xs text-red-800">
+                  <p class="font-semibold">extension 模块</p>
+                  <p class="mt-1">package-info 宣称将含「多实例处理、高级审批模式」 — 这些已在 CounterSignWorkflow / 回退策略族实现。删除后复杂性消失，不转移到任何调用方。</p>
+                </div>
+                <div class="rounded border border-red-300 bg-red-50 p-3 text-xs text-red-800">
+                  <p class="font-semibold">TaskQueryEnhancer SPI</p>
+                  <p class="mt-1">全库零引用；实际回调用的是 Consumer&lt;TaskQuery&gt; 参数。删除后无调用方受损，还能消除「回调有两个入口」的误导。</p>
+                </div>
+              </div>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">之后 — 干净的拓扑</p>
+              <div class="flex flex-col gap-3 h-full justify-center">
+                <div class="rounded-lg border-2 border-emerald-600 bg-emerald-50 p-4 text-center">
+                  <p class="font-mono text-sm text-emerald-800">core ← starter</p>
+                  <p class="text-xs text-emerald-700 mt-1">模块拓扑只剩实际承担的职责</p>
+                </div>
+                <div class="rounded-lg border-2 border-emerald-600 bg-emerald-50 p-4 text-center">
+                  <p class="font-mono text-sm text-emerald-800">回调 = Consumer&lt;TaskQuery&gt; 唯一形态</p>
+                  <p class="text-xs text-emerald-700 mt-1">一处回调入口，一处文档</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2 text-sm">
+            <p><strong class="text-slate-700">Problem</strong> — extension 空壳承诺了已在 core 实现的能力，误导探索者；TaskQueryEnhancer 是死接口，与 Consumer 回调并存制造「两个回调入口」的假象。</p>
+            <p><strong class="text-slate-700">Solution</strong> — 删除测试通过：两个残留删除后复杂性直接消失、无调用方受损。删除 extension 需同步更新 CODEBUDDY.md 中的模块描述。</p>
+            <div>
+              <p class="font-semibold text-slate-700 mb-1">Wins</p>
+              <ul class="list-disc list-inside space-y-0.5">
+                <li>局部性：减少「这里有什么」的假承诺</li>
+                <li>删除测试通过（Shell 不承担任何复杂性）</li>
+                <li>接口面缩小：一个回调形态</li>
+              </ul>
+            </div>
+          </div>
+        </article>
+
+        <!-- ================= CARD G ================= -->
+        <article class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+          <div class="flex items-center justify-between gap-4">
+            <h2 class="font-serif text-xl font-bold">NodePreviewWorkflow 接口面收窄</h2>
+            <span class="shrink-0 rounded-full border border-slate-300 bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">Speculative</span>
+          </div>
+          <div class="flex flex-wrap gap-2 text-xs">
+            <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-600">in-process</span>
+            <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-600">8 方法同一模板</span>
+          </div>
+
+          <div class="font-mono text-sm text-slate-600 space-y-0.5">
+            <p>workflow/NodePreviewWorkflow.java — 8 个 public 方法 × 20-40 行，同一模板（查任务 → NodeFinder 拿 nodeId → 映射 VO）</p>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">之前 — 接口面 ≈ 实现（浅层）</p>
+              <div class="flex flex-col gap-1.5">
+                <div class="flex items-center gap-1">
+                  <div class="w-1/2 rounded border border-slate-400 bg-slate-100 h-10 flex items-center justify-center text-[10px] text-slate-600">接口面 8 方法</div>
+                  <div class="w-1/2 rounded border border-slate-400 bg-slate-200 h-12 flex items-center justify-center text-[10px] text-slate-600">实现 8 段模板</div>
+                </div>
+                <p class="text-xs text-slate-400 text-center">接口宽度几乎等于实现高度 — 深度不足</p>
+              </div>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">之后 — 短接口，深实现</p>
+              <div class="flex flex-col gap-1.5">
+                <div class="flex items-center gap-1">
+                  <div class="w-1/2 rounded border-2 border-emerald-600 bg-emerald-50 h-8 flex items-center justify-center text-[10px] text-emerald-800">接口面 1-2 方法</div>
+                  <div class="w-1/2 deep rounded h-16 flex items-center justify-center text-[10px] text-slate-200">内部编排：模板下沉</div>
+                </div>
+                <p class="text-xs text-slate-400 text-center">预览编排收敛为内部步骤</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2 text-sm">
+            <p><strong class="text-slate-700">Problem</strong> — 8 个方法呈重复模板，接口面与实现一样宽 — 深度不足，调用方要学习 8 个几乎同构的入口。</p>
+            <p><strong class="text-slate-700">Solution</strong> — 收窄为一个通用预览入口（按领域语义归组），模板逻辑下沉为内部步骤。</p>
+            <div>
+              <p class="font-semibold text-slate-700 mb-1">Wins</p>
+              <ul class="list-disc list-inside space-y-0.5">
+                <li>接口面收缩：8 入口 → 1-2 入口</li>
+                <li>测试沿一个接缝驱动</li>
+                <li>局部性：预览编排一处</li>
+              </ul>
+            </div>
+          </div>
+        </article>
+
+        <!-- ================= CARD I ================= -->
+        <article id="card-i" class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+          <div class="flex items-center justify-between gap-4">
+            <h2 class="font-serif text-xl font-bold">NodeFinder 内部 seam：8 方法接口盖 903 行实现</h2>
+            <span class="shrink-0 rounded-full border border-slate-300 bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">Speculative</span>
+          </div>
+          <div class="flex flex-wrap gap-2 text-xs">
+            <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-600">in-process</span>
+            <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-600">深度正确但内部不可测试</span>
+          </div>
+
+          <div class="font-mono text-sm text-slate-600 space-y-0.5">
+            <p>model/NodeFinder.java — 8 方法接口</p>
+            <p>model/DefaultNodeFinder.java — 903 行：BPMN 遍历 + 历史过滤 + 表达式评估混居</p>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <!-- before -->
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">之前 — 8 方法 = 903 行黑箱</p>
+              <div class="mermaid-card">
+                <pre class="mermaid">
+flowchart TB
+  subgraph DF["DefaultNodeFinder（903 行）"]
+    direction TB
+    T["BPMN 图遍历"]
+    H["历史任务过滤"]
+    E["表达式评估（分支条件）"]
+    F["Filter SPI 合并"]
+  end
+  classDef mixed fill:#fee2e2,stroke:#dc2626,stroke-width:2px;
+  class T,H,E,F mixed
+                </pre>
+              </div>
+            </div>
+            <!-- after -->
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">之后 — 接口不变，内部出现 seam</p>
+              <div class="mermaid-card">
+                <pre class="mermaid">
+flowchart TB
+  subgraph DF2["DefaultNodeFinder"]
+    direction TB
+    TR["遍历引擎 findNext/findPrevious"]
+    TR --> EX["ExpressionEvaluator"]
+    TR --> HF["HistoryFilter"]
+    TR --> F["UserTaskTraversalFilter 合并"]
+  end
+  classDef deep fill:#0f172a,color:#e2e8f0;
+  class DF2 deep
+  classDef seam stroke-dasharray:4 4;
+  class EX,HF seam
+                </pre>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2 text-sm">
+            <p><strong class="text-slate-700">Problem</strong> — 8 方法接口盖 903 行，深度方向正确（符合 ADR-0018 复用遍历引擎的意图），但实现混居三件事：BPMN 遍历、历史过滤、表达式评估；表达式分支这类纯函数本可单测，现在只能隔着整层接口打。</p>
+            <p><strong class="text-slate-700">Solution</strong> — 不拆接口，只加 internal seam：ExpressionEvaluator 与 HistoryFilter 抽为私有协作模块，DefaultNodeFinder 组合之；接口仍是 8 方法，测试可直接打内部 seam。</p>
+            <div>
+              <p class="font-semibold text-slate-700 mb-1">Wins</p>
+              <ul class="list-disc list-inside space-y-0.5">
+                <li>接口面不变，调用方零感知</li>
+                <li>表达式评估（分支条件）获得独立测试位</li>
+                <li>「深度是接口的属性」—— 内部可拆分，不违反深层模块原则</li>
+              </ul>
+            </div>
+            <div class="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              强度为 Speculative：903 行当前尚可导航，若未来再增长或分支条件评估 bug 频发再动。来源：2026-08-07 审查候选 5。
+            </div>
+          </div>
+        </article>
+
+      </section>
+
+      <!-- ============ TOP RECOMMENDATION ============ -->
+      <section id="top-recommendation">
+        <div class="deep rounded-xl p-6 text-slate-100 shadow-md">
+          <h2 class="font-serif text-xl font-bold mb-2">下一步：Card A/B/C/D/E 均已落地，接续 Card F（删除测试通过的残留）</h2>
+          <p class="text-sm text-slate-200">原首选（合并双胞胎「审批轨迹」模块）已由 ADR-0028 实现；事件发布（<a href="#candidates" class="underline text-emerald-300">Card B</a>）已于 2026-08-11 收敛为 EventBus 深层模块；<b>Card D（回退策略族）</b>与 <b>Card C（已办查询 Phase 2 去重）</b>已于 2026-08-11 落地；<b>Card E（权限校验收敛）已于 2026-08-11 落地</b>——删除 PreviousNodeAuthorizer（-371 行），职责收敛至 TaskValidation，withdrawTask 消除重复解析。<b>下一候选为 <a href="#candidates" class="underline text-emerald-300">Card F</a>（删除 extension 空壳 + 死接口 TaskQueryEnhancer，删除测试）</b>——删除后复杂性直接消失、不转移复杂度到任何调用方，为低成本高确定性收敛。Card G / Card I（Speculative）待触发条件满足再动。0807 审查的完整对照见文首「遗留追踪」。</p>
+        </div>
+      </section>
+
+    </main>
+  </body>
+</html>
