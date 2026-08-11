@@ -32,6 +32,7 @@ import io.github.flowable.plus.core.support.VOAssembler;
 import io.github.flowable.plus.core.spi.ApproverResolver;
 import io.github.flowable.plus.core.spi.AssigneeResolver;
 import io.github.flowable.plus.core.event.DefaultEventPublisher;
+import io.github.flowable.plus.core.event.EventBus;
 import io.github.flowable.plus.core.event.EventPublisher;
 import io.github.flowable.plus.core.spi.AutoApprovalRule;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
@@ -204,12 +205,25 @@ public class FlowablePlusAutoConfiguration {
         return syncPublisher;
     }
 
+    /**
+     * 注册 EventBus Bean。
+     *
+     * <p>作为发布事件的统一入口深层模块，封装 null 发布者容忍与事件构造。
+     * 无 {@link EventPublisher} Bean（{@code flowable.plus.event.enabled=false}）时
+     * EventBus 仍存在，各语义方法静默 no-op，workflow 模块无需判空。</p>
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public EventBus eventBus(@Autowired(required = false) EventPublisher eventPublisher) {
+        return new EventBus(eventPublisher);
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public ProcessEndDetector processEndDetector(RuntimeService runtimeService,
                                                    HistoryService historyService,
-                                                   @Autowired(required = false) EventPublisher eventPublisher) {
-        return new ProcessEndDetector(runtimeService, historyService, eventPublisher);
+                                                   EventBus eventBus) {
+        return new ProcessEndDetector(runtimeService, historyService, eventBus);
     }
 
     /**
@@ -331,10 +345,10 @@ public class FlowablePlusAutoConfiguration {
                                                               HistoryService historyService, NodeFinder nodeFinder,
                                                               ProcessEngine processEngine,
                                                               @Autowired(required = false) List<AutoApprovalRule> autoApprovalRules,
-                                                              @Autowired(required = false) EventPublisher eventPublisher) {
+                                                              EventBus eventBus) {
         return new ProcessLifecycleWorkflow(userContext, taskService, historyService,
                 processEngine.getRuntimeService(), processEngine.getIdentityService(),
-                nodeFinder, autoApprovalRules, eventPublisher);
+                nodeFinder, autoApprovalRules, eventBus);
     }
 
     /**
@@ -359,14 +373,14 @@ public class FlowablePlusAutoConfiguration {
                                                         MultiInstanceDetector multiInstanceDetector,
                                                         ProcessEngine processEngine,
                                                         ExecutionTreeHelper executionTreeHelper,
-                                                        @Autowired(required = false) EventPublisher eventPublisher,
+                                                        EventBus eventBus,
                                                         ProcessEndDetector processEndDetector,
                                                         PreviousNodeAuthorizer previousNodeAuthorizer,
                                                         CountersignRollbackStrategy countersignRollbackStrategy,
                                                         AssigneeResolverRegistry assigneeResolverRegistry) {
         return new TaskExecutionWorkflow(userContext, taskService, historyService,
                 processEngine.getRuntimeService(), nodeFinder, multiInstanceDetector,
-                executionTreeHelper, eventPublisher, processEndDetector, previousNodeAuthorizer,
+                executionTreeHelper, eventBus, processEndDetector, previousNodeAuthorizer,
                 countersignRollbackStrategy, assigneeResolverRegistry);
     }
 
@@ -395,13 +409,13 @@ public class FlowablePlusAutoConfiguration {
                                                    ProcessEngine processEngine,
                                                    @Autowired(required = false) List<CounterSignCallback> counterSignCallbacks,
                                                    FlowablePlusCounterSignProperties counterSignProps,
-                                                   @Autowired(required = false) EventPublisher eventPublisher,
+                                                   EventBus eventBus,
                                                    ProcessEndDetector processEndDetector) {
         List<CounterSignCallback> callbacks = counterSignProps.isEnabled() && counterSignCallbacks != null
                 ? counterSignCallbacks : Collections.emptyList();
         return new CounterSignWorkflow(userContext, taskService, historyService,
                 processEngine.getRuntimeService(), multiInstanceDetector, nodeFinder, callbacks,
-                eventPublisher, processEndDetector);
+                eventBus, processEndDetector);
     }
 
     /**

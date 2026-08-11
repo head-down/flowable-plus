@@ -3,6 +3,7 @@ package io.github.flowable.plus.core;
 import io.github.flowable.plus.core.domain.PlusProcessInstance;
 import io.github.flowable.plus.core.domain.PlusTask;
 import io.github.flowable.plus.core.enums.CommentType;
+import io.github.flowable.plus.core.event.EventBus;
 import io.github.flowable.plus.core.event.EventPublisher;
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
@@ -70,7 +71,7 @@ public class ProcessLifecycleWorkflowTest {
         mockNodeFinder = mock(NodeFinder.class);
 
         workflow = new ProcessLifecycleWorkflow(userContext, mockTaskService, mockHistoryService,
-                mockRuntimeService, mockIdentityService, mockNodeFinder, null, null);
+                mockRuntimeService, mockIdentityService, mockNodeFinder, null, new EventBus(null));
     }
 
     // ======================== 发起 ========================
@@ -149,7 +150,7 @@ public class ProcessLifecycleWorkflowTest {
 
         workflow = new ProcessLifecycleWorkflow(userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockIdentityService, mockNodeFinder,
-                Collections.singletonList(failingRule), null);
+                Collections.singletonList(failingRule), new EventBus(null));
 
         ProcessInstance mockPi = mock(ProcessInstance.class);
         when(mockPi.getProcessInstanceId()).thenReturn("pi-003");
@@ -172,7 +173,7 @@ public class ProcessLifecycleWorkflowTest {
 
     private ProcessLifecycleWorkflow createWorkflowWithRules(List<AutoApprovalRule> rules) {
         return new ProcessLifecycleWorkflow(userContext, mockTaskService, mockHistoryService,
-                mockRuntimeService, mockIdentityService, mockNodeFinder, rules, null);
+                mockRuntimeService, mockIdentityService, mockNodeFinder, rules, new EventBus(null));
     }
 
     @Test
@@ -577,7 +578,7 @@ public class ProcessLifecycleWorkflowTest {
 
     private ProcessLifecycleWorkflow createWorkflowWithEventPublisher(EventPublisher ep) {
         return new ProcessLifecycleWorkflow(userContext, mockTaskService, mockHistoryService,
-                mockRuntimeService, mockIdentityService, mockNodeFinder, null, ep);
+                mockRuntimeService, mockIdentityService, mockNodeFinder, null, new EventBus(ep));
     }
 
     @Test

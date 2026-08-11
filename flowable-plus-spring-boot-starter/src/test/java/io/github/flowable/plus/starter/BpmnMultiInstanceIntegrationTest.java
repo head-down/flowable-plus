@@ -1,6 +1,7 @@
 package io.github.flowable.plus.starter;
 
 import io.github.flowable.plus.core.model.BpmnModelCache;
+import io.github.flowable.plus.core.event.EventBus;
 import io.github.flowable.plus.core.workflow.CounterSignWorkflow;
 import io.github.flowable.plus.core.model.DefaultBpmnModelCache;
 import io.github.flowable.plus.core.model.DefaultNodeFinder;
@@ -108,12 +109,12 @@ class BpmnMultiInstanceIntegrationTest {
 
         counterSignWorkflow = new CounterSignWorkflow(userContext, mockTaskService,
                 mockHistoryService, mockRuntimeService, multiInstanceDetector, mockNodeFinder,
-                Collections.singletonList(trackingCallback), null,
+                Collections.singletonList(trackingCallback), new EventBus(null),
                 mock(io.github.flowable.plus.core.support.ProcessEndDetector.class));
 
         taskExecutionWorkflow = new TaskExecutionWorkflow(userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockNodeFinder, multiInstanceDetector,
-                mock(io.github.flowable.plus.core.spi.ExecutionTreeHelper.class), null,
+                mock(io.github.flowable.plus.core.spi.ExecutionTreeHelper.class), new EventBus(null),
                 mock(io.github.flowable.plus.core.support.ProcessEndDetector.class),
                 mockPreviousNodeAuthorizer,
                 new StrictCountersignRollbackStrategy(multiInstanceDetector),
@@ -489,7 +490,7 @@ class BpmnMultiInstanceIntegrationTest {
 
         CounterSignWorkflow fp = new CounterSignWorkflow(userCtx, mockTaskService,
                 mockHistoryService, mockRuntimeService, multiInstanceDetector, mockNodeFinder,
-                Collections.singletonList(failingCb), null,
+                Collections.singletonList(failingCb), new EventBus(null),
                 mock(io.github.flowable.plus.core.support.ProcessEndDetector.class));
 
         PlusTask task = createPlusTask("task-001", "pi-001", "proc-cs", "csTask", USER_ID);

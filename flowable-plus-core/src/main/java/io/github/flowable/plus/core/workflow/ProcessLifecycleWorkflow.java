@@ -5,9 +5,7 @@ import io.github.flowable.plus.core.domain.PlusHistoricProcessInstance;
 import io.github.flowable.plus.core.domain.PlusProcessInstance;
 import io.github.flowable.plus.core.domain.PlusTask;
 import io.github.flowable.plus.core.enums.CommentType;
-import io.github.flowable.plus.core.event.EventPublisher;
-import io.github.flowable.plus.core.event.ProcessInvalidatedEvent;
-import io.github.flowable.plus.core.event.ProcessStartedEvent;
+import io.github.flowable.plus.core.event.EventBus;
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.exception.TaskAlreadyCompletedException;
@@ -47,13 +45,13 @@ public class ProcessLifecycleWorkflow implements ProcessLifecycleOperations {
     private final IdentityService identityService;
     private final NodeFinder nodeFinder;
     private final List<AutoApprovalRule> autoApprovalRules;
-    private final EventPublisher eventPublisher;
+    private final EventBus eventBus;
 
     public ProcessLifecycleWorkflow(UserContext userContext, TaskService taskService,
                                      HistoryService historyService, RuntimeService runtimeService,
                                      IdentityService identityService, NodeFinder nodeFinder,
                                      List<AutoApprovalRule> autoApprovalRules,
-                                     EventPublisher eventPublisher) {
+                                     EventBus eventBus) {
         this.userContext = userContext;
         this.taskService = taskService;
         this.historyService = historyService;
@@ -61,7 +59,7 @@ public class ProcessLifecycleWorkflow implements ProcessLifecycleOperations {
         this.identityService = identityService;
         this.nodeFinder = nodeFinder;
         this.autoApprovalRules = autoApprovalRules != null ? autoApprovalRules : Collections.emptyList();
-        this.eventPublisher = eventPublisher;
+        this.eventBus = eventBus;
     }
 
     @Override
@@ -77,10 +75,8 @@ public class ProcessLifecycleWorkflow implements ProcessLifecycleOperations {
             ProcessInstance pi = runtimeService.startProcessInstanceByKey(processDefinitionKey, businessKey, variables);
             PlusProcessInstance result = PlusProcessInstance.from(pi);
 
-            if (eventPublisher != null) {
-                eventPublisher.publish(ProcessStartedEvent.of(processDefinitionKey, businessKey,
-                        result.getProcessInstanceId(), userId, new java.util.Date()));
-            }
+            eventBus.processStarted(processDefinitionKey, businessKey,
+                    result.getProcessInstanceId(), userId);
 
             // 自动提交：发起人身份下执行，仅一层。采用快速失败模式，异常正常传播
             if (!autoApprovalRules.isEmpty()) {
@@ -134,11 +130,9 @@ public class ProcessLifecycleWorkflow implements ProcessLifecycleOperations {
 
         runtimeService.deleteProcessInstance(processInstanceId, reason);
 
-        if (eventPublisher != null) {
-            eventPublisher.publish(ProcessInvalidatedEvent.of(processInstanceId,
-                    historicPi.getProcessDefinitionKey(), historicPi.getBusinessKey(),
-                    currentUserId, reason, new java.util.Date()));
-        }
+        eventBus.processInvalidated(processInstanceId,
+                historicPi.getProcessDefinitionKey(), historicPi.getBusinessKey(),
+                currentUserId, reason);
     }
 
     // ======================== 内部辅助 ========================

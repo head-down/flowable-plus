@@ -1,5 +1,6 @@
 package io.github.flowable.plus.core;
 
+import io.github.flowable.plus.core.event.EventBus;
 import io.github.flowable.plus.core.event.EventPublisher;
 import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
@@ -105,7 +106,7 @@ public class CounterSignWorkflowTest {
 
         counterSignWorkflow = new CounterSignWorkflow(userContext, mockTaskService,
                 mockHistoryService, mockRuntimeService, mockMultiInstanceDetector, mockNodeFinder,
-                Collections.singletonList(trackingCallback), null, mockProcessEndDetector);
+                Collections.singletonList(trackingCallback), new EventBus(null), mockProcessEndDetector);
     }
 
     // ======================== 会签：首次投票 ========================
@@ -2054,7 +2055,7 @@ public class CounterSignWorkflowTest {
         };
         CounterSignWorkflow fp = new CounterSignWorkflow(userContext, mockTaskService,
                 mockHistoryService, mockRuntimeService, mockMultiInstanceDetector, mockNodeFinder,
-                Collections.singletonList(failingCb), null, mockProcessEndDetector);
+                Collections.singletonList(failingCb), new EventBus(null), mockProcessEndDetector);
 
         // 不应抛异常，应继续完成
         fp.counterSign("task-001", true, null, "同意");
@@ -2374,10 +2375,11 @@ public class CounterSignWorkflowTest {
     // ======================== 事件发布 ========================
 
     private CounterSignWorkflow createWorkflowWithEventPublisher(EventPublisher ep) {
-        ProcessEndDetector ped = new ProcessEndDetector(mockRuntimeService, mockHistoryService, ep);
+        EventBus eventBus = new EventBus(ep);
+        ProcessEndDetector ped = new ProcessEndDetector(mockRuntimeService, mockHistoryService, eventBus);
         return new CounterSignWorkflow(userContext, mockTaskService,
                 mockHistoryService, mockRuntimeService, mockMultiInstanceDetector, mockNodeFinder,
-                Collections.emptyList(), ep, ped);
+                Collections.emptyList(), eventBus, ped);
     }
 
     @Test

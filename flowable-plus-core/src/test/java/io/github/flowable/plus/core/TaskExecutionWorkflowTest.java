@@ -2,6 +2,7 @@ package io.github.flowable.plus.core;
 
 import io.github.flowable.plus.core.domain.PlusTask;
 import io.github.flowable.plus.core.enums.CommentType;
+import io.github.flowable.plus.core.event.EventBus;
 import io.github.flowable.plus.core.event.EventPublisher;
 import io.github.flowable.plus.core.exception.InvalidTargetNodeException;
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
@@ -101,7 +102,7 @@ public class TaskExecutionWorkflowTest {
 
         workflow = new TaskExecutionWorkflow(userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockNodeFinder, mockMultiInstanceDetector,
-                mockExecutionTreeHelper, null, mockProcessEndDetector,
+                mockExecutionTreeHelper, new EventBus(null), mockProcessEndDetector,
                 mockPreviousNodeAuthorizer, mockCountersignRollbackStrategy,
                 mockAssigneeResolverRegistry);
     }
@@ -840,7 +841,7 @@ public class TaskExecutionWorkflowTest {
         TaskExecutionWorkflow wfWithRedirect = new TaskExecutionWorkflow(
                 userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockNodeFinder, mockMultiInstanceDetector,
-                mockExecutionTreeHelper, null, mockProcessEndDetector,
+                mockExecutionTreeHelper, new EventBus(null), mockProcessEndDetector,
                 mockPreviousNodeAuthorizer, redirectStrategy,
                 mockAssigneeResolverRegistry);
 
@@ -981,10 +982,11 @@ public class TaskExecutionWorkflowTest {
     // ======================== 事件发布 ========================
 
     private TaskExecutionWorkflow createWorkflowWithEventPublisher(EventPublisher ep) {
-        ProcessEndDetector ped = new ProcessEndDetector(mockRuntimeService, mockHistoryService, ep);
+        EventBus eventBus = new EventBus(ep);
+        ProcessEndDetector ped = new ProcessEndDetector(mockRuntimeService, mockHistoryService, eventBus);
         return new TaskExecutionWorkflow(userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockNodeFinder, mockMultiInstanceDetector,
-                mockExecutionTreeHelper, ep, ped,
+                mockExecutionTreeHelper, eventBus, ped,
                 mockPreviousNodeAuthorizer, mockCountersignRollbackStrategy,
                 mockAssigneeResolverRegistry);
     }

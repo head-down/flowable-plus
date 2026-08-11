@@ -1,7 +1,6 @@
 package io.github.flowable.plus.core.support;
 
-import io.github.flowable.plus.core.event.EventPublisher;
-import io.github.flowable.plus.core.event.ProcessEndedEvent;
+import io.github.flowable.plus.core.event.EventBus;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.history.HistoricProcessInstance;
@@ -19,14 +18,14 @@ public class ProcessEndDetector {
 
     private final RuntimeService runtimeService;
     private final HistoryService historyService;
-    private final EventPublisher eventPublisher;
+    private final EventBus eventBus;
 
     public ProcessEndDetector(RuntimeService runtimeService,
                                HistoryService historyService,
-                               EventPublisher eventPublisher) {
+                               EventBus eventBus) {
         this.runtimeService = runtimeService;
         this.historyService = historyService;
-        this.eventPublisher = eventPublisher;
+        this.eventBus = eventBus;
     }
 
     /**
@@ -35,7 +34,7 @@ public class ProcessEndDetector {
      * @param processInstanceId 流程实例 ID
      */
     public void checkAndPublish(String processInstanceId) {
-        if (eventPublisher == null) {
+        if (!eventBus.isEnabled()) {
             return;
         }
         ProcessInstance runtimePi = runtimeService.createProcessInstanceQuery()
@@ -44,9 +43,9 @@ public class ProcessEndDetector {
             HistoricProcessInstance hpi = historyService.createHistoricProcessInstanceQuery()
                     .processInstanceId(processInstanceId).singleResult();
             if (hpi != null) {
-                eventPublisher.publish(ProcessEndedEvent.of(processInstanceId,
+                eventBus.processEnded(processInstanceId,
                         hpi.getProcessDefinitionKey(), hpi.getBusinessKey(),
-                        hpi.getEndTime()));
+                        hpi.getEndTime());
             }
         }
     }

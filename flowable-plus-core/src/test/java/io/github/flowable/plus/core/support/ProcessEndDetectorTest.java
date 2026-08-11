@@ -1,5 +1,6 @@
 package io.github.flowable.plus.core.support;
 
+import io.github.flowable.plus.core.event.EventBus;
 import io.github.flowable.plus.core.event.EventPublisher;
 import io.github.flowable.plus.core.event.ProcessEndedEvent;
 import org.flowable.engine.HistoryService;
@@ -37,7 +38,8 @@ public class ProcessEndDetectorTest {
         mockRuntimeService = mock(RuntimeService.class);
         mockHistoryService = mock(HistoryService.class);
         mockEventPublisher = mock(EventPublisher.class);
-        detector = new ProcessEndDetector(mockRuntimeService, mockHistoryService, mockEventPublisher);
+        detector = new ProcessEndDetector(mockRuntimeService, mockHistoryService,
+                new EventBus(mockEventPublisher));
     }
 
     @Test

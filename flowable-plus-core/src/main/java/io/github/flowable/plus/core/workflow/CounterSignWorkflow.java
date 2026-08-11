@@ -1,9 +1,6 @@
 package io.github.flowable.plus.core.workflow;
 
-import io.github.flowable.plus.core.event.EventPublisher;
-import io.github.flowable.plus.core.event.TaskCompletedEvent;
-import io.github.flowable.plus.core.event.TaskDelegatedEvent;
-import io.github.flowable.plus.core.event.TaskRejectedEvent;
+import io.github.flowable.plus.core.event.EventBus;
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.spi.CounterSignCallback;
@@ -57,14 +54,14 @@ public class CounterSignWorkflow implements CounterSignOperations {
     private final MultiInstanceDetector multiInstanceDetector;
     private final NodeFinder nodeFinder;
     private final List<CounterSignCallback> counterSignCallbacks;
-    private final EventPublisher eventPublisher;
+    private final EventBus eventBus;
     private final ProcessEndDetector processEndDetector;
 
     public CounterSignWorkflow(UserContext userContext, TaskService taskService,
                         HistoryService historyService, RuntimeService runtimeService,
                         MultiInstanceDetector multiInstanceDetector, NodeFinder nodeFinder,
                         List<CounterSignCallback> counterSignCallbacks,
-                        EventPublisher eventPublisher,
+                        EventBus eventBus,
                         ProcessEndDetector processEndDetector) {
         this.userContext = userContext;
         this.taskService = taskService;
@@ -73,7 +70,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
         this.multiInstanceDetector = multiInstanceDetector;
         this.nodeFinder = nodeFinder;
         this.counterSignCallbacks = counterSignCallbacks;
-        this.eventPublisher = eventPublisher;
+        this.eventBus = eventBus;
         this.processEndDetector = processEndDetector;
     }
 
@@ -102,17 +99,12 @@ public class CounterSignWorkflow implements CounterSignOperations {
 
         taskService.complete(taskId, variables);
 
-        if (eventPublisher != null) {
-            if (approved) {
-                eventPublisher.publish(TaskCompletedEvent.of(task.getId(), task.getProcessInstanceId(),
-                        task.getName(), task.getTaskDefinitionKey(), userId, comment, new java.util.Date()));
-            } else {
-                eventPublisher.publish(TaskRejectedEvent.of(task.getId(), task.getProcessInstanceId(),
-                        task.getName(), task.getTaskDefinitionKey(), task.getAssignee(),
-                        comment, new java.util.Date()));
-            }
-            processEndDetector.checkAndPublish(task.getProcessInstanceId());
+        if (approved) {
+            eventBus.taskCompleted(task, userId, comment);
+        } else {
+            eventBus.taskRejected(task, comment);
         }
+        processEndDetector.checkAndPublish(task.getProcessInstanceId());
 
         if (isMultiInstanceFinished(task)) {
             invokeCallbacks(cb -> cb.onFinish(processInstanceId, taskId, "finished"));
@@ -339,11 +331,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
 
         taskService.delegateTask(taskId, delegateUserId);
 
-        if (eventPublisher != null) {
-            eventPublisher.publish(TaskDelegatedEvent.of(task.getId(), task.getProcessInstanceId(),
-                    task.getName(), task.getTaskDefinitionKey(),
-                    currentUserId, delegateUserId, reason, new java.util.Date()));
-        }
+        eventBus.taskDelegated(task, currentUserId, delegateUserId, reason);
 
         String comment = "委派给 " + delegateUserId;
         if (StrUtil.isNotBlank(reason)) {

@@ -4,12 +4,7 @@ import io.github.flowable.plus.core.api.TaskExecutionOperations;
 import io.github.flowable.plus.core.domain.PlusHistoricTask;
 import io.github.flowable.plus.core.domain.PlusTask;
 import io.github.flowable.plus.core.enums.CommentType;
-import io.github.flowable.plus.core.event.EventPublisher;
-import io.github.flowable.plus.core.event.TaskCompletedEvent;
-import io.github.flowable.plus.core.event.TaskJumpedEvent;
-import io.github.flowable.plus.core.event.TaskRejectedEvent;
-import io.github.flowable.plus.core.event.TaskTransferredEvent;
-import io.github.flowable.plus.core.event.TaskWithdrawnEvent;
+import io.github.flowable.plus.core.event.EventBus;
 import io.github.flowable.plus.core.exception.InvalidTargetNodeException;
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.PermissionDeniedException;
@@ -55,7 +50,7 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
     private final NodeFinder nodeFinder;
     private final MultiInstanceDetector multiInstanceDetector;
     private final ExecutionTreeHelper executionTreeHelper;
-    private final EventPublisher eventPublisher;
+    private final EventBus eventBus;
     private final ProcessEndDetector processEndDetector;
     private final PreviousNodeAuthorizer previousNodeAuthorizer;
     private final CountersignRollbackStrategy countersignRollbackStrategy;
@@ -65,7 +60,7 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
                                   HistoryService historyService, RuntimeService runtimeService,
                                   NodeFinder nodeFinder, MultiInstanceDetector multiInstanceDetector,
                                   ExecutionTreeHelper executionTreeHelper,
-                                  EventPublisher eventPublisher,
+                                  EventBus eventBus,
                                   ProcessEndDetector processEndDetector,
                                   PreviousNodeAuthorizer previousNodeAuthorizer,
                                   CountersignRollbackStrategy countersignRollbackStrategy,
@@ -77,7 +72,7 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
         this.nodeFinder = nodeFinder;
         this.multiInstanceDetector = multiInstanceDetector;
         this.executionTreeHelper = executionTreeHelper;
-        this.eventPublisher = eventPublisher;
+        this.eventBus = eventBus;
         this.processEndDetector = processEndDetector;
         this.previousNodeAuthorizer = previousNodeAuthorizer;
         this.countersignRollbackStrategy = countersignRollbackStrategy;
@@ -111,11 +106,8 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
 
         taskService.complete(taskId, variables);
 
-        if (eventPublisher != null) {
-            eventPublisher.publish(TaskCompletedEvent.of(task.getId(), task.getProcessInstanceId(),
-                    task.getName(), task.getTaskDefinitionKey(), userId, comment, new java.util.Date()));
-            processEndDetector.checkAndPublish(task.getProcessInstanceId());
-        }
+        eventBus.taskCompleted(task, userId, comment);
+        processEndDetector.checkAndPublish(task.getProcessInstanceId());
     }
 
     @Override
@@ -150,11 +142,7 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
 
         executeRollback(task, targetNode, reason, CommentType.REJECT.name());
 
-        if (eventPublisher != null) {
-            eventPublisher.publish(TaskRejectedEvent.of(task.getId(), task.getProcessInstanceId(),
-                    task.getName(), task.getTaskDefinitionKey(), task.getAssignee(),
-                    reason, new java.util.Date()));
-        }
+        eventBus.taskRejected(task, reason);
     }
 
     @Override
@@ -182,11 +170,7 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
                 .moveActivityIdTo(task.getTaskDefinitionKey(), initiatorNode)
                 .changeState();
 
-        if (eventPublisher != null) {
-            eventPublisher.publish(TaskRejectedEvent.of(task.getId(), task.getProcessInstanceId(),
-                    task.getName(), task.getTaskDefinitionKey(), task.getAssignee(),
-                    reason, new java.util.Date()));
-        }
+        eventBus.taskRejected(task, reason);
     }
 
     @Override
@@ -215,11 +199,7 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
 
         executeRollback(task, prevNodeId, reason, CommentType.WITHDRAW.name());
 
-        if (eventPublisher != null) {
-            eventPublisher.publish(TaskWithdrawnEvent.of(task.getId(), task.getProcessInstanceId(),
-                    task.getName(), task.getTaskDefinitionKey(), task.getAssignee(),
-                    currentUserId, reason, new java.util.Date()));
-        }
+        eventBus.taskWithdrawn(task, currentUserId, reason);
     }
 
     @Override
@@ -244,11 +224,7 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
 
         taskService.setAssignee(taskId, transferUserId);
 
-        if (eventPublisher != null) {
-            eventPublisher.publish(TaskTransferredEvent.of(task.getId(), task.getProcessInstanceId(),
-                    task.getName(), task.getTaskDefinitionKey(),
-                    currentUserId, transferUserId, reason, new java.util.Date()));
-        }
+        eventBus.taskTransferred(task, currentUserId, transferUserId, reason);
 
         String comment = "转办给 " + transferUserId;
         if (StrUtil.isNotBlank(reason)) {
@@ -292,11 +268,7 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
 
         executeRollback(task, targetNodeId, reason, commentType.name());
 
-        if (eventPublisher != null) {
-            eventPublisher.publish(TaskJumpedEvent.of(task.getId(), task.getProcessInstanceId(),
-                    task.getName(), task.getTaskDefinitionKey(), task.getAssignee(),
-                    targetNodeId, reason, commentType.name(), new java.util.Date()));
-        }
+        eventBus.taskJumped(task, targetNodeId, reason, commentType.name());
     }
 
     @Override
