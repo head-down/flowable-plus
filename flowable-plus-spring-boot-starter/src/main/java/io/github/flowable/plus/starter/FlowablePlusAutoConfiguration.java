@@ -1,9 +1,7 @@
 package io.github.flowable.plus.starter;
 
-import io.github.flowable.plus.core.strategy.AutoRedirectCountersignRollbackStrategy;
-import io.github.flowable.plus.core.strategy.AutoRebuildCountersignRollbackStrategy;
+import io.github.flowable.plus.core.strategy.CountersignRollbackStrategies;
 import io.github.flowable.plus.core.strategy.CountersignRollbackStrategy;
-import io.github.flowable.plus.core.strategy.StrictCountersignRollbackStrategy;
 import io.github.flowable.plus.core.support.AssigneeResolverRegistry;
 import io.github.flowable.plus.core.support.ActionInferenceStrategy;
 import io.github.flowable.plus.core.support.BpmnFormDataHelper;
@@ -290,7 +288,7 @@ public class FlowablePlusAutoConfiguration {
      * <ul>
      *   <li>{@code auto-redirect}（默认）— 运行时判断 + 自动重定向</li>
      *   <li>{@code strict} — 静态 BPMN 模型检查 + 遇 MI 全拦截（旧行为）</li>
-     *   <li>{@code auto-rebuild} — 运行时判断 + SPI 原地重建 MI（待实现）</li>
+     *   <li>{@code auto-rebuild} — 运行时判断 + SPI 原地重建 MI（需锁定 Flowable 6.8.0）</li>
      * </ul>
      *
      * @param multiInstanceDetector 多实例检测模块
@@ -311,15 +309,15 @@ public class FlowablePlusAutoConfiguration {
                 rollbackProperties.getCountersignRollbackStrategy();
         switch (strategy) {
             case AUTO_REDIRECT:
-                return new AutoRedirectCountersignRollbackStrategy(
+                return CountersignRollbackStrategies.autoRedirect(
                         nodeFinder, historyService, multiInstanceDetector);
             case AUTO_REBUILD:
-                return new AutoRebuildCountersignRollbackStrategy(
+                return CountersignRollbackStrategies.autoRebuild(
                         nodeFinder, historyService, multiInstanceDetector, assigneeResolverRegistry);
             case STRICT:
-                return new StrictCountersignRollbackStrategy(multiInstanceDetector);
+                return CountersignRollbackStrategies.strict(multiInstanceDetector);
             default:
-                return new AutoRedirectCountersignRollbackStrategy(
+                return CountersignRollbackStrategies.autoRedirect(
                         nodeFinder, historyService, multiInstanceDetector);
         }
     }
@@ -376,12 +374,11 @@ public class FlowablePlusAutoConfiguration {
                                                         EventBus eventBus,
                                                         ProcessEndDetector processEndDetector,
                                                         PreviousNodeAuthorizer previousNodeAuthorizer,
-                                                        CountersignRollbackStrategy countersignRollbackStrategy,
-                                                        AssigneeResolverRegistry assigneeResolverRegistry) {
+                                                        CountersignRollbackStrategy countersignRollbackStrategy) {
         return new TaskExecutionWorkflow(userContext, taskService, historyService,
                 processEngine.getRuntimeService(), nodeFinder, multiInstanceDetector,
                 executionTreeHelper, eventBus, processEndDetector, previousNodeAuthorizer,
-                countersignRollbackStrategy, assigneeResolverRegistry);
+                countersignRollbackStrategy);
     }
 
     /**

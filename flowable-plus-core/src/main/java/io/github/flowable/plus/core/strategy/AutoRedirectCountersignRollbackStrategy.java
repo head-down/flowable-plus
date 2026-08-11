@@ -4,7 +4,6 @@ import io.github.flowable.plus.core.domain.PlusTask;
 import io.github.flowable.plus.core.exception.InvalidTargetNodeException;
 import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.model.NodeFinder;
-import io.github.flowable.plus.core.support.AssigneeResolverRegistry;
 import io.github.flowable.plus.core.vo.RollbackResult;
 import org.flowable.engine.HistoryService;
 
@@ -21,17 +20,19 @@ import org.flowable.engine.HistoryService;
  *
  * <p>此策略为框架默认行为，不依赖 Flowable 版本特定行为，跨版本兼容性最好。</p>
  *
+ * <p>包私有实现，通过 {@link CountersignRollbackStrategies#autoRedirect} 创建。</p>
+ *
  * @author flowable-plus
  */
-public class AutoRedirectCountersignRollbackStrategy implements CountersignRollbackStrategy {
+class AutoRedirectCountersignRollbackStrategy implements CountersignRollbackStrategy {
 
     private final NodeFinder nodeFinder;
     private final HistoryService historyService;
     private final MultiInstanceDetector multiInstanceDetector;
 
-    public AutoRedirectCountersignRollbackStrategy(NodeFinder nodeFinder,
-                                                    HistoryService historyService,
-                                                    MultiInstanceDetector multiInstanceDetector) {
+    AutoRedirectCountersignRollbackStrategy(NodeFinder nodeFinder,
+                                            HistoryService historyService,
+                                            MultiInstanceDetector multiInstanceDetector) {
         if (nodeFinder == null) {
             throw new IllegalArgumentException("NodeFinder 不可为 null");
         }
@@ -49,8 +50,7 @@ public class AutoRedirectCountersignRollbackStrategy implements CountersignRollb
     @Override
     public RollbackResult resolveRollbackTarget(
             PlusTask task,
-            String targetActivityId,
-            AssigneeResolverRegistry assigneeResolverRegistry) {
+            String targetActivityId) {
         String processDefinitionId = task.getProcessDefinitionId();
         String processInstanceId = task.getProcessInstanceId();
 
@@ -66,7 +66,7 @@ public class AutoRedirectCountersignRollbackStrategy implements CountersignRollb
         }
 
         // Step 2: 查找前置单例节点
-        String predecessorId = CountersignRollbackStrategy.resolveMultiInstancePredecessor(
+        String predecessorId = CountersignRollbackStrategies.resolveMultiInstancePredecessor(
                 processDefinitionId, processInstanceId, targetActivityId,
                 nodeFinder, multiInstanceDetector);
 

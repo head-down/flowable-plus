@@ -12,9 +12,9 @@ import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.model.NodeFinder;
 import io.github.flowable.plus.core.spi.ExecutionTreeHelper;
 import io.github.flowable.plus.core.spi.UserContext;
+import io.github.flowable.plus.core.strategy.CountersignRollbackStrategies;
 import io.github.flowable.plus.core.strategy.PreviousNodeResolutionStrategy;
 import io.github.flowable.plus.core.strategy.CountersignRollbackStrategy;
-import io.github.flowable.plus.core.support.AssigneeResolverRegistry;
 import io.github.flowable.plus.core.support.PreviousNodeAuthorizer;
 import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.support.TaskValidation;
@@ -54,7 +54,6 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
     private final ProcessEndDetector processEndDetector;
     private final PreviousNodeAuthorizer previousNodeAuthorizer;
     private final CountersignRollbackStrategy countersignRollbackStrategy;
-    private final AssigneeResolverRegistry assigneeResolverRegistry;
 
     public TaskExecutionWorkflow(UserContext userContext, TaskService taskService,
                                   HistoryService historyService, RuntimeService runtimeService,
@@ -63,8 +62,7 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
                                   EventBus eventBus,
                                   ProcessEndDetector processEndDetector,
                                   PreviousNodeAuthorizer previousNodeAuthorizer,
-                                  CountersignRollbackStrategy countersignRollbackStrategy,
-                                  AssigneeResolverRegistry assigneeResolverRegistry) {
+                                  CountersignRollbackStrategy countersignRollbackStrategy) {
         this.userContext = userContext;
         this.taskService = taskService;
         this.historyService = historyService;
@@ -76,7 +74,6 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
         this.processEndDetector = processEndDetector;
         this.previousNodeAuthorizer = previousNodeAuthorizer;
         this.countersignRollbackStrategy = countersignRollbackStrategy;
-        this.assigneeResolverRegistry = assigneeResolverRegistry;
     }
 
     @Override
@@ -304,7 +301,7 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
 
                 if (runtimeCount > 1) {
                     // 运行时多实例：查找前置单例节点
-                    String predecessorId = CountersignRollbackStrategy
+                    String predecessorId = CountersignRollbackStrategies
                             .resolveMultiInstancePredecessor(
                                     processDefinitionId, processInstanceId, nodeId,
                                     nodeFinder, multiInstanceDetector);
@@ -397,7 +394,7 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
 
     private void executeRollback(PlusTask task, String targetActivityId, String reason, String commentType) {
         RollbackResult result = countersignRollbackStrategy.resolveRollbackTarget(
-                task, targetActivityId, assigneeResolverRegistry);
+                task, targetActivityId);
 
         String resolvedTargetId = result.getTargetActivityId();
 

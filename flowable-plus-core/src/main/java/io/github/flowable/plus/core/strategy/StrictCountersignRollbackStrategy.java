@@ -3,7 +3,6 @@ package io.github.flowable.plus.core.strategy;
 import io.github.flowable.plus.core.domain.PlusTask;
 import io.github.flowable.plus.core.exception.InvalidTargetNodeException;
 import io.github.flowable.plus.core.model.MultiInstanceDetector;
-import io.github.flowable.plus.core.support.AssigneeResolverRegistry;
 import io.github.flowable.plus.core.vo.RollbackResult;
 
 /**
@@ -14,13 +13,15 @@ import io.github.flowable.plus.core.vo.RollbackResult;
  * 无论运行时是否真正为多实例（如 count=1），一律拒绝回退，抛出
  * {@link InvalidTargetNodeException}。</p>
  *
+ * <p>包私有实现，通过 {@link CountersignRollbackStrategies#strict} 创建。</p>
+ *
  * @author flowable-plus
  */
-public class StrictCountersignRollbackStrategy implements CountersignRollbackStrategy {
+class StrictCountersignRollbackStrategy implements CountersignRollbackStrategy {
 
     private final MultiInstanceDetector multiInstanceDetector;
 
-    public StrictCountersignRollbackStrategy(MultiInstanceDetector multiInstanceDetector) {
+    StrictCountersignRollbackStrategy(MultiInstanceDetector multiInstanceDetector) {
         if (multiInstanceDetector == null) {
             throw new IllegalArgumentException("MultiInstanceDetector 不可为 null");
         }
@@ -30,8 +31,7 @@ public class StrictCountersignRollbackStrategy implements CountersignRollbackStr
     @Override
     public RollbackResult resolveRollbackTarget(
             PlusTask task,
-            String targetActivityId,
-            AssigneeResolverRegistry assigneeResolverRegistry) {
+            String targetActivityId) {
         if (multiInstanceDetector.isMultiInstanceNode(task.getProcessDefinitionId(), targetActivityId)) {
             throw new InvalidTargetNodeException(
                     "目标节点 " + targetActivityId + " 是会签（多实例）节点，"

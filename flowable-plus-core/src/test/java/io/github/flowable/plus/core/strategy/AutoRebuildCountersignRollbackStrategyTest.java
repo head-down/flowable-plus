@@ -60,7 +60,7 @@ public class AutoRebuildCountersignRollbackStrategyTest {
         stubHistoryCount(PROCESS_INST_ID, MI_ACTIVITY_ID, 0L);
 
         RollbackResult result = strategy.resolveRollbackTarget(
-                task, MI_ACTIVITY_ID, assigneeResolverRegistry);
+                task, MI_ACTIVITY_ID);
 
         assertThat(result.getTargetActivityId()).isEqualTo(MI_ACTIVITY_ID);
         assertThat(result.getRedirectMessage()).isNull();
@@ -74,7 +74,7 @@ public class AutoRebuildCountersignRollbackStrategyTest {
         stubHistoryCount(PROCESS_INST_ID, MI_ACTIVITY_ID, 1L);
 
         RollbackResult result = strategy.resolveRollbackTarget(
-                task, MI_ACTIVITY_ID, assigneeResolverRegistry);
+                task, MI_ACTIVITY_ID);
 
         assertThat(result.getTargetActivityId()).isEqualTo(MI_ACTIVITY_ID);
         assertThat(result.getRedirectMessage()).isNull();
@@ -97,7 +97,7 @@ public class AutoRebuildCountersignRollbackStrategyTest {
                 assigneeResolverRegistry);
 
         RollbackResult result = strategy.resolveRollbackTarget(
-                task, MI_ACTIVITY_ID, assigneeResolverRegistry);
+                task, MI_ACTIVITY_ID);
 
         assertThat(result.getTargetActivityId()).isEqualTo(MI_ACTIVITY_ID);
         assertThat(result.getRedirectMessage()).isNull();
@@ -119,7 +119,7 @@ public class AutoRebuildCountersignRollbackStrategyTest {
                 assigneeResolverRegistry);
 
         RollbackResult result = strategy.resolveRollbackTarget(
-                task, MI_ACTIVITY_ID, assigneeResolverRegistry);
+                task, MI_ACTIVITY_ID);
 
         assertThat(result.getNewAssigneeList()).containsExactly("user1");
     }
@@ -144,7 +144,7 @@ public class AutoRebuildCountersignRollbackStrategyTest {
                 .thenReturn("前置准备节点");
 
         RollbackResult result = strategy.resolveRollbackTarget(
-                task, MI_ACTIVITY_ID, assigneeResolverRegistry);
+                task, MI_ACTIVITY_ID);
 
         assertThat(result.getTargetActivityId()).isEqualTo(PREDECESSOR_ID);
         assertThat(result.getRedirectMessage())
@@ -176,7 +176,7 @@ public class AutoRebuildCountersignRollbackStrategyTest {
                 .thenReturn(null);
 
         RollbackResult result = strategy.resolveRollbackTarget(
-                task, MI_ACTIVITY_ID, assigneeResolverRegistry);
+                task, MI_ACTIVITY_ID);
 
         assertThat(result.getTargetActivityId()).isEqualTo(PREDECESSOR_ID);
         assertThat(result.getRedirectMessage()).contains("降级重定向");
@@ -196,7 +196,7 @@ public class AutoRebuildCountersignRollbackStrategyTest {
                 .thenReturn("会签节点");
 
         assertThatThrownBy(() -> strategy.resolveRollbackTarget(
-                task, MI_ACTIVITY_ID, assigneeResolverRegistry))
+                task, MI_ACTIVITY_ID))
                 .isInstanceOf(InvalidTargetNodeException.class)
                 .hasMessageContaining("0 实例不可放行")
                 .hasMessageContaining("AssigneeResolver");
@@ -222,7 +222,7 @@ public class AutoRebuildCountersignRollbackStrategyTest {
                 .thenReturn("会签节点");
 
         assertThatThrownBy(() -> strategy.resolveRollbackTarget(
-                task, MI_ACTIVITY_ID, assigneeResolverRegistry))
+                task, MI_ACTIVITY_ID))
                 .isInstanceOf(InvalidTargetNodeException.class)
                 .hasMessageContaining("0 实例不可放行");
     }
@@ -280,7 +280,7 @@ public class AutoRebuildCountersignRollbackStrategyTest {
                 assigneeResolverRegistry);
 
         RollbackResult result = strategy.resolveRollbackTarget(
-                task, MI_ACTIVITY_ID, assigneeResolverRegistry);
+                task, MI_ACTIVITY_ID);
 
         assertThat(result.getNewAssigneeList()).containsExactly("user1", "user2");
     }
@@ -308,7 +308,7 @@ public class AutoRebuildCountersignRollbackStrategyTest {
                 .thenReturn(null);
 
         RollbackResult result = strategy.resolveRollbackTarget(
-                task, MI_ACTIVITY_ID, assigneeResolverRegistry);
+                task, MI_ACTIVITY_ID);
 
         assertThat(result.getTargetActivityId()).isEqualTo(PREDECESSOR_ID);
         assertThat(result.getRedirectMessage()).contains("降级重定向");

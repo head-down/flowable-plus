@@ -4,8 +4,6 @@ import io.github.flowable.plus.core.domain.PlusTask;
 import io.github.flowable.plus.core.exception.InvalidTargetNodeException;
 import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.model.NodeFinder;
-import io.github.flowable.plus.core.support.AssigneeResolverRegistry;
-import io.github.flowable.plus.core.strategy.AutoRedirectCountersignRollbackStrategy;
 import io.github.flowable.plus.core.vo.RollbackResult;
 import org.flowable.engine.HistoryService;
 import org.flowable.task.api.history.HistoricTaskInstanceQuery;
@@ -36,7 +34,6 @@ public class AutoRedirectCountersignRollbackStrategyTest {
     private NodeFinder mockNodeFinder;
     private HistoryService mockHistoryService;
     private MultiInstanceDetector mockMultiInstanceDetector;
-    private AssigneeResolverRegistry assigneeResolverRegistry;
     private AutoRedirectCountersignRollbackStrategy strategy;
 
     @BeforeEach
@@ -44,7 +41,6 @@ public class AutoRedirectCountersignRollbackStrategyTest {
         mockNodeFinder = mock(NodeFinder.class);
         mockHistoryService = mock(HistoryService.class);
         mockMultiInstanceDetector = mock(MultiInstanceDetector.class);
-        assigneeResolverRegistry = new AssigneeResolverRegistry();
         strategy = new AutoRedirectCountersignRollbackStrategy(
                 mockNodeFinder, mockHistoryService, mockMultiInstanceDetector);
     }
@@ -59,7 +55,7 @@ public class AutoRedirectCountersignRollbackStrategyTest {
         stubHistoryCount(PROCESS_INST_ID, MI_ACTIVITY_ID, 0L);
 
         RollbackResult result = strategy.resolveRollbackTarget(
-                task, MI_ACTIVITY_ID, assigneeResolverRegistry);
+                task, MI_ACTIVITY_ID);
 
         assertThat(result.getTargetActivityId()).isEqualTo(MI_ACTIVITY_ID);
         assertThat(result.getRedirectMessage()).isNull();
@@ -74,7 +70,7 @@ public class AutoRedirectCountersignRollbackStrategyTest {
         stubHistoryCount(PROCESS_INST_ID, MI_ACTIVITY_ID, 1L);
 
         RollbackResult result = strategy.resolveRollbackTarget(
-                task, MI_ACTIVITY_ID, assigneeResolverRegistry);
+                task, MI_ACTIVITY_ID);
 
         assertThat(result.getTargetActivityId()).isEqualTo(MI_ACTIVITY_ID);
         assertThat(result.getRedirectMessage()).isNull();
@@ -100,7 +96,7 @@ public class AutoRedirectCountersignRollbackStrategyTest {
                 .thenReturn("前置准备节点");
 
         RollbackResult result = strategy.resolveRollbackTarget(
-                task, MI_ACTIVITY_ID, assigneeResolverRegistry);
+                task, MI_ACTIVITY_ID);
 
         assertThat(result.getTargetActivityId()).isEqualTo(PREDECESSOR_ID);
         assertThat(result.getRedirectMessage())
@@ -125,7 +121,7 @@ public class AutoRedirectCountersignRollbackStrategyTest {
         when(mockNodeFinder.getNodeName(PROCESS_DEF_ID, PREDECESSOR_ID)).thenReturn(null);
 
         RollbackResult result = strategy.resolveRollbackTarget(
-                task, MI_ACTIVITY_ID, assigneeResolverRegistry);
+                task, MI_ACTIVITY_ID);
 
         assertThat(result.getRedirectMessage()).contains(MI_ACTIVITY_ID);
         assertThat(result.getRedirectMessage()).contains(PREDECESSOR_ID);
@@ -146,7 +142,7 @@ public class AutoRedirectCountersignRollbackStrategyTest {
                 .thenReturn("会签节点");
 
         assertThatThrownBy(() -> strategy.resolveRollbackTarget(
-                task, MI_ACTIVITY_ID, assigneeResolverRegistry))
+                task, MI_ACTIVITY_ID))
                 .isInstanceOf(InvalidTargetNodeException.class)
                 .hasMessageContaining("多实例（会签）节点")
                 .hasMessageContaining("rejectTaskToInitiator")
@@ -170,7 +166,7 @@ public class AutoRedirectCountersignRollbackStrategyTest {
                 .thenReturn("会签节点");
 
         assertThatThrownBy(() -> strategy.resolveRollbackTarget(
-                task, MI_ACTIVITY_ID, assigneeResolverRegistry))
+                task, MI_ACTIVITY_ID))
                 .isInstanceOf(InvalidTargetNodeException.class)
                 .hasMessageContaining("不存在唯一前置单例准备节点");
     }
@@ -190,7 +186,7 @@ public class AutoRedirectCountersignRollbackStrategyTest {
                 .thenReturn("会签节点");
 
         assertThatThrownBy(() -> strategy.resolveRollbackTarget(
-                task, MI_ACTIVITY_ID, assigneeResolverRegistry))
+                task, MI_ACTIVITY_ID))
                 .isInstanceOf(InvalidTargetNodeException.class)
                 .hasMessageContaining("不存在唯一前置单例准备节点");
     }
@@ -208,7 +204,7 @@ public class AutoRedirectCountersignRollbackStrategyTest {
                 .thenReturn("领导会签");
 
         assertThatThrownBy(() -> strategy.resolveRollbackTarget(
-                task, MI_ACTIVITY_ID, assigneeResolverRegistry))
+                task, MI_ACTIVITY_ID))
                 .isInstanceOf(InvalidTargetNodeException.class)
                 .hasMessageContaining("领导会签")
                 .hasMessageContaining("多实例（会签）节点")
@@ -226,7 +222,7 @@ public class AutoRedirectCountersignRollbackStrategyTest {
         when(mockNodeFinder.getNodeName(PROCESS_DEF_ID, MI_ACTIVITY_ID)).thenReturn(null);
 
         assertThatThrownBy(() -> strategy.resolveRollbackTarget(
-                task, MI_ACTIVITY_ID, assigneeResolverRegistry))
+                task, MI_ACTIVITY_ID))
                 .isInstanceOf(InvalidTargetNodeException.class)
                 .hasMessageContaining("csTask");
     }
@@ -266,7 +262,7 @@ public class AutoRedirectCountersignRollbackStrategyTest {
         when(mockNodeFinder.findPreviousNodes(PROCESS_DEF_ID, MI_ACTIVITY_ID, PROCESS_INST_ID))
                 .thenReturn(Collections.singletonList(PREDECESSOR_ID));
 
-        String result = CountersignRollbackStrategy.resolveMultiInstancePredecessor(
+        String result = CountersignRollbackStrategies.resolveMultiInstancePredecessor(
                 PROCESS_DEF_ID, PROCESS_INST_ID, MI_ACTIVITY_ID,
                 mockNodeFinder, mockMultiInstanceDetector);
 
@@ -280,7 +276,7 @@ public class AutoRedirectCountersignRollbackStrategyTest {
         when(mockNodeFinder.findPreviousNodes(PROCESS_DEF_ID, MI_ACTIVITY_ID, PROCESS_INST_ID))
                 .thenReturn(Arrays.asList("taskA", "taskB"));
 
-        String result = CountersignRollbackStrategy.resolveMultiInstancePredecessor(
+        String result = CountersignRollbackStrategies.resolveMultiInstancePredecessor(
                 PROCESS_DEF_ID, PROCESS_INST_ID, MI_ACTIVITY_ID,
                 mockNodeFinder, mockMultiInstanceDetector);
 
@@ -292,7 +288,7 @@ public class AutoRedirectCountersignRollbackStrategyTest {
         when(mockNodeFinder.findPreviousNodes(PROCESS_DEF_ID, MI_ACTIVITY_ID, PROCESS_INST_ID))
                 .thenReturn(Collections.emptyList());
 
-        String result = CountersignRollbackStrategy.resolveMultiInstancePredecessor(
+        String result = CountersignRollbackStrategies.resolveMultiInstancePredecessor(
                 PROCESS_DEF_ID, PROCESS_INST_ID, MI_ACTIVITY_ID,
                 mockNodeFinder, mockMultiInstanceDetector);
 
@@ -309,7 +305,7 @@ public class AutoRedirectCountersignRollbackStrategyTest {
         when(mockNodeFinder.findPreviousNodes(PROCESS_DEF_ID, MI_ACTIVITY_ID, PROCESS_INST_ID))
                 .thenReturn(Arrays.asList("miNode", PREDECESSOR_ID));
 
-        String result = CountersignRollbackStrategy.resolveMultiInstancePredecessor(
+        String result = CountersignRollbackStrategies.resolveMultiInstancePredecessor(
                 PROCESS_DEF_ID, PROCESS_INST_ID, MI_ACTIVITY_ID,
                 mockNodeFinder, mockMultiInstanceDetector);
 

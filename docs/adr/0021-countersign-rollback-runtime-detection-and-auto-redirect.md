@@ -123,12 +123,14 @@ public interface CountersignRollbackStrategy {
      * @return RollbackResult 包含目标节点 ID 和可选的预设备份流程变量
      */
     RollbackResult resolveRollbackTarget(
-        PlusTask task, String targetActivityId,
-        AssigneeResolverRegistry assigneeResolverRegistry);
+        PlusTask task, String targetActivityId);
 }
 ```
 
-三个实现，通过 `flowable.plus.countersign-rollback-strategy` 配置项切换：
+三个实现为**包私有类**，统一通过工厂 `CountersignRollbackStrategies` 创建
+（`strict` / `autoRedirect` / `autoRebuild` 三个静态工厂方法），调用方只面对接口与工厂。
+共享的前置单例节点解析工具 `resolveMultiInstancePredecessor` 亦收敛在该工厂类中。
+通过 `flowable.plus.countersign-rollback-strategy` 配置项切换策略：
 
 #### 5.1 AutoRedirectCountersignRollbackStrategy（默认）
 

@@ -25,19 +25,21 @@ import java.util.List;
  * <p>0 实例死锁防御：当 SPI 返回空列表且无前置节点时，硬拦截并抛出
  * {@link InvalidTargetNodeException}，防止 Flowable 静默跳过 MI 节点。</p>
  *
+ * <p>包私有实现，通过 {@link CountersignRollbackStrategies#autoRebuild} 创建。</p>
+ *
  * @author flowable-plus
  */
-public class AutoRebuildCountersignRollbackStrategy implements CountersignRollbackStrategy {
+class AutoRebuildCountersignRollbackStrategy implements CountersignRollbackStrategy {
 
     private final NodeFinder nodeFinder;
     private final HistoryService historyService;
     private final MultiInstanceDetector multiInstanceDetector;
     private final AssigneeResolverRegistry assigneeResolverRegistry;
 
-    public AutoRebuildCountersignRollbackStrategy(NodeFinder nodeFinder,
-                                                   HistoryService historyService,
-                                                   MultiInstanceDetector multiInstanceDetector,
-                                                   AssigneeResolverRegistry assigneeResolverRegistry) {
+    AutoRebuildCountersignRollbackStrategy(NodeFinder nodeFinder,
+                                            HistoryService historyService,
+                                            MultiInstanceDetector multiInstanceDetector,
+                                            AssigneeResolverRegistry assigneeResolverRegistry) {
         if (nodeFinder == null) {
             throw new IllegalArgumentException("NodeFinder 不可为 null");
         }
@@ -59,8 +61,7 @@ public class AutoRebuildCountersignRollbackStrategy implements CountersignRollba
     @Override
     public RollbackResult resolveRollbackTarget(
             PlusTask task,
-            String targetActivityId,
-            AssigneeResolverRegistry assigneeResolverRegistry) {
+            String targetActivityId) {
         String processDefinitionId = task.getProcessDefinitionId();
         String processInstanceId = task.getProcessInstanceId();
 
@@ -85,7 +86,7 @@ public class AutoRebuildCountersignRollbackStrategy implements CountersignRollba
         }
 
         // Step 3: SPI 无结果 → 0 实例死锁防御 → 降级判断
-        String predecessorId = CountersignRollbackStrategy.resolveMultiInstancePredecessor(
+        String predecessorId = CountersignRollbackStrategies.resolveMultiInstancePredecessor(
                 processDefinitionId, processInstanceId, targetActivityId,
                 nodeFinder, multiInstanceDetector);
 

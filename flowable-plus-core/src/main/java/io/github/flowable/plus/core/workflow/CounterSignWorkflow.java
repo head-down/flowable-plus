@@ -147,28 +147,72 @@ public class CounterSignWorkflow implements CounterSignOperations {
      */
     @Override
     public void addCounterSigner(String taskId, List<String> assignees) {
+        validateAddCounterSignerArgs(taskId, assignees);
+
+        PlusTask task = resolveAddCounterSignerTask(taskId);
+        String processInstanceId = task.getProcessInstanceId();
+        String activityId = task.getTaskDefinitionKey();
+
+        // 全部查重通过前不产生任何副作用（ADR-0024）
+        List<String> newAssignees = partitionNewAssignees(assignees, resolveCurrentAssignees(task));
+
+        // 轮次检测（ADR-0022）：模式 A（伪单例，countersignInitiator 已写入）才有轮次概念，
+        // 由 isMultiInstanceFinished 判定是否本轮已结束；模式 B（固定会签）无轮次概念，
+        // 单执行周期内加签必然发生在本轮未投完时，永远并入当前轮。
+        boolean isNewRound = detectNewRound(task, processInstanceId, activityId);
+        int roundIndex = resolveRoundIndex(processInstanceId, activityId, isNewRound);
+
+        validateNotVotedInRound(newAssignees, processInstanceId, activityId, roundIndex);
+
+        // 通过全部查重后才执行副作用：写入 initiator / 批量加签 / 打标
+        performAddCounterSigner(task, newAssignees, roundIndex);
+
+        StringBuilder commentMsg = new StringBuilder("加签审批人: ")
+                .append(String.join(", ", newAssignees));
+        if (isNewRound) {
+            commentMsg.append("，开启第 ").append(roundIndex + 1).append(" 轮会签");
+        }
+        taskService.addComment(taskId, processInstanceId, CommentType.ADD_SIGN.name(), commentMsg.toString());
+
+        invokeCallbacks(cb -> cb.onStart(processInstanceId, taskId, newAssignees));
+    }
+
+    /**
+     * 校验加签入参：taskId 与 assignees 非空。
+     */
+    private void validateAddCounterSignerArgs(String taskId, List<String> assignees) {
         if (taskId == null) {
             throw new IllegalArgumentException("taskId 不可为 null");
         }
         if (assignees == null || assignees.isEmpty()) {
             throw new IllegalArgumentException("assignees 不可为 null 或空");
         }
+    }
 
+    /**
+     * 校验加签任务：任务存在 + MI 节点 + 权限（ADR-0023）。
+     */
+    private PlusTask resolveAddCounterSignerTask(String taskId) {
         PlusTask task = TaskValidation.validateTaskExists(taskService, historyService, taskId, "加签");
         TaskValidation.validateMultiInstance(multiInstanceDetector, task, taskId, "加签");
-
         validateCounterSignPermission(task);
+        return task;
+    }
 
-        String processInstanceId = task.getProcessInstanceId();
-        String activityId = task.getTaskDefinitionKey();
-
+    /**
+     * 拆分配签名单，过滤已在当前会签的审批人（维度一）。
+     *
+     * <p>名单内自重复检测（如 {@code [A, A]}）与维度一（与当前活跃会签人重复）
+     * 均整体失败，不创建任何任务（ADR-0024，替换原"全部重复时静默 return"）。</p>
+     *
+     * @return 真正需要加签的新审批人列表
+     */
+    private List<String> partitionNewAssignees(List<String> assignees, List<String> currentAssignees) {
         // 名单内自重复检测（如 [A, A]）：整体失败，避免创建两个同 assignee 的重复任务
         if (new HashSet<>(assignees).size() != assignees.size()) {
             throw new IllegalArgumentException(
                     "加签名单存在重复审批人，无法加签: " + String.join(", ", assignees));
         }
-
-        List<String> currentAssignees = resolveCurrentAssignees(task);
 
         List<String> newAssignees = new ArrayList<>();
         List<String> skippedAssignees = new ArrayList<>();
@@ -183,7 +227,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
             }
         }
 
-        // 维度一：与当前活跃会签人重复 → 整体失败（ADR-0024，替换原"全部重复时静默 return"）
+        // 维度一：与当前活跃会签人重复 → 整体失败
         if (!skippedAssignees.isEmpty()) {
             throw new IllegalArgumentException(
                     "审批人 " + String.join(", ", skippedAssignees) + " 已在本轮会签中，无法重复加签");
@@ -191,28 +235,39 @@ public class CounterSignWorkflow implements CounterSignOperations {
         if (newAssignees.isEmpty()) {
             throw new IllegalArgumentException("加签名单无有效审批人，无法加签");
         }
+        return newAssignees;
+    }
 
-        // 检测是否开启新轮次（全部审批完成后加签 = 新一轮）
-        // 模式分派（ADR-0022）：模式 A（伪单例，countersignInitiator 已写入）才有轮次概念，
-        // 由 isMultiInstanceFinished 判定是否本轮已结束；模式 B（固定会签）无轮次概念，
-        // 单执行周期内加签必然发生在本轮未投完时，永远并入当前轮。
-        // trySetCounterSignInitiator 后移（ADR-0024）：查重前置要求不产生任何副作用，
-        // 首次伪单例加签两种时序下 isNewRound 均 false、roundIndex=0，等价性已验证。
+    /**
+     * 检测本次加签是否开启新轮次（全部审批完成后加签 = 新一轮）。
+     *
+     * <p>trySetCounterSignInitiator 后移（ADR-0024）：查重前置要求不产生任何副作用，
+     * 首次伪单例加签两种时序下 isNewRound 均 false、roundIndex=0，等价性已验证。</p>
+     */
+    private boolean detectNewRound(PlusTask task, String processInstanceId, String activityId) {
         boolean modeA = runtimeService.getVariable(processInstanceId,
                 buildCountersignInitiatorVarName(activityId)) != null;
-        boolean isNewRound = false;
-        if (modeA) {
-            isNewRound = isMultiInstanceFinished(task);
-        }
-        int roundIndex;
-        if (isNewRound) {
-            roundIndex = determineNextRoundIndex(processInstanceId, activityId);
-        } else {
-            roundIndex = determineCurrentRoundIndex(processInstanceId, activityId);
-        }
+        return modeA && isMultiInstanceFinished(task);
+    }
 
-        // 维度二：与本轮（当前执行周期内、csRoundIndex 匹配）已投过票的审批人重复 → 整体失败
-        //（ADR-0024：roundIndex==0 时无标历史任务视为隐式轮次 0，覆盖模式 B 无打标场景）
+    /**
+     * 解析加签轮次索引：新轮次取历史 max + 1，否则并入当前轮。
+     */
+    private int resolveRoundIndex(String processInstanceId, String activityId, boolean isNewRound) {
+        if (isNewRound) {
+            return determineNextRoundIndex(processInstanceId, activityId);
+        }
+        return determineCurrentRoundIndex(processInstanceId, activityId);
+    }
+
+    /**
+     * 校验加签人与本轮（当前执行周期内、csRoundIndex 匹配）已投过票的审批人不重复（维度二）。
+     *
+     * <p>整体失败（ADR-0024：roundIndex==0 时无标历史任务视为隐式轮次 0，
+     * 覆盖模式 B 无打标场景）。</p>
+     */
+    private void validateNotVotedInRound(List<String> newAssignees, String processInstanceId,
+                                          String activityId, int roundIndex) {
         Set<String> votedAssigneesInRound = resolveVotedAssigneesInRound(
                 processInstanceId, activityId, roundIndex);
         List<String> alreadyVoted = newAssignees.stream()
@@ -222,8 +277,22 @@ public class CounterSignWorkflow implements CounterSignOperations {
             throw new IllegalArgumentException(
                     "审批人 " + String.join(", ", alreadyVoted) + " 已在本轮投过票，无法重复加签");
         }
+    }
 
-        // 通过全部查重后才执行副作用：写入 countersignInitiator（仅伪单例首次加签）
+    /**
+     * 执行加签副作用：写入 countersignInitiator（仅伪单例首次加签）+ 批量加签 + 打标。
+     *
+     * <p><b>打标</b>（ADR-0019 时序内化，2026-08-08）：始终为新任务打上 csRoundIndex，
+     * 并将操作者任务（发起任务）归入同一轮次（批量查询 + 内存过滤 + 统一打标，N→1 降维）。
+     * 此前仅给新加签人打标，原始审批人（owner）运行时无 csRoundIndex，
+     * 其再次加签时 isMultiInstanceFinished 误判"本轮将尽"而开启新一轮（round 1+）。
+     * 内化打标后 owner 首次加签即获显式轮次，后续加签走 roundVar 分支并入当前轮，
+     * ADR-0019 的"调用方时序"要求相应放宽（调用方无需再手动为发起任务打标）。</p>
+     */
+    private void performAddCounterSigner(PlusTask task, List<String> newAssignees, int roundIndex) {
+        String processInstanceId = task.getProcessInstanceId();
+        String activityId = task.getTaskDefinitionKey();
+
         trySetCounterSignInitiator(task);
 
         // 批量加签
@@ -233,11 +302,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
             runtimeService.addMultiInstanceExecution(activityId, processInstanceId, executionVariables);
         }
 
-        // 始终为新任务打上 csRoundIndex，并将操作者任务（发起任务）归入同一轮次（批量查询 + 内存过滤 + 统一打标，N→1 降维）
-        // 隐患 C 修复（2026-08-08）：此前仅给新加签人打标，原始审批人（owner）运行时无 csRoundIndex，
-        // 其再次加签时 isMultiInstanceFinished 误判"本轮将尽"而开启新一轮（round 1+）。
-        // 内化打标后 owner 首次加签即获显式轮次，后续加签走 roundVar 分支并入当前轮，
-        // ADR-0019 的"调用方时序"要求相应放宽（调用方无需再手动为发起任务打标）。
+        // 始终为新任务打上 csRoundIndex，并将操作者任务（发起任务）归入同一轮次
         Set<String> newAssigneeSet = new HashSet<>(newAssignees);
         List<Task> activeTasks = taskService.createTaskQuery()
                 .processInstanceId(processInstanceId)
@@ -246,18 +311,9 @@ public class CounterSignWorkflow implements CounterSignOperations {
                 .list();
         for (Task t : activeTasks) {
             if (newAssigneeSet.contains(t.getAssignee()) || t.getId().equals(task.getId())) {
-                taskService.setVariableLocal(t.getId(), "csRoundIndex", roundIndex);
+                taskService.setVariableLocal(t.getId(), CS_ROUND_INDEX_VAR, roundIndex);
             }
         }
-
-        StringBuilder commentMsg = new StringBuilder("加签审批人: ")
-                .append(String.join(", ", newAssignees));
-        if (isNewRound) {
-            commentMsg.append("，开启第 ").append(roundIndex + 1).append(" 轮会签");
-        }
-        taskService.addComment(taskId, processInstanceId, CommentType.ADD_SIGN.name(), commentMsg.toString());
-
-        invokeCallbacks(cb -> cb.onStart(processInstanceId, taskId, newAssignees));
     }
 
     @Override

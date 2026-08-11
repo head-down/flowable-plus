@@ -13,10 +13,9 @@ import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.model.NodeFinder;
 import io.github.flowable.plus.core.spi.ExecutionTreeHelper;
 import io.github.flowable.plus.core.spi.UserContext;
-import io.github.flowable.plus.core.strategy.PreviousNodeResolvers;
+import io.github.flowable.plus.core.strategy.CountersignRollbackStrategies;
 import io.github.flowable.plus.core.strategy.CountersignRollbackStrategy;
-import io.github.flowable.plus.core.strategy.StrictCountersignRollbackStrategy;
-import io.github.flowable.plus.core.support.AssigneeResolverRegistry;
+import io.github.flowable.plus.core.strategy.PreviousNodeResolvers;
 import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.vo.JumpableNodeVO;
 import io.github.flowable.plus.core.vo.RollbackResult;
@@ -77,7 +76,6 @@ public class TaskExecutionWorkflowTest {
     private PreviousNodeAuthorizer mockPreviousNodeAuthorizer;
     private ChangeActivityStateBuilder mockChangeStateBuilder;
     private CountersignRollbackStrategy mockCountersignRollbackStrategy;
-    private AssigneeResolverRegistry mockAssigneeResolverRegistry;
 
     @BeforeEach
     void setUp() {
@@ -94,8 +92,7 @@ public class TaskExecutionWorkflowTest {
         when(mockPreviousNodeAuthorizer.isAuthorized(anyString(), anyString())).thenReturn(true);
         when(mockPreviousNodeAuthorizer.isAuthorized(anyString(), anyString(), any())).thenReturn(true);
 
-        mockAssigneeResolverRegistry = new AssigneeResolverRegistry();
-        mockCountersignRollbackStrategy = new StrictCountersignRollbackStrategy(mockMultiInstanceDetector);
+        mockCountersignRollbackStrategy = CountersignRollbackStrategies.strict(mockMultiInstanceDetector);
 
         // 默认 stub：createExecutionQuery 返回空执行对象（非并行分支场景）
         stubNoParallelBranch();
@@ -103,8 +100,7 @@ public class TaskExecutionWorkflowTest {
         workflow = new TaskExecutionWorkflow(userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockNodeFinder, mockMultiInstanceDetector,
                 mockExecutionTreeHelper, new EventBus(null), mockProcessEndDetector,
-                mockPreviousNodeAuthorizer, mockCountersignRollbackStrategy,
-                mockAssigneeResolverRegistry);
+                mockPreviousNodeAuthorizer, mockCountersignRollbackStrategy);
     }
 
     // ======================== 同意 ========================
@@ -834,7 +830,7 @@ public class TaskExecutionWorkflowTest {
     @Test
     void testExecuteRollbackWritesRedirectComment() {
         // 使用可返回 redirect 结果的策略
-        CountersignRollbackStrategy redirectStrategy = (task, targetActivityId, registry) ->
+        CountersignRollbackStrategy redirectStrategy = (task, targetActivityId) ->
                 RollbackResult.redirect("predecessorNode",
                         "选择的节点 [目标节点] 在本次流程中为多人会签，已自动重定向至: 前置节点");
 
@@ -842,8 +838,7 @@ public class TaskExecutionWorkflowTest {
                 userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockNodeFinder, mockMultiInstanceDetector,
                 mockExecutionTreeHelper, new EventBus(null), mockProcessEndDetector,
-                mockPreviousNodeAuthorizer, redirectStrategy,
-                mockAssigneeResolverRegistry);
+                mockPreviousNodeAuthorizer, redirectStrategy);
 
         PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", USER_ID);
         stubTaskExistsWithAssignee(task);
@@ -987,8 +982,7 @@ public class TaskExecutionWorkflowTest {
         return new TaskExecutionWorkflow(userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockNodeFinder, mockMultiInstanceDetector,
                 mockExecutionTreeHelper, eventBus, ped,
-                mockPreviousNodeAuthorizer, mockCountersignRollbackStrategy,
-                mockAssigneeResolverRegistry);
+                mockPreviousNodeAuthorizer, mockCountersignRollbackStrategy);
     }
 
     @Test
