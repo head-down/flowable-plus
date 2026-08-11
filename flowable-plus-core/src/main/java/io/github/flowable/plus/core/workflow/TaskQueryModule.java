@@ -202,30 +202,8 @@ public class TaskQueryModule {
             return new PageResult<>(total, query.getPageNum(), query.getPageSize(), Collections.emptyList());
         }
 
-        // Phase 2: 批量取任务详情
-        List<String> procInstIds = processes.stream()
-                .map(HistoricProcessInstance::getId)
-                .collect(Collectors.toList());
-
-        List<HistoricTaskInstance> allTasks = historyService.createHistoricTaskInstanceQuery()
-                .processInstanceIdIn(procInstIds)
-                .taskAssignee(userId)
-                .finished()
-                .orderByHistoricTaskInstanceEndTime().desc()
-                .list();
-
-        // 每个流程实例取 endTime 最新的那条任务
-        Map<String, HistoricTaskInstance> latestPerProcInst = new LinkedHashMap<>();
-        for (HistoricTaskInstance task : allTasks) {
-            latestPerProcInst.putIfAbsent(task.getProcessInstanceId(), task);
-        }
-
-        List<HistoricTaskInstance> orderedTasks = new ArrayList<>(latestPerProcInst.values());
-
-        Map<String, HistoricProcessInstance> procInstMap = processes.stream()
-                .collect(Collectors.toMap(HistoricProcessInstance::getId, p -> p, (a, b) -> a));
-
-        List<DoneTaskVO> vos = voAssembler.toDoneVOs(orderedTasks, procInstMap);
+        // Phase 2: 批量取任务详情（与 queryDoneTasksPrecise 共享）
+        List<DoneTaskVO> vos = assembleDoneVOs(processes, userId);
 
         return new PageResult<>(total, query.getPageNum(), query.getPageSize(), vos);
     }
@@ -301,7 +279,27 @@ public class TaskQueryModule {
             return new PageResult<>(total, query.getPageNum(), query.getPageSize(), Collections.emptyList());
         }
 
-        // Phase 2: 批量取任务详情（复用现有逻辑）
+        // Phase 2: 批量取任务详情（与 queryDoneTasks 共享）
+        List<DoneTaskVO> vos = assembleDoneVOs(processes, userId);
+
+        log.debug("queryDoneTasksPrecise: total={}, records={}, cost={}ms",
+                total, vos.size(), System.currentTimeMillis() - start);
+        return new PageResult<>(total, query.getPageNum(), query.getPageSize(), vos);
+    }
+
+    // ======================== 内部辅助方法 ========================
+
+    /**
+     * 已办查询共享的 Phase 2：按流程实例批量取已完成任务，每实例保留 endTime 最新的那条，并装配 VO。
+     *
+     * <p>Phase 1（取流程实例列表）在 {@link #queryDoneTasks} 与 {@link #queryDoneTasksPrecise}
+     * 中各自实现，本方法承担两者的公共尾部，保证去重与装配逻辑只维护一份。</p>
+     *
+     * @param processes Phase 1 产出的流程实例列表
+     * @param userId    当前用户
+     * @return 已办 VO 列表
+     */
+    private List<DoneTaskVO> assembleDoneVOs(List<HistoricProcessInstance> processes, String userId) {
         List<String> procInstIds = processes.stream()
                 .map(HistoricProcessInstance::getId)
                 .collect(Collectors.toList());
@@ -324,14 +322,8 @@ public class TaskQueryModule {
         Map<String, HistoricProcessInstance> procInstMap = processes.stream()
                 .collect(Collectors.toMap(HistoricProcessInstance::getId, p -> p, (a, b) -> a));
 
-        List<DoneTaskVO> vos = voAssembler.toDoneVOs(orderedTasks, procInstMap);
-
-        log.debug("queryDoneTasksPrecise: total={}, records={}, cost={}ms",
-                total, vos.size(), System.currentTimeMillis() - start);
-        return new PageResult<>(total, query.getPageNum(), query.getPageSize(), vos);
+        return voAssembler.toDoneVOs(orderedTasks, procInstMap);
     }
-
-    // ======================== 内部辅助方法 ========================
 
     private List<String> getGroupIds(String userId) {
         return identityService.createGroupQuery().groupMember(userId).list()
