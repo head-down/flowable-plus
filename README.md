@@ -193,8 +193,13 @@ List<ApprovalRecordVO> history = flowablePlus.getApprovalHistory("proc-001");
 | ADR-0029 | flowable-plus-extension 定位为储备位（reserved slot） |
 | ADR-0030 | 删除死接口 TaskQueryEnhancer，回调收敛为 Consumer 单一形态 |
 | ADR-0031 | 节点预览 API 收窄为三入口（8 方法 → 3 入口） |
+| ADR-0032 | 范围外功能判据：脱离业务数据即失去价值的功能归业务层 |
 
 详见 `docs/adr/` 目录。
+
+## 参与贡献
+
+欢迎提交 issue、PR 和讨论。请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)（构建/测试/提交规范）与 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)（行为准则）。
 
 ## 许可证
 
