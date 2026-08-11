@@ -15,7 +15,7 @@ flowable-plus 是一个面向 Java 8 的 Flowable (6.8.0) 工作流引擎增强�
 flowable-plus (父 POM, packaging=pom)
 ├── flowable-plus-core                 -- 核心模块，带 spring-tx（注解级，非 DI 运行时）
 ├── flowable-plus-spring-boot-starter  -- Spring Boot 自动配置粘合层
-└── flowable-plus-extension            -- 可选扩展模块（多实例、高级审批等）
+└── flowable-plus-extension            -- 储备位模块（reserved slot），边界见 ADR-0029
 ```
 
 ### 依赖关系
@@ -40,7 +40,7 @@ flowable-plus-extension
 ### 各模块职责
 - **flowable-plus-core** — 封装 Flowable 核心服务（RuntimeService、TaskService、HistoryService 等），通过 SPI 接口解耦运行时框架。依赖 spring-tx 仅用于 `@Transactional` 注解元数据声明（无 DI/AOP 运行时），`@Transactional` 在无 Spring AOP 的环境中无害忽略。包含 BPMN 模型缓存（`BpmnModelCache`）以消除重复引擎 I/O。可在任意 Java 8+ 应用中使用。
 - **flowable-plus-spring-boot-starter** — 通过 `META-INF/spring.factories` 实现自动配置。配置属性前缀为 `flowable.plus.*`。当 classpath 上存在 `org.flowable.engine.ProcessEngine` 时条件激活。
-- **flowable-plus-extension** — 可选模块，提供高级功能（多实例处理、高级审批模式等）。仅依赖 core 模块。
+- **flowable-plus-extension** — 储备位模块，当前无功能内容。等待「依赖隔离」（必须引入 core 未引入的依赖）或「真正可选的领域能力」类功能入住；禁止薄壳包装 core 已有功能（双轨）。定位与判据见 ADR-0029。
 
 ## 常用命令
 
@@ -112,7 +112,7 @@ starter 模块通过 `META-INF/spring.factories` 注册 `FlowablePlusAutoConfigu
 
 **v1.0.0 GA 已发布。** CI 矩阵覆盖 H2 / MySQL 8.0 / PostgreSQL 14（见 ADR-0014），全量测试通过。
 
-Core 模块已实现审批核心操作（发起、同意、驳回、撤回、撤销、会签），含 BPMN 节点遍历、多实例检测和模型缓存。Starter 模块提供自动配置。Extension 模块为空壳。
+Core 模块已实现审批核心操作（发起、同意、驳回、撤回、撤销、会签），含 BPMN 节点遍历、多实例检测和模型缓存。Starter 模块提供自动配置。Extension 模块为储备位（无功能内容，边界见 ADR-0029）。
 
 权限层级：已覆盖流程操作权限（assignee/发起人/上一节点审批人身份校验），数据权限待以回调扩展模式补充（见 `docs/planning/permission-integration-evaluation.md`）。
 
@@ -166,3 +166,5 @@ Core 模块已实现审批核心操作（发起、同意、驳回、撤回、撤
 | ADR-0026 | 会签节点 assignee 必须引用元素变量（建模约束体系） | 2026-08-10 |
 | ADR-0027 | 操作注释多值化（operationComments 列表字段） | 2026-08-10 |
 | ADR-0028 | 审批轨迹收敛为单一入口 getApprovalHistory（删除 getApprovalTrace） | 2026-08-10 |
+| ADR-0029 | flowable-plus-extension 定位为储备位（reserved slot） | 2026-08-11 |
+| ADR-0030 | 删除死接口 TaskQueryEnhancer，回调收敛为 Consumer 单一形态 | 2026-08-11 |

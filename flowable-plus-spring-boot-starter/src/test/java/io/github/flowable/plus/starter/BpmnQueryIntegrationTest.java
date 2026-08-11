@@ -4,7 +4,6 @@ import io.github.flowable.plus.core.FlowablePlus;
 import io.github.flowable.plus.core.domain.PageResult;
 import io.github.flowable.plus.core.dto.TaskQueryDTO;
 import io.github.flowable.plus.core.spi.GroupResolver;
-import io.github.flowable.plus.core.spi.TaskQueryEnhancer;
 import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.vo.ApprovalRecordVO;
 import io.github.flowable.plus.core.vo.DoneTaskVO;
@@ -51,7 +50,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * BPMN 查询集成测试：使用真实嵌入式 Flowable 引擎验证三期所有查询操作。
  *
  * <p>覆盖：批量摘要查询(S1)、下一节点审批人预览(S5)、
- * 待办/已办列表(S2/S3)、TaskQueryEnhancer 回调、审批中预审(S6/S7)、
+ * 待办/已办列表(S2/S3)、Consumer 回调、审批中预审(S6/S7)、
  * 审批轨迹(S4)、GroupResolver 自定义实现可替换。</p>
  */
 @SpringBootTest(classes = BpmnQueryIntegrationTestApplication.class)
@@ -209,10 +208,10 @@ class BpmnQueryIntegrationTest extends AbstractIntegrationTest {
         }
     }
 
-    // ======================== TaskQueryEnhancer 回调 ========================
+    // ======================== Consumer 回调 ========================
 
     @Test
-    void testTaskQueryEnhancerCallback() {
+    void testConsumerCallback() {
         DynamicUserContext.set(INITIATOR);
         ProcessInstance pi = runtimeService.startProcessInstanceByKey(PROCESS_KEY, "biz-003",
                 Collections.singletonMap("initiator", (Object) INITIATOR));
@@ -350,10 +349,10 @@ class BpmnQueryIntegrationTest extends AbstractIntegrationTest {
         assertThat(flowablePlus).isInstanceOf(io.github.flowable.plus.core.api.QueryOperations.class);
     }
 
-    // ======================== TaskQueryEnhancer 有效性验证 ========================
+    // ======================== Consumer 回调有效性验证 ========================
 
     @Test
-    void testTaskQueryEnhancerCustomCallback() {
+    void testCustomConsumerCallback() {
         DynamicUserContext.set(INITIATOR);
         ProcessInstance pi = runtimeService.startProcessInstanceByKey(PROCESS_KEY, "biz-008",
                 Collections.singletonMap("initiator", (Object) INITIATOR));

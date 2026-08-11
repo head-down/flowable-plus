@@ -83,7 +83,6 @@ flowable-plus (父 POM, packaging=pom)
 | `GroupResolver` | 候选组解析，将候选组 ID 展开为成员列表 |
 | `CounterSignCallback` | 会签回调，监听会签发起/投票/完成事件 |
 | `ExecutionTreeHelper` | 执行树辅助，隔离 Flowable 内部依赖 |
-| `TaskQueryEnhancer` | 待办查询自定义过滤条件（Consumer 回调模式） |
 
 ## 快速开始
 
