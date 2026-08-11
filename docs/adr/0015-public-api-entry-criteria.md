@@ -28,7 +28,7 @@
 - **审批语义**：驳回、撤回、撤销、会签等中式审批概念（已有示例：`rejectTask`、`withdrawTask`、`counterSign`）
 - **权限校验**：assignee / 发起人 / 上一节点审批人身份校验（已有示例：所有写操作方法）
 - **事件集成**：通过 `ProcessEventListener` 发布领域事件
-- **VO 转换**：将 Flowable 原生对象转换为框架定义的领域 VO（已有示例：`queryTodoTasks`、`getApprovalTrace`）
+- **VO 转换**：将 Flowable 原生对象转换为框架定义的领域 VO（已有示例：`queryTodoTasks`、`getApprovalHistory`）
 - **BPMN 模型操作**：节点遍历、多实例检测、网关判断等（已有示例：`getNextTaskNodes`、`getJumpableNodes`）
 - **批量化**：消除 N+1 查询或提供批量语义（已有示例：`batchQueryProcessSummaries`）
 
@@ -52,7 +52,7 @@ Flowable 的 `RuntimeService`、`TaskService`、`HistoryService` 本身就是设
 | `getVariable` / `setVariable` | 不实现 | 裸透传。变量读写已内嵌在 `startProcess` 和 `completeTask` 的 `vars` 参数中。下游直接注入 `RuntimeService` |
 | `getActiveTasks` | 不实现 | 裸透传。项目内部（`TaskQueryModule`、`TaskValidation`）已内聚处理撤回/驳回的前置校验 |
 | `suspendProcess` / `activateProcess` | 不实现（当前形态） | 裸透传。若未来需要加上权限模型 + 事件发布等增值逻辑，可重新评估并纳入 `ProcessLifecycleOperations` |
-| `isTaskActive` | 不实现 | 裸透传。已有 `ProcessSummaryVO` 和 `ApprovalTraceVO` 提供更丰富的状态信息 |
+| `isTaskActive` | 不实现 | 裸透传。已有 `ProcessSummaryVO` 和 `ApprovalRecordVO` 提供更丰富的状态信息 |
 
 ## 后果
 

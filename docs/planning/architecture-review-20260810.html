@@ -118,6 +118,13 @@ flowchart LR
             </div>
           </div>
 
+            <div class="rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+              <b>已实现（2026-08-10，ADR-0028）</b>：上图 after 为审查时的建议形态；实际实现更彻底——删除
+              <code>getApprovalTrace</code> 与 <code>ApprovalTraceVO</code>，收敛为单一入口
+              <code>getApprovalHistory</code> + <code>ApprovalRecordVO</code>（含 <code>CountersignSubRecord</code>），
+              未保留双视图适配器。见 ADR-0028 决策 #1。
+            </div>
+
           <div class="space-y-2 text-sm">
             <p><strong class="text-slate-700">Problem</strong> — 同一领域概念「审批轨迹」由两个并行模块实现，产出两套近重复 VO（duration vs durationMillis、actorId+actorName vs assignee、布尔 vs ApprovalAction），核心的四件套逻辑逐字重复两份；理解一个概念要跳 6-7 个文件。</p>
             <p><strong class="text-slate-700">Solution</strong> — 收敛为单一深层「审批轨迹」模块：统一接口面，内部承载轮次切分、Comment 分组内核、事件时间线；两种 VO 退化为两个薄展示适配器。</p>
@@ -373,7 +380,7 @@ flowchart TD
               </ul>
             </div>
             <div class="rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-              <b>已实现（2026-08-11，commit 04126dc）</b>：新建工厂 <code>CountersignRollbackStrategies</code> 承载三静态工厂 + 前驱解析工具；三实现改包私有、仅经工厂创建；接口去掉死参数 <code>assigneeResolverRegistry</code>；<code>TaskExecutionWorkflow</code> 彻底移除 registry 依赖；<code>addCounterSigner</code> 拆为 6 个可命名步骤（行为逐条比对不变，core 452 + starter 92 测试全绿）。ADR-0021 第 5 节同步。
+              <b>已实现（2026-08-11，commit 04126dc）</b>：新建工厂 <code>CountersignRollbackStrategies</code> 承载三静态工厂 + 前驱解析工具；三实现改包私有、仅经工厂创建；接口去掉死参数 <code>assigneeResolverRegistry</code>；<code>TaskExecutionWorkflow</code> 彻底移除 registry 依赖；<code>addCounterSigner</code> 拆为 7 个可命名步骤（行为逐条比对不变，core 452 + starter 92 测试全绿）。ADR-0021 第 5 节同步。
             </div>
             <div class="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
               ADR-0021（运行时检测与自动重定向）与 ADR-0022（双模式建模 + AssigneeResolver SPI）的决策保留 — 本候选只动模块形状，不动决策内容。
@@ -530,11 +537,11 @@ flowchart LR
         <article class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
           <div class="flex items-center justify-between gap-4">
             <h2 class="font-serif text-xl font-bold">NodePreviewWorkflow 接口面收窄</h2>
-            <span class="shrink-0 rounded-full border border-slate-300 bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">Speculative</span>
+            <span class="shrink-0 rounded-full border border-emerald-300 bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">已实现 (2026-08-11)</span>
           </div>
           <div class="flex flex-wrap gap-2 text-xs">
             <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-600">in-process</span>
-            <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-600">8 方法同一模板</span>
+            <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-600">8 方法 → 3 入口 → 已收敛</span>
           </div>
 
           <div class="font-mono text-sm text-slate-600 space-y-0.5">
@@ -570,10 +577,18 @@ flowchart LR
             <div>
               <p class="font-semibold text-slate-700 mb-1">Wins</p>
               <ul class="list-disc list-inside space-y-0.5">
-                <li>接口面收缩：8 入口 → 1-2 入口</li>
+                <li>接口面收缩：8 入口 → 3 入口</li>
                 <li>测试沿一个接缝驱动</li>
                 <li>局部性：预览编排一处</li>
               </ul>
+            </div>
+            <div class="rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+              <b>已实现（2026-08-11，ADR-0031）</b>：8 方法 → 3 入口（<code>getNextNodeApprovers</code> /
+              <code>getNextTaskNodes</code> / <code>getNextTaskApprovers</code>），遍历深度降为
+              <code>TraversalMode</code> 枚举参数（FULL / ADJACENT），<code>targetNodeId</code> 过滤与冗余
+              <code>processInstanceId</code> 参数一并删除。触发条件未等满足即主动收窄；<b>确认存在下游消费，
+              仍直接收窄、迁移由下游承担</b>（README「v1.0.0 API 迁移」映射表）；版本保持 1.0.0，未来进
+              Maven Central 须升版本。core 61 + starter 集成测试全绿。
             </div>
           </div>
         </article>
@@ -657,9 +672,9 @@ flowchart TB
       <!-- ============ TOP RECOMMENDATION ============ -->
       <section id="top-recommendation">
         <div class="deep rounded-xl p-6 text-slate-100 shadow-md">
-          <h2 class="font-serif text-xl font-bold mb-2">下一步：Card A-F 均已落地，剩余 Card G / Card I（Speculative）</h2>
+          <h2 class="font-serif text-xl font-bold mb-2">下一步：Card A-G 均已落地，剩余 Card I（Speculative）</h2>
           <p class="text-sm text-slate-200">原首选（合并双胞胎「审批轨迹」模块）已由 ADR-0028 实现；事件发布（<a href="#candidates" class="underline text-emerald-300">Card B</a>）已于 2026-08-11 收敛为 EventBus 深层模块；<b>Card D（回退策略族）</b>与 <b>Card C（已办查询 Phase 2 去重）</b>已于 2026-08-11 落地；<b>Card E（权限校验收敛）已于 2026-08-11 落地</b>——删除 PreviousNodeAuthorizer（-371 行），职责收敛至 TaskValidation，withdrawTask 消除重复解析。<b><a href="#candidates" class="underline text-emerald-300">Card F</a>（删除测试通过的残留）已于 2026-08-11 处理</b>——extension 空壳经讨论改为「储备位」定位并明确边界（ADR-0029，不删除）；死接口 TaskQueryEnhancer 直接删除（ADR-0030），回调收敛为 Consumer 单一形态。0807 审查的完整对照见文首「遗留追踪」。</p>
-          <p class="text-sm text-slate-200 mt-2"><b>2026-08-11 复核：Card G / Card I 维持暂缓。</b>触发条件未满足——Card G 的完整收窄需破坏 v1.0.0 GA 已发布的公开 API（8 方法即 QueryOperations 接口面，收窄会违反 ADR-0010 门面纯聚合角色）；Card I 的 DefaultNodeFinder 行数未再增长、无表达式评估 bug 频发。复核后仍维持 Speculative，待下列触发条件满足再动：<b>Card G</b>：新增第 9 个预览入口（模板再次复制）或下游消费方提出预览 API 变更需求；<b>Card I</b>：DefaultNodeFinder 超过 ~1000 行或分支条件评估 bug 频发。</p>
+          <p class="text-sm text-slate-200 mt-2"><b>2026-08-11 复核：Card G 已实现，Card I 维持暂缓。</b>Card G（节点预览接口面收窄）触发条件未等满足即主动落地——8 方法收敛为 3 入口（<code>getNextNodeApprovers</code> / <code>getNextTaskNodes</code> / <code>getNextTaskApprovers</code>），遍历深度降为 TraversalMode 枚举参数，删除 targetNodeId 过滤与冗余 processInstanceId 参数（ADR-0031）。注意：与 ADR-0028 不同，本次<b>确认存在下游消费，仍直接收窄，迁移由下游承担</b>（README「v1.0.0 API 迁移」映射表）；版本保持 1.0.0，未来进 Maven Central 须升版本。<b>Card I</b> 维持 Speculative：DefaultNodeFinder 行数未再增长、无表达式评估 bug 频发，待其超过 ~1000 行或分支条件评估 bug 频发再动。</p>
         </div>
       </section>
 

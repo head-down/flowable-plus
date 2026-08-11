@@ -37,7 +37,7 @@ CI 矩阵覆盖 H2 / MySQL 8.0 / PostgreSQL 14 三种数据库，全量测试通
 ### 可视化
 
 - **流程图** — `getProcessDiagram`（生成含节点状态高亮的 SVG 流程图）
-- **节点预览** — `getNextNodeApproversByProcessKey`（发起前预览审批链路）/ `getNextTaskApprovers`（审批中查询下一节点审批人）
+- **节点预览** — `getNextNodeApprovers`（发起前预览审批链路）/ `getNextTaskNodes`、`getNextTaskApprovers`（审批中查询下游节点与审批人），支持全遍历 / 紧邻遍历（`TraversalMode`）
 
 ### 事件监听
 
@@ -67,9 +67,26 @@ flowable-plus (父 POM, packaging=pom)
 | `ProcessLifecycleOperations` | 2 | `startProcess`, `revokeProcess` |
 | `TaskExecutionOperations` | 8 | `completeTask`, `claimTask`, `rejectTask`, `rejectTaskToInitiator`, `withdrawTask`, `transferTask`, `jumpToNode`, `getJumpableNodes` |
 | `CounterSignOperations` | 5 | `counterSign`, `addCounterSigner`, `removeCounterSigner`, `delegateTask`, `resolveDelegate` |
-| `QueryOperations` | 9 | `queryTodoTasks`×2, `queryDoneTasks`×2, 节点预览×5, `batchQueryProcessSummaries` |
+| `QueryOperations` | 13 | `queryTodoTasks`×2, `queryDoneTasks`×2, `queryDoneTasksPrecise`, `getNextNodeApprovers`×2, `getNextTaskNodes`, `getNextTaskApprovers`, `getProcessSummary`, `batchQueryProcessSummaries`, `getApprovalPersonnel`, `getBusinessKeyByProcessInstanceId` |
 | `HistoryOperations` | 1 | `getApprovalHistory` |
 | `DiagramOperations` | 1 | `getProcessDiagram` |
+
+## v1.0.0 API 迁移
+
+v1.0.0 节点预览 API 已收窄为三入口（见 [ADR-0031](docs/adr/0031-node-preview-api-consolidation.md)）。升级依赖后请按以下映射适配：
+
+| 旧 API（已删除） | 新 API |
+|------------------|--------|
+| `getNextNodeApproversByProcessKey(key)` | `getNextNodeApprovers(key, TraversalMode.FULL)` |
+| `getNextNodeApproversByProcessKey(key, vars)` | `getNextNodeApprovers(key, TraversalMode.FULL, vars)` |
+| `getAdjacentNodeApproversByProcessKey(key, vars)` | `getNextNodeApprovers(key, TraversalMode.ADJACENT, vars)` |
+| `getNextTaskApprovers(taskId)` | `getNextTaskApprovers(taskId, TraversalMode.FULL)` |
+| `getNextTaskApprovers(taskId, targetNodeId)` | `getNextTaskApprovers(taskId, TraversalMode.FULL)` 后按 `nodeId` 过滤：<br/>`result.stream().filter(v -> targetNodeId.equals(v.getNodeId())).collect(Collectors.toList())`（`targetNodeId` 为 null 时等价于「不过滤」，即 `getNextTaskApprovers(taskId, TraversalMode.FULL)`） |
+| `getNextTaskNodes(processInstanceId, taskId)` | `getNextTaskNodes(taskId, TraversalMode.FULL)`（processInstanceId 已由 taskId 自动推导，不再传参） |
+| `getAdjacentTaskNodes(processInstanceId, taskId)` | `getNextTaskNodes(taskId, TraversalMode.ADJACENT)` |
+| `getAdjacentTaskApprovers(taskId)` | `getNextTaskApprovers(taskId, TraversalMode.ADJACENT)` |
+
+`TraversalMode` 取值：`FULL`（全遍历，完整审批链路）/ `ADJACENT`（紧邻遍历，仅第一个审批层级）。
 
 ## SPI 扩展点
 
@@ -163,6 +180,7 @@ List<ApprovalRecordVO> history = flowablePlus.getApprovalHistory("proc-001");
 | ADR-0016 | 正向 EndEvent 终止检测作为独立 NodeFinder 方法 |
 | ADR-0017 | 乐观锁冲突不采用通用 AOP 重试，仅在具体方法内精准重试 |
 | ADR-0018 | 紧邻遍历使用 stopAtUserTask 参数复用现有遍历引擎 |
+| ADR-0031 | 节点预览 API 收窄为三入口（8 方法 → 3 入口） |
 
 详见 `docs/adr/` 目录。
 

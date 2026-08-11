@@ -1,5 +1,6 @@
 package io.github.flowable.plus.core.api;
 
+import io.github.flowable.plus.core.enums.TraversalMode;
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.vo.ApprovalPersonnelVO;
 import io.github.flowable.plus.core.vo.ApproverInfoVO;
@@ -137,108 +138,58 @@ public interface QueryOperations {
      * 根据流程定义 Key 获取初始审批节点及审批人（不评估网关条件，全部展开）。
      *
      * @param processKey 流程定义 Key
+     * @param mode       遍历深度：{@link TraversalMode#FULL} 返回完整审批链路，
+     *                   {@link TraversalMode#ADJACENT} 仅返回第一个审批层级
      * @return 初始审批节点列表，每个节点包含审批人列表
+     * @see #getNextNodeApprovers(String, TraversalMode, Map)
      */
-    List<NodeApproverVO> getNextNodeApproversByProcessKey(String processKey);
+    List<NodeApproverVO> getNextNodeApprovers(String processKey, TraversalMode mode);
 
     /**
      * 根据流程定义 Key 获取初始审批节点及审批人（支持可选变量评估网关条件）。
      *
      * @param processKey 流程定义 Key
+     * @param mode       遍历深度：{@link TraversalMode#FULL} 返回完整审批链路，
+     *                   {@link TraversalMode#ADJACENT} 仅返回第一个审批层级
      * @param variables  变量上下文，为 null 时不评估条件，全部展开
-     * @return 初始审批节点列表
+     * @return 初始审批节点列表，每个节点包含审批人列表
      */
-    List<NodeApproverVO> getNextNodeApproversByProcessKey(String processKey, Map<String, Object> variables);
-
-    /**
-     * 根据流程定义 Key 获取紧邻审批节点及审批人（仅返回第一个审批层级，遇 UserTask 即停止深入）。
-     *
-     * <p>与 {@link #getNextNodeApproversByProcessKey(String, Map)} 的区别：</p>
-     * <ul>
-     *   <li>全遍历（Full） — 从 StartEvent 出发，遍历所有可达 UserTask，包括嵌套子流程、
-     *       被调用流程、以及经过多个审批节点后的下游节点。</li>
-     *   <li>紧邻遍历（Adjacent） — 从 StartEvent 出发，仅返回第一个审批层级（紧邻的
-     *       UserTask），遇到 UserTask 后收集并停止，不再继续穿越其 outgoing 序列流。</li>
-     * </ul>
-     *
-     * <p>典型场景：前端需要在发起审批页面展示"第一个"审批节点的审批人选择（如直属上级），
-     * 而非全部审批节点列表。</p>
-     *
-     * @param processKey 流程定义 Key
-     * @param variables  变量上下文，为 null 时不评估条件，全部展开
-     * @return 紧邻审批节点列表
-     */
-    List<NodeApproverVO> getAdjacentNodeApproversByProcessKey(String processKey, Map<String, Object> variables);
-
-    /**
-     * 获取当前任务所有下一节点的审批人（扁平列表）。
-     *
-     * <p>去重策略与 {@link #getAdjacentTaskApprovers(String)} 一致：
-     * 同一节点内的审批人已按优先级去重，跨节点不作去重，
-     * 调用方应根据业务场景自行聚合或分组。</p>
-     *
-     * @param taskId 当前任务 ID
-     * @return 所有下一节点的审批人列表
-     * @see #getAdjacentTaskApprovers(String)
-     */
-    List<ApproverInfoVO> getNextTaskApprovers(String taskId);
-
-    /**
-     * 获取当前任务指定目标节点的审批人。
-     *
-     * @param taskId       当前任务 ID
-     * @param targetNodeId 目标节点 definitionKey
-     * @return 指定目标节点的审批人列表
-     */
-    List<ApproverInfoVO> getNextTaskApprovers(String taskId, String targetNodeId);
+    List<NodeApproverVO> getNextNodeApprovers(String processKey, TraversalMode mode,
+                                              Map<String, Object> variables);
 
     /**
      * 获取当前任务可流转至的下游节点列表。
      *
-     * @param processInstanceId 流程实例 ID
-     * @param taskId            当前任务 ID
-     * @return 下一节点列表
-     */
-    List<NextTaskNodeVO> getNextTaskNodes(String processInstanceId, String taskId);
-
-    /**
-     * 获取当前任务可流转至的紧邻节点列表（仅返回第一个审批层级）。
+     * <p>{@link TraversalMode#FULL} 返回所有可达下游节点（完整链路），
+     * {@link TraversalMode#ADJACENT} 仅返回紧邻的下一个审批层级
+     * （遇 UserTask 即停止深入，不穿越其 outgoing 序列流）。
+     * 若下游存在 EndEvent 分支，结果中附带
+     * {@link NextTaskNodeVO#END_TASK_CODE} 节点。</p>
      *
-     * <p>与 {@link #getNextTaskNodes(String, String)} 的区别同
-     * {@link #getAdjacentNodeApproversByProcessKey(String, Map)} 与
-     * {@link #getNextNodeApproversByProcessKey(String, Map)} 的区别：
-     * 紧邻遍历遇 UserTask 即停止深入，不穿越其 outgoing 序列流；
-     * 全遍历则继续穿越所有下游节点。</p>
-     *
-     * <p>典型场景：当前审批节点需要展示"紧邻的下一审批人"
-     *（而非整条审批链路中所有下游节点）。</p>
-     *
-     * @param processInstanceId 流程实例 ID
-     * @param taskId            当前任务 ID
-     * @return 紧邻节点列表
-     */
-    List<NextTaskNodeVO> getAdjacentTaskNodes(String processInstanceId, String taskId);
-
-    /**
-     * 获取当前任务紧邻节点的审批人（扁平列表）。
-     *
-     * <p>与 {@link #getNextTaskApprovers(String)} 的区别：仅返回零阶邻接
-     * UserTask 的审批人（遇 UserTask 即停止深入），而非贯穿式的所有下游审批人。</p>
-     *
-     * <p>与 {@link #getAdjacentTaskNodes(String, String)} 的区别：
-     * 返回带审批人的 {@link ApproverInfoVO}，而非仅节点结构信息。</p>
-     *
-     * <p>典型场景：审批页面展示"紧邻的下一步审批人"。</p>
-     *
-     * <p><b>去重策略：</b>同一节点内的审批人已按优先级去重（assignee &gt;
-     * candidateUser &gt; candidateGroup），但跨节点不作去重。
-     * 调用方应根据业务场景自行聚合（预览场景按 userId 去重，
-     * 指派场景按 nodeId 分组）。</p>
+     * <p>典型场景：审批页面展示「下一步可选的审批分支」。</p>
      *
      * @param taskId 当前任务 ID，不可为 null 或空
-     * @return 紧邻节点的审批人扁平列表，跨节点含可能重复的审批人
+     * @param mode   遍历深度
+     * @return 下游节点列表
      */
-    List<ApproverInfoVO> getAdjacentTaskApprovers(String taskId);
+    List<NextTaskNodeVO> getNextTaskNodes(String taskId, TraversalMode mode);
+
+    /**
+     * 获取当前任务下游节点的审批人（扁平列表）。
+     *
+     * <p>{@link TraversalMode#FULL} 返回所有可达下游审批人，
+     * {@link TraversalMode#ADJACENT} 仅返回紧邻节点的审批人。
+     * 同一节点内的审批人已按优先级去重（assignee &gt; candidateUser &gt;
+     * candidateGroup），跨节点不作去重——同一用户出现在多个节点时列表中出现多次
+     * （各携带对应 nodeId）。调用方应根据业务场景自行聚合（预览场景按 userId 去重，
+     * 指派场景按 nodeId 分组）；如需查询指定节点的审批人，按
+     * {@link ApproverInfoVO#getNodeId()} 过滤即可。</p>
+     *
+     * @param taskId 当前任务 ID，不可为 null 或空
+     * @param mode   遍历深度
+     * @return 下游节点审批人扁平列表
+     */
+    List<ApproverInfoVO> getNextTaskApprovers(String taskId, TraversalMode mode);
 
     // ======================== 流程追踪 ========================
 

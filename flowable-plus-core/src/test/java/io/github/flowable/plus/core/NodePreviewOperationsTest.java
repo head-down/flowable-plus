@@ -1,5 +1,6 @@
 package io.github.flowable.plus.core;
 
+import io.github.flowable.plus.core.enums.TraversalMode;
 import io.github.flowable.plus.core.spi.ApproverResolver;
 import io.github.flowable.plus.core.spi.GroupResolver;
 import io.github.flowable.plus.core.vo.ApproverInfoVO;
@@ -31,6 +32,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -74,14 +76,14 @@ public class NodePreviewOperationsTest {
 
     @Test
     public void testRejectNullProcessKey() {
-        assertThatThrownBy(() -> nodePreviewWorkflow.getNextNodeApproversByProcessKey(null))
+        assertThatThrownBy(() -> nodePreviewWorkflow.getNextNodeApprovers(null, TraversalMode.FULL))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("processKey");
     }
 
     @Test
     public void testRejectEmptyProcessKey() {
-        assertThatThrownBy(() -> nodePreviewWorkflow.getNextNodeApproversByProcessKey(""))
+        assertThatThrownBy(() -> nodePreviewWorkflow.getNextNodeApprovers("", TraversalMode.FULL))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("processKey");
     }
@@ -95,12 +97,12 @@ public class NodePreviewOperationsTest {
         when(pdQuery.active()).thenReturn(pdQuery);
         when(pdQuery.singleResult()).thenReturn(null);
 
-        assertThatThrownBy(() -> nodePreviewWorkflow.getNextNodeApproversByProcessKey("unknown-key"))
+        assertThatThrownBy(() -> nodePreviewWorkflow.getNextNodeApprovers("unknown-key", TraversalMode.FULL))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("未找到流程定义");
     }
 
-    // ======================== assignee 类型审批人 ========================
+    // ======================== 定义锚点 · 全遍历（FULL） ========================
 
     @Test
     public void testAssigneeTypeApprover() {
@@ -116,7 +118,7 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findAllReachableUserTasks(definitionId, null))
                 .thenReturn(Collections.singletonList("taskA"));
 
-        List<NodeApproverVO> result = nodePreviewWorkflow.getNextNodeApproversByProcessKey(processKey);
+        List<NodeApproverVO> result = nodePreviewWorkflow.getNextNodeApprovers(processKey, TraversalMode.FULL);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getNodeId()).isEqualTo("taskA");
@@ -125,8 +127,6 @@ public class NodePreviewOperationsTest {
         assertThat(result.get(0).getApprovers().get(0).getId()).isEqualTo("manager1");
         assertThat(result.get(0).getApprovers().get(0).getType()).isEqualTo("assignee");
     }
-
-    // ======================== candidateUser 类型审批人 ========================
 
     @Test
     public void testCandidateUserTypeApprover() {
@@ -143,7 +143,7 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findAllReachableUserTasks(definitionId, null))
                 .thenReturn(Collections.singletonList("taskA"));
 
-        List<NodeApproverVO> result = nodePreviewWorkflow.getNextNodeApproversByProcessKey(processKey);
+        List<NodeApproverVO> result = nodePreviewWorkflow.getNextNodeApprovers(processKey, TraversalMode.FULL);
 
         assertThat(result).hasSize(1);
         List<ApproverInfoVO> approvers = result.get(0).getApprovers();
@@ -153,8 +153,6 @@ public class NodePreviewOperationsTest {
         assertThat(approvers.get(0).getId()).isEqualTo("user1");
         assertThat(approvers.get(1).getId()).isEqualTo("user2");
     }
-
-    // ======================== candidateGroup 类型审批人（GroupResolver 展开） ========================
 
     @Test
     public void testCandidateGroupExpandViaGroupResolver() {
@@ -175,7 +173,7 @@ public class NodePreviewOperationsTest {
         when(mockGroupResolver.getGroupMembers("dept_director"))
                 .thenReturn(Collections.singletonList("userC"));
 
-        List<NodeApproverVO> result = nodePreviewWorkflow.getNextNodeApproversByProcessKey(processKey);
+        List<NodeApproverVO> result = nodePreviewWorkflow.getNextNodeApprovers(processKey, TraversalMode.FULL);
 
         assertThat(result).hasSize(1);
         List<ApproverInfoVO> approvers = result.get(0).getApprovers();
@@ -209,13 +207,11 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findAllReachableUserTasks(definitionId, null))
                 .thenReturn(Collections.singletonList("taskA"));
 
-        List<NodeApproverVO> result = npwWithoutResolver.getNextNodeApproversByProcessKey(processKey);
+        List<NodeApproverVO> result = npwWithoutResolver.getNextNodeApprovers(processKey, TraversalMode.FULL);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getApprovers()).isEmpty();
     }
-
-    // ======================== 多节点 ========================
 
     @Test
     public void testMultipleNodes() {
@@ -232,7 +228,7 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findAllReachableUserTasks(definitionId, null))
                 .thenReturn(Arrays.asList("taskA", "taskB"));
 
-        List<NodeApproverVO> result = nodePreviewWorkflow.getNextNodeApproversByProcessKey(processKey);
+        List<NodeApproverVO> result = nodePreviewWorkflow.getNextNodeApprovers(processKey, TraversalMode.FULL);
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).getNodeId()).isEqualTo("taskA");
@@ -240,8 +236,6 @@ public class NodePreviewOperationsTest {
         assertThat(result.get(1).getNodeId()).isEqualTo("taskB");
         assertThat(result.get(1).getNodeName()).isEqualTo("节点B");
     }
-
-    // ======================== 带变量的条件路由 ========================
 
     @Test
     public void testWithVariablesPassesToNodeFinder() {
@@ -259,7 +253,8 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findAllReachableUserTasks(definitionId, variables))
                 .thenReturn(Collections.singletonList("taskA"));
 
-        List<NodeApproverVO> result = nodePreviewWorkflow.getNextNodeApproversByProcessKey(processKey, variables);
+        List<NodeApproverVO> result = nodePreviewWorkflow
+                .getNextNodeApprovers(processKey, TraversalMode.FULL, variables);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getNodeId()).isEqualTo("taskA");
@@ -279,23 +274,24 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findAllReachableUserTasks(definitionId, null))
                 .thenReturn(Collections.singletonList("taskA"));
 
-        List<NodeApproverVO> result = nodePreviewWorkflow.getNextNodeApproversByProcessKey(processKey, (Map<String, Object>) null);
+        List<NodeApproverVO> result = nodePreviewWorkflow
+                .getNextNodeApprovers(processKey, TraversalMode.FULL, (Map<String, Object>) null);
 
         assertThat(result).hasSize(1);
     }
 
-    // ======================== getAdjacentNodeApproversByProcessKey ========================
+    // ======================== 定义锚点 · 紧邻遍历（ADJACENT） ========================
 
     @Test
     public void testAdjacentRejectNullProcessKey() {
-        assertThatThrownBy(() -> nodePreviewWorkflow.getAdjacentNodeApproversByProcessKey(null, null))
+        assertThatThrownBy(() -> nodePreviewWorkflow.getNextNodeApprovers(null, TraversalMode.ADJACENT))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("processKey");
     }
 
     @Test
     public void testAdjacentRejectEmptyProcessKey() {
-        assertThatThrownBy(() -> nodePreviewWorkflow.getAdjacentNodeApproversByProcessKey("", null))
+        assertThatThrownBy(() -> nodePreviewWorkflow.getNextNodeApprovers("", TraversalMode.ADJACENT))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("processKey");
     }
@@ -309,7 +305,7 @@ public class NodePreviewOperationsTest {
         when(pdQuery.active()).thenReturn(pdQuery);
         when(pdQuery.singleResult()).thenReturn(null);
 
-        assertThatThrownBy(() -> nodePreviewWorkflow.getAdjacentNodeApproversByProcessKey("unknown-key", null))
+        assertThatThrownBy(() -> nodePreviewWorkflow.getNextNodeApprovers("unknown-key", TraversalMode.ADJACENT))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("未找到流程定义");
     }
@@ -328,7 +324,7 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findAdjacentUserTasks(definitionId, "start", null))
                 .thenReturn(Collections.singletonList("taskA"));
 
-        List<NodeApproverVO> result = nodePreviewWorkflow.getAdjacentNodeApproversByProcessKey(processKey, null);
+        List<NodeApproverVO> result = nodePreviewWorkflow.getNextNodeApprovers(processKey, TraversalMode.ADJACENT);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getNodeId()).isEqualTo("taskA");
@@ -352,7 +348,7 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findAdjacentUserTasks(definitionId, "start", null))
                 .thenReturn(Arrays.asList("taskA", "taskB"));
 
-        List<NodeApproverVO> result = nodePreviewWorkflow.getAdjacentNodeApproversByProcessKey(processKey, null);
+        List<NodeApproverVO> result = nodePreviewWorkflow.getNextNodeApprovers(processKey, TraversalMode.ADJACENT);
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).getNodeId()).isEqualTo("taskA");
@@ -375,13 +371,14 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findAdjacentUserTasks(definitionId, "start", variables))
                 .thenReturn(Collections.singletonList("taskA"));
 
-        List<NodeApproverVO> result = nodePreviewWorkflow.getAdjacentNodeApproversByProcessKey(processKey, variables);
+        List<NodeApproverVO> result = nodePreviewWorkflow
+                .getNextNodeApprovers(processKey, TraversalMode.ADJACENT, variables);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getNodeId()).isEqualTo("taskA");
     }
 
-    // ======================== getNextTaskApprovers ========================
+    // ======================== 任务锚点 · 全遍历（FULL）审批人 ========================
 
     @Test
     public void testGetNextTaskApproversFlatList() {
@@ -399,7 +396,7 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findNextUserTasks(definitionId, "nodeA", processInstanceId, new HashMap<>()))
                 .thenReturn(Arrays.asList("nodeB", "nodeC"));
 
-        List<ApproverInfoVO> result = nodePreviewWorkflow.getNextTaskApprovers(taskId);
+        List<ApproverInfoVO> result = nodePreviewWorkflow.getNextTaskApprovers(taskId, TraversalMode.FULL);
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).getId()).isEqualTo("manager1");
@@ -410,6 +407,9 @@ public class NodePreviewOperationsTest {
         assertThat(result.get(1).getNodeName()).isEqualTo("总经理");
     }
 
+    /**
+     * targetNodeId 过滤能力已删除（ADR-0031）：调用方按 nodeId 自行过滤，结果等价。
+     */
     @Test
     public void testGetNextTaskApproversFilterByTargetNodeId() {
         String taskId = "task-001";
@@ -426,7 +426,10 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findNextUserTasks(definitionId, "nodeA", processInstanceId, new HashMap<>()))
                 .thenReturn(Arrays.asList("nodeB", "nodeC"));
 
-        List<ApproverInfoVO> result = nodePreviewWorkflow.getNextTaskApprovers(taskId, "nodeC");
+        List<ApproverInfoVO> result = nodePreviewWorkflow.getNextTaskApprovers(taskId, TraversalMode.FULL)
+                .stream()
+                .filter(vo -> "nodeC".equals(vo.getNodeId()))
+                .collect(Collectors.toList());
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getId()).isEqualTo("ceo1");
@@ -448,26 +451,29 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findNextUserTasks(definitionId, "nodeA", processInstanceId, new HashMap<>()))
                 .thenReturn(Collections.singletonList("nodeB"));
 
-        List<ApproverInfoVO> result = nodePreviewWorkflow.getNextTaskApprovers(taskId, "nonexistent");
+        List<ApproverInfoVO> result = nodePreviewWorkflow.getNextTaskApprovers(taskId, TraversalMode.FULL)
+                .stream()
+                .filter(vo -> "nonexistent".equals(vo.getNodeId()))
+                .collect(Collectors.toList());
 
         assertThat(result).isEmpty();
     }
 
     @Test
     public void testGetNextTaskApproversRejectNullTaskId() {
-        assertThatThrownBy(() -> nodePreviewWorkflow.getNextTaskApprovers(null))
+        assertThatThrownBy(() -> nodePreviewWorkflow.getNextTaskApprovers(null, TraversalMode.FULL))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("taskId");
     }
 
     @Test
     public void testGetNextTaskApproversRejectEmptyTaskId() {
-        assertThatThrownBy(() -> nodePreviewWorkflow.getNextTaskApprovers(""))
+        assertThatThrownBy(() -> nodePreviewWorkflow.getNextTaskApprovers("", TraversalMode.FULL))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("taskId");
     }
 
-    // ======================== getNextTaskNodes ========================
+    // ======================== 任务锚点 · 全遍历（FULL）节点列表 ========================
 
     @Test
     public void testGetNextTaskNodes() {
@@ -487,7 +493,7 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findReachableEndEvents(definitionId, "nodeA", new HashMap<>()))
                 .thenReturn(Collections.emptyList());
 
-        List<NextTaskNodeVO> result = nodePreviewWorkflow.getNextTaskNodes(processInstanceId, taskId);
+        List<NextTaskNodeVO> result = nodePreviewWorkflow.getNextTaskNodes(taskId, TraversalMode.FULL);
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).getTaskCode()).isEqualTo("nodeB");
@@ -499,20 +505,13 @@ public class NodePreviewOperationsTest {
     }
 
     @Test
-    public void testGetNextTaskNodesRejectNullProcessInstanceId() {
-        assertThatThrownBy(() -> nodePreviewWorkflow.getNextTaskNodes(null, "task-001"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("processInstanceId");
-    }
-
-    @Test
     public void testGetNextTaskNodesRejectNullTaskId() {
-        assertThatThrownBy(() -> nodePreviewWorkflow.getNextTaskNodes("pi-001", null))
+        assertThatThrownBy(() -> nodePreviewWorkflow.getNextTaskNodes(null, TraversalMode.FULL))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("taskId");
     }
 
-    // ======================== getAdjacentTaskNodes ========================
+    // ======================== 任务锚点 · 紧邻遍历（ADJACENT）节点列表 ========================
 
     @Test
     public void testGetAdjacentTaskNodes() {
@@ -531,7 +530,7 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findReachableEndEvents(definitionId, "nodeA", new HashMap<>()))
                 .thenReturn(Collections.emptyList());
 
-        List<NextTaskNodeVO> result = nodePreviewWorkflow.getAdjacentTaskNodes(processInstanceId, taskId);
+        List<NextTaskNodeVO> result = nodePreviewWorkflow.getNextTaskNodes(taskId, TraversalMode.ADJACENT);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getTaskCode()).isEqualTo("nodeB");
@@ -540,15 +539,8 @@ public class NodePreviewOperationsTest {
     }
 
     @Test
-    public void testGetAdjacentTaskNodesRejectNullProcessInstanceId() {
-        assertThatThrownBy(() -> nodePreviewWorkflow.getAdjacentTaskNodes(null, "task-001"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("processInstanceId");
-    }
-
-    @Test
     public void testGetAdjacentTaskNodesRejectNullTaskId() {
-        assertThatThrownBy(() -> nodePreviewWorkflow.getAdjacentTaskNodes("pi-001", null))
+        assertThatThrownBy(() -> nodePreviewWorkflow.getNextTaskNodes(null, TraversalMode.ADJACENT))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("taskId");
     }
@@ -570,7 +562,7 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findReachableEndEvents(definitionId, "nodeA", new HashMap<>()))
                 .thenReturn(Collections.singletonList("endEvent1"));
 
-        List<NextTaskNodeVO> result = nodePreviewWorkflow.getAdjacentTaskNodes(processInstanceId, taskId);
+        List<NextTaskNodeVO> result = nodePreviewWorkflow.getNextTaskNodes(taskId, TraversalMode.ADJACENT);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getTaskCode()).isEqualTo(NextTaskNodeVO.END_TASK_CODE);
@@ -595,7 +587,7 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findReachableEndEvents(definitionId, "nodeA", new HashMap<>()))
                 .thenReturn(Collections.emptyList());
 
-        List<NextTaskNodeVO> result = nodePreviewWorkflow.getAdjacentTaskNodes(processInstanceId, taskId);
+        List<NextTaskNodeVO> result = nodePreviewWorkflow.getNextTaskNodes(taskId, TraversalMode.ADJACENT);
 
         assertThat(result).isEmpty();
     }
@@ -620,7 +612,7 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findReachableEndEvents(definitionId, "nodeA", new HashMap<>()))
                 .thenReturn(Collections.singletonList("endEvent1"));
 
-        List<NextTaskNodeVO> result = nodePreviewWorkflow.getAdjacentTaskNodes(processInstanceId, taskId);
+        List<NextTaskNodeVO> result = nodePreviewWorkflow.getNextTaskNodes(taskId, TraversalMode.ADJACENT);
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).getTaskCode()).isEqualTo("nodeB");
@@ -630,7 +622,7 @@ public class NodePreviewOperationsTest {
         assertThat(result.get(1).isEnd()).isTrue();
     }
 
-    // ======================== getNextTaskNodes EndSignal ========================
+    // ======================== 任务锚点 · 全遍历（FULL）节点列表 EndSignal ========================
 
     /**
      * 全遍历无 UserTask 但下游为 EndEvent → 应返回 end=true 的 VO。
@@ -649,7 +641,7 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findReachableEndEvents(definitionId, "nodeA", new HashMap<>()))
                 .thenReturn(Collections.singletonList("endEvent1"));
 
-        List<NextTaskNodeVO> result = nodePreviewWorkflow.getNextTaskNodes(processInstanceId, taskId);
+        List<NextTaskNodeVO> result = nodePreviewWorkflow.getNextTaskNodes(taskId, TraversalMode.FULL);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getTaskCode()).isEqualTo(NextTaskNodeVO.END_TASK_CODE);
@@ -677,7 +669,7 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findReachableEndEvents(definitionId, "nodeA", new HashMap<>()))
                 .thenReturn(Collections.singletonList("endEvent1"));
 
-        List<NextTaskNodeVO> result = nodePreviewWorkflow.getNextTaskNodes(processInstanceId, taskId);
+        List<NextTaskNodeVO> result = nodePreviewWorkflow.getNextTaskNodes(taskId, TraversalMode.FULL);
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).getTaskCode()).isEqualTo("nodeB");
@@ -687,7 +679,7 @@ public class NodePreviewOperationsTest {
         assertThat(result.get(1).isEnd()).isTrue();
     }
 
-    // ======================== getAdjacentTaskApprovers ========================
+    // ======================== 任务锚点 · 紧邻遍历（ADJACENT）审批人 ========================
 
     @Test
     public void testGetAdjacentTaskApproversFlatList() {
@@ -705,7 +697,7 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findAdjacentUserTasks(definitionId, "nodeA", new HashMap<>()))
                 .thenReturn(Arrays.asList("nodeB", "nodeC"));
 
-        List<ApproverInfoVO> result = nodePreviewWorkflow.getAdjacentTaskApprovers(taskId);
+        List<ApproverInfoVO> result = nodePreviewWorkflow.getNextTaskApprovers(taskId, TraversalMode.ADJACENT);
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).getId()).isEqualTo("manager1");
@@ -732,7 +724,7 @@ public class NodePreviewOperationsTest {
         when(mockNodeFinder.findAdjacentUserTasks(definitionId, "nodeA", new HashMap<>()))
                 .thenReturn(Collections.singletonList("nodeB"));
 
-        List<ApproverInfoVO> result = nodePreviewWorkflow.getAdjacentTaskApprovers(taskId);
+        List<ApproverInfoVO> result = nodePreviewWorkflow.getNextTaskApprovers(taskId, TraversalMode.ADJACENT);
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).getType()).isEqualTo("candidateUser");
@@ -743,14 +735,14 @@ public class NodePreviewOperationsTest {
 
     @Test
     public void testGetAdjacentTaskApproversRejectNullTaskId() {
-        assertThatThrownBy(() -> nodePreviewWorkflow.getAdjacentTaskApprovers(null))
+        assertThatThrownBy(() -> nodePreviewWorkflow.getNextTaskApprovers(null, TraversalMode.ADJACENT))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("taskId");
     }
 
     @Test
     public void testGetAdjacentTaskApproversRejectEmptyTaskId() {
-        assertThatThrownBy(() -> nodePreviewWorkflow.getAdjacentTaskApprovers(""))
+        assertThatThrownBy(() -> nodePreviewWorkflow.getNextTaskApprovers("", TraversalMode.ADJACENT))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("taskId");
     }

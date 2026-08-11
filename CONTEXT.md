@@ -88,6 +88,14 @@ _Avoid_: 下一审批人、后续审批人
 当前任务可流转至的下游节点列表，用于审批页面展示分支选项。
 _Avoid_: 下一任务节点、后续节点
 
+**全遍历**:
+节点预览的遍历深度之一，从起点出发收集所有可达审批节点（完整审批链路），遇到 UserTask 后继续深入其下游。适合「发起前查看完整审批流程」场景。
+_Avoid_: 完整遍历、全量遍历
+
+**紧邻遍历**:
+节点预览的遍历深度之一，仅收集紧邻的第一个审批层级，遇 UserTask 即停止深入，不穿越其下游。适合「展示下一步审批人」这类单层展示场景。对应 `TraversalMode.ADJACENT`。
+_Avoid_: 邻接遍历、零阶遍历
+
 **关键字搜索**:
 待办/已办列表查询的 keyword 参数，对 businessKey 做模糊匹配（LIKE %keyword%）。不支持 processDefinitionName 模糊搜索——Flowable 原生 API 不提供此能力，且框架不提供业务关联表。业务标题等自定义字段的搜索，请通过 Consumer&lt;TaskQuery&gt; 回调 + processVariableValueLike 自行实现。
 _Avoid_: 全字段模糊搜索、标题搜索

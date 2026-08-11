@@ -1,5 +1,6 @@
 package io.github.flowable.plus.core.workflow;
 
+import io.github.flowable.plus.core.enums.TraversalMode;
 import io.github.flowable.plus.core.spi.ApproverResolver;
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.vo.ApproverInfoVO;
@@ -27,6 +28,10 @@ import java.util.Map;
  *
  * <p>封装 BPMN 模型遍历、审批人解析和表单数据提取逻辑，
  * 对外提供稳定的节点预览 API，将 Flowable 内部 API 细节隔离在模块内。</p>
+ *
+ * <p>接口面为三个语义入口，由两个正交维度组合：锚点（流程定义 / 运行时任务）
+ * 与遍历深度（{@link TraversalMode}）。遍历深度是渲染策略而非独立领域概念，
+ * 故降格为方法参数（见 ADR-0031）。</p>
  *
  * @author flowable-plus
  */
@@ -56,69 +61,109 @@ public class NodePreviewWorkflow {
         this.bpmnFormDataHelper = bpmnFormDataHelper;
     }
 
+    // ======================== 定义锚点：发起前链路预览 ========================
+
     /**
      * 根据流程定义 Key 获取初始审批节点及审批人（不评估网关条件，全部展开）。
+     *
+     * <p>等价于 {@code getNextNodeApprovers(processKey, mode, null)}。</p>
+     *
+     * @param processKey 流程定义 Key，不可为 null 或空
+     * @param mode       遍历深度：{@link TraversalMode#FULL} 返回完整审批链路，
+     *                   {@link TraversalMode#ADJACENT} 仅返回第一个审批层级
+     * @return 初始审批节点列表，每个节点包含审批人列表
      */
-    public List<NodeApproverVO> getNextNodeApproversByProcessKey(String processKey) {
-        return getNextNodeApproversByProcessKey(processKey, null);
+    public List<NodeApproverVO> getNextNodeApprovers(String processKey, TraversalMode mode) {
+        return getNextNodeApprovers(processKey, mode, null);
     }
 
     /**
      * 根据流程定义 Key 获取初始审批节点及审批人（支持可选变量评估网关条件）。
+     *
+     * <p>各节点的审批人列表（{@code approvers} 字段）由
+     * {@link io.github.flowable.plus.core.support.UserTaskApproverResolver} 解析，
+     * 同一节点内已做优先级去重。</p>
+     *
+     * @param processKey 流程定义 Key，不可为 null 或空
+     * @param mode       遍历深度：{@link TraversalMode#FULL} 返回完整审批链路，
+     *                   {@link TraversalMode#ADJACENT} 仅返回第一个审批层级
+     * @param variables  变量上下文，为 null 时不评估条件，全部展开
+     * @return 初始审批节点列表，每个节点包含审批人列表
      */
-    public List<NodeApproverVO> getNextNodeApproversByProcessKey(String processKey, Map<String, Object> variables) {
-        if (processKey == null || processKey.isEmpty()) {
-            throw new IllegalArgumentException("processKey 不可为 null 或空");
-        }
+    public List<NodeApproverVO> getNextNodeApprovers(String processKey, TraversalMode mode,
+                                                     Map<String, Object> variables) {
+        requireNonBlank(processKey, "processKey");
 
-        ProcessDefinition definition = repositoryService.createProcessDefinitionQuery()
-                .processDefinitionKey(processKey)
-                .latestVersion()
-                .active()
-                .singleResult();
-        if (definition == null) {
-            throw new IllegalArgumentException("未找到流程定义，processKey=" + processKey);
-        }
+        ProcessDefinition definition = resolveActiveDefinition(processKey);
+        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(definition.getId());
 
-        String definitionId = definition.getId();
-        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(definitionId);
+        List<String> nodeIds = traverseDefinitionNodes(definition.getId(), bpmnModel, mode, variables);
 
-        List<String> nodeIds = nodeFinder.findAllReachableUserTasks(definitionId, variables);
+        return toNodeApproverVOs(bpmnModel, nodeIds);
+    }
 
-        List<NodeApproverVO> result = new ArrayList<>();
-        for (String nodeId : nodeIds) {
-            FlowElement flowElement = bpmnModel.getFlowElement(nodeId);
-            if (!(flowElement instanceof UserTask)) {
-                continue;
-            }
-            UserTask userTask = (UserTask) flowElement;
+    // ======================== 任务锚点：审批中下游预测 ========================
 
-            List<ApproverInfoVO> approvers = approverResolver.resolveApprovers(userTask);
+    /**
+     * 获取当前任务可流转至的下游节点列表。
+     *
+     * <p>{@link TraversalMode#FULL} 返回所有可达下游节点（完整链路）；
+     * {@link TraversalMode#ADJACENT} 仅返回紧邻的下一个审批层级，
+     * 适合「下一步审批节点」展示场景。若下游存在 EndEvent 分支，
+     * 结果中附带 {@link NextTaskNodeVO#END_TASK_CODE} 节点。</p>
+     *
+     * @param taskId 当前任务 ID，不可为 null 或空
+     * @param mode   遍历深度
+     * @return 下游节点列表
+     */
+    public List<NextTaskNodeVO> getNextTaskNodes(String taskId, TraversalMode mode) {
+        requireNonBlank(taskId, "taskId");
 
-            result.add(NodeApproverVO.builder()
-                    .nodeId(nodeId)
-                    .nodeName(userTask.getName())
-                    .approvers(approvers)
-                    .build());
-        }
+        Task task = resolveTask(taskId);
+        Map<String, Object> variables = runtimeService.getVariables(task.getProcessInstanceId());
+        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(task.getProcessDefinitionId());
 
+        List<String> nodeIds = traverseTaskNodes(task, mode, variables);
+
+        List<NextTaskNodeVO> result = toNextTaskNodeVOs(bpmnModel, nodeIds);
+        appendEndEventIfReachable(task, variables, result);
         return result;
     }
 
     /**
-     * 根据流程定义 Key 获取紧邻审批节点及审批人（仅返回第一个审批层级，遇 UserTask 即停止深入）。
+     * 获取当前任务下游节点的审批人（扁平列表）。
      *
-     * <p>各节点的审批人列表（{@code approvers} 字段）由
-     * {@link io.github.flowable.plus.core.support.UserTaskApproverResolver} 解析，
-     * 同一节点内已做优先级去重。跨节点去重策略详见
-     * {@link io.github.flowable.plus.core.api.QueryOperations#getAdjacentTaskApprovers(String)}。</p>
+     * <p>{@link TraversalMode#FULL} 返回所有可达下游审批人；
+     * {@link TraversalMode#ADJACENT} 仅返回紧邻节点的审批人。
+     * 同一节点内的审批人已按优先级去重（assignee &gt; candidateUser &gt;
+     * candidateGroup），跨节点不作去重——同一用户出现在多个节点时列表中出现多次
+     * （各携带对应 nodeId），调用方应根据业务场景自行聚合或按 nodeId 过滤。</p>
+     *
+     * @param taskId 当前任务 ID，不可为 null 或空
+     * @param mode   遍历深度
+     * @return 下游节点审批人扁平列表
      */
-    public List<NodeApproverVO> getAdjacentNodeApproversByProcessKey(String processKey,
-                                                                      Map<String, Object> variables) {
-        if (processKey == null || processKey.isEmpty()) {
-            throw new IllegalArgumentException("processKey 不可为 null 或空");
-        }
+    public List<ApproverInfoVO> getNextTaskApprovers(String taskId, TraversalMode mode) {
+        requireNonBlank(taskId, "taskId");
 
+        Task task = resolveTask(taskId);
+        Map<String, Object> variables = runtimeService.getVariables(task.getProcessInstanceId());
+        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(task.getProcessDefinitionId());
+
+        List<String> nodeIds = traverseTaskNodes(task, mode, variables);
+
+        return toApproverInfoVOs(bpmnModel, nodeIds);
+    }
+
+    // ======================== 内部步骤 ========================
+
+    private void requireNonBlank(String value, String paramName) {
+        if (value == null || value.isEmpty()) {
+            throw new IllegalArgumentException(paramName + " 不可为 null 或空");
+        }
+    }
+
+    private ProcessDefinition resolveActiveDefinition(String processKey) {
         ProcessDefinition definition = repositoryService.createProcessDefinitionQuery()
                 .processDefinitionKey(processKey)
                 .latestVersion()
@@ -127,33 +172,41 @@ public class NodePreviewWorkflow {
         if (definition == null) {
             throw new IllegalArgumentException("未找到流程定义，processKey=" + processKey);
         }
+        return definition;
+    }
 
-        String definitionId = definition.getId();
-        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(definitionId);
-
-        // 从 BPMN 模型中获取 StartEvent ID 作为遍历起点
-        String startNodeId = findStartEventId(bpmnModel);
-
-        List<String> nodeIds = nodeFinder.findAdjacentUserTasks(definitionId, startNodeId, variables);
-
-        List<NodeApproverVO> result = new ArrayList<>();
-        for (String nodeId : nodeIds) {
-            FlowElement flowElement = bpmnModel.getFlowElement(nodeId);
-            if (!(flowElement instanceof UserTask)) {
-                continue;
-            }
-            UserTask userTask = (UserTask) flowElement;
-
-            List<ApproverInfoVO> approvers = approverResolver.resolveApprovers(userTask);
-
-            result.add(NodeApproverVO.builder()
-                    .nodeId(nodeId)
-                    .nodeName(userTask.getName())
-                    .approvers(approvers)
-                    .build());
+    private Task resolveTask(String taskId) {
+        Task task = taskService.createTaskQuery()
+                .taskId(taskId).singleResult();
+        if (task == null) {
+            throw new NotFoundException("任务 " + taskId + " 不存在");
         }
+        return task;
+    }
 
-        return result;
+    /**
+     * 定义锚点遍历：按模式选择 NodeFinder 遍历方法。
+     */
+    private List<String> traverseDefinitionNodes(String definitionId, BpmnModel bpmnModel,
+                                                 TraversalMode mode, Map<String, Object> variables) {
+        if (mode == TraversalMode.ADJACENT) {
+            String startNodeId = findStartEventId(bpmnModel);
+            return nodeFinder.findAdjacentUserTasks(definitionId, startNodeId, variables);
+        }
+        return nodeFinder.findAllReachableUserTasks(definitionId, variables);
+    }
+
+    /**
+     * 任务锚点遍历：按模式选择 NodeFinder 遍历方法。
+     */
+    private List<String> traverseTaskNodes(Task task, TraversalMode mode, Map<String, Object> variables) {
+        if (mode == TraversalMode.ADJACENT) {
+            return nodeFinder.findAdjacentUserTasks(
+                    task.getProcessDefinitionId(), task.getTaskDefinitionKey(), variables);
+        }
+        return nodeFinder.findNextUserTasks(
+                task.getProcessDefinitionId(), task.getTaskDefinitionKey(),
+                task.getProcessInstanceId(), variables);
     }
 
     /**
@@ -168,122 +221,30 @@ public class NodePreviewWorkflow {
     }
 
     /**
-     * 获取当前任务所有下一节点的审批人（扁平列表）。
-     *
-     * <p>去重策略详见 {@link io.github.flowable.plus.core.api.QueryOperations#getNextTaskApprovers(String)}。</p>
+     * 节点分组 VO 映射：仅保留 UserTask 节点。
      */
-    public List<ApproverInfoVO> getNextTaskApprovers(String taskId) {
-        return getNextTaskApprovers(taskId, null);
-    }
-
-    /**
-     * 获取当前任务指定目标节点的审批人。
-     */
-    public List<ApproverInfoVO> getNextTaskApprovers(String taskId, String targetNodeId) {
-        if (taskId == null || taskId.isEmpty()) {
-            throw new IllegalArgumentException("taskId 不可为 null 或空");
-        }
-
-        Task task = taskService.createTaskQuery()
-                .taskId(taskId).singleResult();
-        if (task == null) {
-            throw new NotFoundException("任务 " + taskId + " 不存在");
-        }
-
-        List<ResolvedNode> nodes = resolveDownstreamNodes(
-                task.getProcessDefinitionId(), task.getTaskDefinitionKey(), task.getProcessInstanceId());
-
-        List<ApproverInfoVO> result = new ArrayList<>();
-        for (ResolvedNode node : nodes) {
-            if (targetNodeId != null && !targetNodeId.equals(node.nodeId)) {
+    private List<NodeApproverVO> toNodeApproverVOs(BpmnModel bpmnModel, List<String> nodeIds) {
+        List<NodeApproverVO> result = new ArrayList<>();
+        for (String nodeId : nodeIds) {
+            FlowElement flowElement = bpmnModel.getFlowElement(nodeId);
+            if (!(flowElement instanceof UserTask)) {
                 continue;
             }
-            if (!(node.flowElement instanceof UserTask)) {
-                continue;
-            }
-            List<ApproverInfoVO> approvers = approverResolver.resolveApprovers((UserTask) node.flowElement);
-            for (ApproverInfoVO vo : approvers) {
-                vo.setNodeId(node.nodeId);
-                vo.setNodeName(node.nodeName);
-            }
-            result.addAll(approvers);
-        }
-        return result;
-    }
-
-    /**
-     * 获取当前任务可流转至的下游节点列表。
-     */
-    public List<NextTaskNodeVO> getNextTaskNodes(String processInstanceId, String taskId) {
-        if (processInstanceId == null || processInstanceId.isEmpty()) {
-            throw new IllegalArgumentException("processInstanceId 不可为 null 或空");
-        }
-        if (taskId == null || taskId.isEmpty()) {
-            throw new IllegalArgumentException("taskId 不可为 null 或空");
-        }
-
-        Task task = taskService.createTaskQuery()
-                .taskId(taskId).singleResult();
-        if (task == null) {
-            throw new NotFoundException("任务 " + taskId + " 不存在");
-        }
-
-        List<ResolvedNode> nodes = resolveDownstreamNodes(
-                task.getProcessDefinitionId(), task.getTaskDefinitionKey(), processInstanceId);
-
-        Map<String, Object> variables = runtimeService.getVariables(processInstanceId);
-
-        List<NextTaskNodeVO> result = new ArrayList<>();
-        for (ResolvedNode node : nodes) {
-            String formData = bpmnFormDataHelper.extractFormData(node.flowElement);
-            result.add(NextTaskNodeVO.builder()
-                    .taskCode(node.nodeId)
-                    .taskName(node.nodeName)
-                    .formData(formData)
-                    .build());
-        }
-
-        // 检查是否有 EndEvent 分支（与下游 UserTask 并列）
-        List<String> endIds = nodeFinder.findReachableEndEvents(
-                task.getProcessDefinitionId(), task.getTaskDefinitionKey(), variables);
-        if (!endIds.isEmpty()) {
-            result.add(NextTaskNodeVO.builder()
-                    .taskCode(NextTaskNodeVO.END_TASK_CODE)
-                    .taskName("流程结束")
-                    .end(true)
+            UserTask userTask = (UserTask) flowElement;
+            List<ApproverInfoVO> approvers = approverResolver.resolveApprovers(userTask);
+            result.add(NodeApproverVO.builder()
+                    .nodeId(nodeId)
+                    .nodeName(userTask.getName())
+                    .approvers(approvers)
                     .build());
         }
         return result;
     }
 
     /**
-     * 获取当前任务可流转至的紧邻节点列表（仅返回第一个审批层级）。
-     *
-     * <p>与 {@link #getNextTaskNodes(String, String)} 的区别：
-     * 紧邻遍历遇 UserTask 即停止深入，不穿越其 outgoing 序列流，
-     * 仅返回紧邻的下一个审批层级。适合"下一步审批人"展示场景。</p>
+     * 节点列表 VO 映射：保留全部可达元素（不限于 UserTask）。
      */
-    public List<NextTaskNodeVO> getAdjacentTaskNodes(String processInstanceId, String taskId) {
-        if (processInstanceId == null || processInstanceId.isEmpty()) {
-            throw new IllegalArgumentException("processInstanceId 不可为 null 或空");
-        }
-        if (taskId == null || taskId.isEmpty()) {
-            throw new IllegalArgumentException("taskId 不可为 null 或空");
-        }
-
-        Task task = taskService.createTaskQuery()
-                .taskId(taskId).singleResult();
-        if (task == null) {
-            throw new NotFoundException("任务 " + taskId + " 不存在");
-        }
-
-        Map<String, Object> variables = runtimeService.getVariables(processInstanceId);
-
-        List<String> nodeIds = nodeFinder.findAdjacentUserTasks(
-                task.getProcessDefinitionId(), task.getTaskDefinitionKey(), variables);
-
-        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(task.getProcessDefinitionId());
-
+    private List<NextTaskNodeVO> toNextTaskNodeVOs(BpmnModel bpmnModel, List<String> nodeIds) {
         List<NextTaskNodeVO> result = new ArrayList<>();
         for (String nodeId : nodeIds) {
             FlowElement element = bpmnModel.getFlowElement(nodeId);
@@ -297,45 +258,13 @@ public class NodePreviewWorkflow {
                     .formData(formData)
                     .build());
         }
-
-        // 检查是否有 EndEvent 分支（与 UserTask 并列）
-        List<String> endIds = nodeFinder.findReachableEndEvents(
-                task.getProcessDefinitionId(), task.getTaskDefinitionKey(), variables);
-        if (!endIds.isEmpty()) {
-            result.add(NextTaskNodeVO.builder()
-                    .taskCode(NextTaskNodeVO.END_TASK_CODE)
-                    .taskName("流程结束")
-                    .end(true)
-                    .build());
-        }
         return result;
     }
 
     /**
-     * 获取当前任务紧邻节点的审批人（扁平列表）。
-     *
-     * <p>与 {@link #getAdjacentTaskNodes(String, String)} 遍历逻辑一致，
-     * 仅将 VO 映射从 {@link NextTaskNodeVO} 切换为 {@link ApproverInfoVO}。
-     * 去重策略详见 {@link io.github.flowable.plus.core.api.QueryOperations#getAdjacentTaskApprovers(String)}。</p>
+     * 扁平审批人 VO 映射：仅保留 UserTask 节点，跨节点不作去重。
      */
-    public List<ApproverInfoVO> getAdjacentTaskApprovers(String taskId) {
-        if (taskId == null || taskId.isEmpty()) {
-            throw new IllegalArgumentException("taskId 不可为 null 或空");
-        }
-
-        Task task = taskService.createTaskQuery()
-                .taskId(taskId).singleResult();
-        if (task == null) {
-            throw new NotFoundException("任务 " + taskId + " 不存在");
-        }
-
-        Map<String, Object> variables = runtimeService.getVariables(task.getProcessInstanceId());
-
-        List<String> nodeIds = nodeFinder.findAdjacentUserTasks(
-                task.getProcessDefinitionId(), task.getTaskDefinitionKey(), variables);
-
-        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(task.getProcessDefinitionId());
-
+    private List<ApproverInfoVO> toApproverInfoVOs(BpmnModel bpmnModel, List<String> nodeIds) {
         List<ApproverInfoVO> result = new ArrayList<>();
         for (String nodeId : nodeIds) {
             FlowElement element = bpmnModel.getFlowElement(nodeId);
@@ -354,39 +283,18 @@ public class NodePreviewWorkflow {
     }
 
     /**
-     * 共享遍历逻辑：从当前任务节点出发，解析下游节点列表。
+     * EndEvent 分支检查：下游存在可达 EndEvent 时追加结束节点 VO（与 UserTask 并列）。
      */
-    private List<ResolvedNode> resolveDownstreamNodes(String processDefinitionId,
-                                                       String currentActivityId, String processInstanceId) {
-        Map<String, Object> variables = runtimeService.getVariables(processInstanceId);
-
-        List<String> nodeIds = nodeFinder.findNextUserTasks(
-                processDefinitionId, currentActivityId, processInstanceId, variables);
-
-        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(processDefinitionId);
-
-        List<ResolvedNode> nodes = new ArrayList<>();
-        for (String nodeId : nodeIds) {
-            FlowElement element = bpmnModel.getFlowElement(nodeId);
-            if (element != null) {
-                nodes.add(new ResolvedNode(nodeId, element.getName(), element));
-            }
-        }
-        return nodes;
-    }
-
-    /**
-     * 遍历中间结果：存储节点 ID、名称和原始 BPMN 元素引用。
-     */
-    private static class ResolvedNode {
-        final String nodeId;
-        final String nodeName;
-        final FlowElement flowElement;
-
-        ResolvedNode(String nodeId, String nodeName, FlowElement flowElement) {
-            this.nodeId = nodeId;
-            this.nodeName = nodeName;
-            this.flowElement = flowElement;
+    private void appendEndEventIfReachable(Task task, Map<String, Object> variables,
+                                           List<NextTaskNodeVO> result) {
+        List<String> endIds = nodeFinder.findReachableEndEvents(
+                task.getProcessDefinitionId(), task.getTaskDefinitionKey(), variables);
+        if (!endIds.isEmpty()) {
+            result.add(NextTaskNodeVO.builder()
+                    .taskCode(NextTaskNodeVO.END_TASK_CODE)
+                    .taskName("流程结束")
+                    .end(true)
+                    .build());
         }
     }
 }

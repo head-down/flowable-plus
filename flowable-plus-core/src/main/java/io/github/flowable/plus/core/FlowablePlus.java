@@ -1,6 +1,7 @@
 package io.github.flowable.plus.core;
 
 import io.github.flowable.plus.core.vo.ApprovalPersonnelVO;
+import io.github.flowable.plus.core.enums.TraversalMode;
 import io.github.flowable.plus.core.vo.ApprovalRecordVO;
 import io.github.flowable.plus.core.vo.ApproverInfoVO;
 import io.github.flowable.plus.core.vo.DoneTaskVO;
@@ -130,43 +131,24 @@ public class FlowablePlus implements QueryOperations, DiagramOperations, History
     // ======================== QueryOperations: 节点预览 (委托给 NodePreviewWorkflow) ========================
 
     @Override
-    public List<NodeApproverVO> getNextNodeApproversByProcessKey(String processKey) {
-        return nodePreviewWorkflow.getNextNodeApproversByProcessKey(processKey);
+    public List<NodeApproverVO> getNextNodeApprovers(String processKey, TraversalMode mode) {
+        return nodePreviewWorkflow.getNextNodeApprovers(processKey, mode);
     }
 
     @Override
-    public List<NodeApproverVO> getNextNodeApproversByProcessKey(String processKey, Map<String, Object> variables) {
-        return nodePreviewWorkflow.getNextNodeApproversByProcessKey(processKey, variables);
+    public List<NodeApproverVO> getNextNodeApprovers(String processKey, TraversalMode mode,
+                                                     Map<String, Object> variables) {
+        return nodePreviewWorkflow.getNextNodeApprovers(processKey, mode, variables);
     }
 
     @Override
-    public List<NodeApproverVO> getAdjacentNodeApproversByProcessKey(String processKey, Map<String, Object> variables) {
-        return nodePreviewWorkflow.getAdjacentNodeApproversByProcessKey(processKey, variables);
+    public List<NextTaskNodeVO> getNextTaskNodes(String taskId, TraversalMode mode) {
+        return nodePreviewWorkflow.getNextTaskNodes(taskId, mode);
     }
 
     @Override
-    public List<ApproverInfoVO> getNextTaskApprovers(String taskId) {
-        return nodePreviewWorkflow.getNextTaskApprovers(taskId);
-    }
-
-    @Override
-    public List<ApproverInfoVO> getNextTaskApprovers(String taskId, String targetNodeId) {
-        return nodePreviewWorkflow.getNextTaskApprovers(taskId, targetNodeId);
-    }
-
-    @Override
-    public List<NextTaskNodeVO> getNextTaskNodes(String processInstanceId, String taskId) {
-        return nodePreviewWorkflow.getNextTaskNodes(processInstanceId, taskId);
-    }
-
-    @Override
-    public List<NextTaskNodeVO> getAdjacentTaskNodes(String processInstanceId, String taskId) {
-        return nodePreviewWorkflow.getAdjacentTaskNodes(processInstanceId, taskId);
-    }
-
-    @Override
-    public List<ApproverInfoVO> getAdjacentTaskApprovers(String taskId) {
-        return nodePreviewWorkflow.getAdjacentTaskApprovers(taskId);
+    public List<ApproverInfoVO> getNextTaskApprovers(String taskId, TraversalMode mode) {
+        return nodePreviewWorkflow.getNextTaskApprovers(taskId, mode);
     }
 
     // ======================== QueryOperations: 流程追踪 (委托给 ProcessQueryWorkflow) ========================

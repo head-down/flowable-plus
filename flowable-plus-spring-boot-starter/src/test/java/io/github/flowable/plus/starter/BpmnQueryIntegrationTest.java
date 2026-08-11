@@ -3,6 +3,7 @@ package io.github.flowable.plus.starter;
 import io.github.flowable.plus.core.FlowablePlus;
 import io.github.flowable.plus.core.domain.PageResult;
 import io.github.flowable.plus.core.dto.TaskQueryDTO;
+import io.github.flowable.plus.core.enums.TraversalMode;
 import io.github.flowable.plus.core.spi.GroupResolver;
 import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.vo.ApprovalRecordVO;
@@ -142,7 +143,7 @@ class BpmnQueryIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void testNextNodeApproversByProcessKey() {
-        List<NodeApproverVO> nodes = flowablePlus.getNextNodeApproversByProcessKey(PROCESS_KEY);
+        List<NodeApproverVO> nodes = flowablePlus.getNextNodeApprovers(PROCESS_KEY, TraversalMode.FULL);
 
         assertThat(nodes).isNotEmpty();
         NodeApproverVO firstNode = nodes.get(0);
@@ -293,11 +294,11 @@ class BpmnQueryIntegrationTest extends AbstractIntegrationTest {
         assertThat(approveTask).isNotNull();
 
         // 下一节点审批人
-        List<?> nextApprovers = flowablePlus.getNextTaskApprovers(approveTask.getId());
+        List<?> nextApprovers = flowablePlus.getNextTaskApprovers(approveTask.getId(), TraversalMode.FULL);
         assertThat(nextApprovers).isNotNull();
 
         // 下游节点列表
-        List<NextTaskNodeVO> nextNodes = flowablePlus.getNextTaskNodes(pi.getId(), approveTask.getId());
+        List<NextTaskNodeVO> nextNodes = flowablePlus.getNextTaskNodes(approveTask.getId(), TraversalMode.FULL);
         assertThat(nextNodes).isNotNull();
     }
 

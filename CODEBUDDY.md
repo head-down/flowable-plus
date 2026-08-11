@@ -7,7 +7,7 @@
 flowable-plus 是一个面向 Java 8 的 Flowable (6.8.0) 工作流引擎增强工具包，提供简化 API 和中式工作流特性。项目基于 Spring Boot 2.7.18，采用 Maven 多模块结构，当前处于早期骨架搭建阶段。
 
 **GroupId**: `io.github.flowable.plus`  
-**Version**: `1.0-SNAPSHOT`
+**Version**: `1.0.0`
 
 ## 模块架构
 
@@ -168,3 +168,4 @@ Core 模块已实现审批核心操作（发起、同意、驳回、撤回、撤
 | ADR-0028 | 审批轨迹收敛为单一入口 getApprovalHistory（删除 getApprovalTrace） | 2026-08-10 |
 | ADR-0029 | flowable-plus-extension 定位为储备位（reserved slot） | 2026-08-11 |
 | ADR-0030 | 删除死接口 TaskQueryEnhancer，回调收敛为 Consumer 单一形态 | 2026-08-11 |
+| ADR-0031 | 节点预览 API 收窄为三入口（8 方法 → 3 入口） | 2026-08-11 |

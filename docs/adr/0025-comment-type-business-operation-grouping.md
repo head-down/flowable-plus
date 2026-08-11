@@ -62,11 +62,12 @@ GitHub issue #72（上游 jw-zhyg-api 反馈）指出：会签节点执行"加�
 
 ### 4. VO 新增 operationComment 字段
 
-`ApprovalRecordVO`、`CountersignSubRecord`、`ApprovalTraceVO` 各新增 `operationComment` 字段
+`ApprovalRecordVO`、`CountersignSubRecord` 各新增 `operationComment` 字段
 （操作注释 fullMessage，如 `加签审批人: 003162`），与 `comment` 语义解耦。纯新增字段，向后兼容。
+（`ApprovalTraceVO` 已随 ADR-0028 删除，其角色并入 `ApprovalRecordVO`。）
 
-`HistoryWorkflow.buildNormalRecord` / `buildSubRecord`、`ProcessQueryWorkflow.buildHistoricTraceVO` /
-`buildActiveTraceVO` 填充该字段。
+`HistoryWorkflow.buildNormalRecord` / `buildSubRecord` 填充该字段。
+（原 `ProcessQueryWorkflow.buildHistoricTraceVO` / `buildActiveTraceVO` 已随 ADR-0028 删除，历史轨迹统一由 `getApprovalHistory` 承担。）
 
 ## 备选方案
 
