@@ -18,7 +18,7 @@ CI 矩阵覆盖 H2 / MySQL 8.0 / PostgreSQL 14 三种数据库，全量测试通
 
 ### 流程操作
 
-- **流程发起与撤销** — `startProcess` / `revokeProcess`，支持自动提交（`AutoApprovalRule` SPI）
+- **流程发起与撤销** — `startProcess` / `invalidateProcess`，支持自动提交（`AutoApprovalRule` SPI）
 - **审批推进** — `completeTask`（自动认领 + 添加审批意见）
 - **驳回/退回** — `rejectTask`（退回上一审批节点）、`rejectTaskToInitiator`（退回发起人）
 - **任意跳转** — `jumpToNode`（跳转至任意历史审批节点）
@@ -36,7 +36,7 @@ CI 矩阵覆盖 H2 / MySQL 8.0 / PostgreSQL 14 三种数据库，全量测试通
 
 ### 可视化
 
-- **流程图** — `getProcessDiagram`（生成含节点状态高亮的 SVG 流程图）
+- **流程图** — `getProcessDiagramXml`（获取 BPMN XML）+ `getProcessDiagramStates`（节点状态 / 已完成连线 / 活跃任务），供前端 bpmn.js 渲染
 - **节点预览** — `getNextNodeApprovers`（发起前预览审批链路）/ `getNextTaskNodes`、`getNextTaskApprovers`（审批中查询下游节点与审批人），支持全遍历 / 紧邻遍历（`TraversalMode`）
 
 ### 事件监听
@@ -49,14 +49,14 @@ CI 矩阵覆盖 H2 / MySQL 8.0 / PostgreSQL 14 三种数据库，全量测试通
 flowable-plus (父 POM, packaging=pom)
 ├── flowable-plus-core                  核心模块（API 封装层，不启动 Spring DI 容器，可在任意 Java 8+ 应用中使用）
 ├── flowable-plus-spring-boot-starter   Spring Boot 自动配置粘合层
-└── flowable-plus-extension             可选扩展（高级审批模式等）
+└── flowable-plus-extension             储备位模块（reserved slot，当前无功能内容）
 ```
 
 | 模块 | 职责 |
 |------|------|
 | `flowable-plus-core` | 封装 Flowable 核心服务，定义所有 API 接口、SPI 扩展点、VO 和事件对象。可在任意 Java 8+ 应用中使用 |
 | `flowable-plus-spring-boot-starter` | `FlowablePlusAutoConfiguration` 自动注册 Bean，配置前缀 `flowable.plus.*`。条件激活：`ProcessEngine` 存在 + `flowable.plus.enabled=true`（默认） |
-| `flowable-plus-extension` | 可选高级功能，仅依赖 core 模块 |
+| `flowable-plus-extension` | 储备位模块，当前无功能内容，等待「依赖隔离」或「真正可选的领域能力」入住（边界见 ADR-0029） |
 
 ## API 接口一览
 
@@ -64,12 +64,12 @@ flowable-plus (父 POM, packaging=pom)
 
 | 接口 | 方法数 | 职责 |
 |------|--------|------|
-| `ProcessLifecycleOperations` | 2 | `startProcess`, `revokeProcess` |
-| `TaskExecutionOperations` | 8 | `completeTask`, `claimTask`, `rejectTask`, `rejectTaskToInitiator`, `withdrawTask`, `transferTask`, `jumpToNode`, `getJumpableNodes` |
+| `ProcessLifecycleOperations` | 2 | `startProcess`, `invalidateProcess` |
+| `TaskExecutionOperations` | 11 | `completeTask`, `completeTaskAsSingleton`, `claimTask`, `rejectTask`×2, `rejectTaskToInitiator`, `withdrawTask`×2, `transferTask`, `jumpToNode`, `getJumpableNodes` |
 | `CounterSignOperations` | 5 | `counterSign`, `addCounterSigner`, `removeCounterSigner`, `delegateTask`, `resolveDelegate` |
 | `QueryOperations` | 13 | `queryTodoTasks`×2, `queryDoneTasks`×2, `queryDoneTasksPrecise`, `getNextNodeApprovers`×2, `getNextTaskNodes`, `getNextTaskApprovers`, `getProcessSummary`, `batchQueryProcessSummaries`, `getApprovalPersonnel`, `getBusinessKeyByProcessInstanceId` |
 | `HistoryOperations` | 1 | `getApprovalHistory` |
-| `DiagramOperations` | 1 | `getProcessDiagram` |
+| `DiagramOperations` | 2 | `getProcessDiagramXml`, `getProcessDiagramStates` |
 
 ## v1.0.0 API 迁移
 
@@ -180,6 +180,18 @@ List<ApprovalRecordVO> history = flowablePlus.getApprovalHistory("proc-001");
 | ADR-0016 | 正向 EndEvent 终止检测作为独立 NodeFinder 方法 |
 | ADR-0017 | 乐观锁冲突不采用通用 AOP 重试，仅在具体方法内精准重试 |
 | ADR-0018 | 紧邻遍历使用 stopAtUserTask 参数复用现有遍历引擎 |
+| ADR-0019 | 会签多轮次追踪采用 Task 局部变量 csRoundIndex |
+| ADR-0020 | 审批历史会签轮次边界统一使用 csRoundIndex，不再依赖 miBody |
+| ADR-0021 | 会签节点回退采用运行时判断 + 原地重建策略 |
+| ADR-0022 | 会签建模双模式规范与 AssigneeResolver 扩展点 |
+| ADR-0023 | 模式A加签/减签权限放宽为"会签发起人 OR 当前节点活跃审批人" |
+| ADR-0024 | 加签查重 fast fail 与查重口径 |
+| ADR-0025 | CommentType 业务/操作分组解耦审批意见提取与操作注释识别 |
+| ADR-0026 | 会签节点 assignee 必须引用元素变量（建模约束体系） |
+| ADR-0027 | 操作注释多值化（operationComments 列表字段） |
+| ADR-0028 | 审批轨迹收敛为单一入口（删除 getApprovalTrace） |
+| ADR-0029 | flowable-plus-extension 定位为储备位（reserved slot） |
+| ADR-0030 | 删除死接口 TaskQueryEnhancer，回调收敛为 Consumer 单一形态 |
 | ADR-0031 | 节点预览 API 收窄为三入口（8 方法 → 3 入口） |
 
 详见 `docs/adr/` 目录。
