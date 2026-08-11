@@ -658,7 +658,8 @@ flowchart TB
       <section id="top-recommendation">
         <div class="deep rounded-xl p-6 text-slate-100 shadow-md">
           <h2 class="font-serif text-xl font-bold mb-2">下一步：Card A-F 均已落地，剩余 Card G / Card I（Speculative）</h2>
-          <p class="text-sm text-slate-200">原首选（合并双胞胎「审批轨迹」模块）已由 ADR-0028 实现；事件发布（<a href="#candidates" class="underline text-emerald-300">Card B</a>）已于 2026-08-11 收敛为 EventBus 深层模块；<b>Card D（回退策略族）</b>与 <b>Card C（已办查询 Phase 2 去重）</b>已于 2026-08-11 落地；<b>Card E（权限校验收敛）已于 2026-08-11 落地</b>——删除 PreviousNodeAuthorizer（-371 行），职责收敛至 TaskValidation，withdrawTask 消除重复解析。<b><a href="#candidates" class="underline text-emerald-300">Card F</a>（删除测试通过的残留）已于 2026-08-11 处理</b>——extension 空壳经讨论改为「储备位」定位并明确边界（ADR-0029，不删除）；死接口 TaskQueryEnhancer 直接删除（ADR-0030），回调收敛为 Consumer 单一形态。Card G / Card I（Speculative）待触发条件满足再动。0807 审查的完整对照见文首「遗留追踪」。</p>
+          <p class="text-sm text-slate-200">原首选（合并双胞胎「审批轨迹」模块）已由 ADR-0028 实现；事件发布（<a href="#candidates" class="underline text-emerald-300">Card B</a>）已于 2026-08-11 收敛为 EventBus 深层模块；<b>Card D（回退策略族）</b>与 <b>Card C（已办查询 Phase 2 去重）</b>已于 2026-08-11 落地；<b>Card E（权限校验收敛）已于 2026-08-11 落地</b>——删除 PreviousNodeAuthorizer（-371 行），职责收敛至 TaskValidation，withdrawTask 消除重复解析。<b><a href="#candidates" class="underline text-emerald-300">Card F</a>（删除测试通过的残留）已于 2026-08-11 处理</b>——extension 空壳经讨论改为「储备位」定位并明确边界（ADR-0029，不删除）；死接口 TaskQueryEnhancer 直接删除（ADR-0030），回调收敛为 Consumer 单一形态。0807 审查的完整对照见文首「遗留追踪」。</p>
+          <p class="text-sm text-slate-200 mt-2"><b>2026-08-11 复核：Card G / Card I 维持暂缓。</b>触发条件未满足——Card G 的完整收窄需破坏 v1.0.0 GA 已发布的公开 API（8 方法即 QueryOperations 接口面，收窄会违反 ADR-0010 门面纯聚合角色）；Card I 的 DefaultNodeFinder 行数未再增长、无表达式评估 bug 频发。复核后仍维持 Speculative，待下列触发条件满足再动：<b>Card G</b>：新增第 9 个预览入口（模板再次复制）或下游消费方提出预览 API 变更需求；<b>Card I</b>：DefaultNodeFinder 超过 ~1000 行或分支条件评估 bug 频发。</p>
         </div>
       </section>
 
