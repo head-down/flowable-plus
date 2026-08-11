@@ -19,7 +19,6 @@ import io.github.flowable.plus.core.strategy.PreviousNodeResolvers;
 import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.vo.JumpableNodeVO;
 import io.github.flowable.plus.core.vo.RollbackResult;
-import io.github.flowable.plus.core.support.PreviousNodeAuthorizer;
 import io.github.flowable.plus.core.workflow.TaskExecutionWorkflow;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.RuntimeService;
@@ -73,7 +72,6 @@ public class TaskExecutionWorkflowTest {
     private ExecutionTreeHelper mockExecutionTreeHelper;
     private ProcessEndDetector mockProcessEndDetector;
     private TaskExecutionWorkflow workflow;
-    private PreviousNodeAuthorizer mockPreviousNodeAuthorizer;
     private ChangeActivityStateBuilder mockChangeStateBuilder;
     private CountersignRollbackStrategy mockCountersignRollbackStrategy;
 
@@ -88,10 +86,6 @@ public class TaskExecutionWorkflowTest {
         mockExecutionTreeHelper = mock(ExecutionTreeHelper.class);
         mockProcessEndDetector = mock(ProcessEndDetector.class);
 
-        mockPreviousNodeAuthorizer = mock(PreviousNodeAuthorizer.class);
-        when(mockPreviousNodeAuthorizer.isAuthorized(anyString(), anyString())).thenReturn(true);
-        when(mockPreviousNodeAuthorizer.isAuthorized(anyString(), anyString(), any())).thenReturn(true);
-
         mockCountersignRollbackStrategy = CountersignRollbackStrategies.strict(mockMultiInstanceDetector);
 
         // 默认 stub：createExecutionQuery 返回空执行对象（非并行分支场景）
@@ -100,7 +94,7 @@ public class TaskExecutionWorkflowTest {
         workflow = new TaskExecutionWorkflow(userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockNodeFinder, mockMultiInstanceDetector,
                 mockExecutionTreeHelper, new EventBus(null), mockProcessEndDetector,
-                mockPreviousNodeAuthorizer, mockCountersignRollbackStrategy);
+                mockCountersignRollbackStrategy);
     }
 
     // ======================== 同意 ========================
@@ -365,6 +359,7 @@ public class TaskExecutionWorkflowTest {
         when(mockNodeFinder.findPreviousNodes("leave:1:abc", "task2", "pi-001"))
                 .thenReturn(Arrays.asList("task1a", "task1b"));
 
+        stubPreviousNodeHistory("task1a", USER_ID);
         stubRollback();
 
         workflow.withdrawTask("task-001", "撤回测试",
@@ -406,6 +401,7 @@ public class TaskExecutionWorkflowTest {
         when(queryB.desc()).thenReturn(queryB);
         when(queryB.listPage(0, 1)).thenReturn(Collections.singletonList(activityB));
 
+        stubPreviousNodeHistory("task1a", USER_ID);
         stubRollback();
 
         workflow.withdrawTask("task-001", "撤回测试",
@@ -422,23 +418,11 @@ public class TaskExecutionWorkflowTest {
         when(mockNodeFinder.findPreviousNodes("leave:1:abc", "task2", "pi-001"))
                 .thenReturn(Collections.singletonList("task1"));
 
-        HistoricTaskInstance prevTask = createMockHistoricTask(
-                "ht-prev", "leave:1:abc", "task1", "pi-001", "otherUser", "上一节点",
-                new Date(), new Date(), null);
-        HistoricTaskInstanceQuery histTaskQuery = mock(HistoricTaskInstanceQuery.class);
-        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(histTaskQuery);
-        when(histTaskQuery.processInstanceId("pi-001")).thenReturn(histTaskQuery);
-        when(histTaskQuery.taskDefinitionKey("task1")).thenReturn(histTaskQuery);
-        when(histTaskQuery.finished()).thenReturn(histTaskQuery);
-        when(histTaskQuery.orderByHistoricTaskInstanceEndTime()).thenReturn(histTaskQuery);
-        when(histTaskQuery.desc()).thenReturn(histTaskQuery);
-        when(histTaskQuery.listPage(0, 1)).thenReturn(Collections.singletonList(prevTask));
-
-        when(mockPreviousNodeAuthorizer.isAuthorized(eq(USER_ID), eq("task-001"), any())).thenReturn(false);
+        stubPreviousNodeHistory("task1", "otherUser");
 
         assertThatThrownBy(() -> workflow.withdrawTask("task-001", "撤回"))
                 .isInstanceOf(PermissionDeniedException.class)
-                .hasMessageContaining("不是上一节点审批人");
+                .hasMessageContaining("上一节点审批人");
     }
 
     @Test
@@ -449,9 +433,22 @@ public class TaskExecutionWorkflowTest {
         when(mockNodeFinder.findPreviousNodes("leave:1:abc", "task2", "pi-001"))
                 .thenReturn(Collections.singletonList("task1"));
 
-        HistoricTaskInstance prevTask = createMockHistoricTask(
-                "ht-prev", "leave:1:abc", "task1", "pi-001", "otherUser", "上一节点",
-                new Date(), new Date(), null);
+        stubPreviousNodeHistory("task1", "otherUser");
+
+        assertThatThrownBy(() -> workflow.withdrawTask("task-001", "撤回"))
+                .isInstanceOf(PermissionDeniedException.class)
+                .hasMessageContaining("上一节点审批人");
+    }
+
+    @Test
+    void testWithdrawTaskRejectsWhenNoPrevHistory() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", USER_ID);
+        stubTaskExists(task);
+        when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(false);
+        when(mockNodeFinder.findPreviousNodes("leave:1:abc", "task2", "pi-001"))
+                .thenReturn(Collections.singletonList("task1"));
+
+        // 上一节点无历史任务 → 无审批人可比对 → 拒绝
         HistoricTaskInstanceQuery histTaskQuery = mock(HistoricTaskInstanceQuery.class);
         when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(histTaskQuery);
         when(histTaskQuery.processInstanceId("pi-001")).thenReturn(histTaskQuery);
@@ -459,13 +456,11 @@ public class TaskExecutionWorkflowTest {
         when(histTaskQuery.finished()).thenReturn(histTaskQuery);
         when(histTaskQuery.orderByHistoricTaskInstanceEndTime()).thenReturn(histTaskQuery);
         when(histTaskQuery.desc()).thenReturn(histTaskQuery);
-        when(histTaskQuery.listPage(0, 1)).thenReturn(Collections.singletonList(prevTask));
-
-        when(mockPreviousNodeAuthorizer.isAuthorized(eq(USER_ID), eq("task-001"), any())).thenReturn(false);
+        when(histTaskQuery.listPage(0, 1)).thenReturn(Collections.emptyList());
 
         assertThatThrownBy(() -> workflow.withdrawTask("task-001", "撤回"))
                 .isInstanceOf(PermissionDeniedException.class)
-                .hasMessageContaining("不是上一节点审批人");
+                .hasMessageContaining("上一节点审批人");
     }
 
     // ======================== 驳回无 reason ========================
@@ -838,7 +833,7 @@ public class TaskExecutionWorkflowTest {
                 userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockNodeFinder, mockMultiInstanceDetector,
                 mockExecutionTreeHelper, new EventBus(null), mockProcessEndDetector,
-                mockPreviousNodeAuthorizer, redirectStrategy);
+                redirectStrategy);
 
         PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", USER_ID);
         stubTaskExistsWithAssignee(task);
@@ -982,7 +977,7 @@ public class TaskExecutionWorkflowTest {
         return new TaskExecutionWorkflow(userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockNodeFinder, mockMultiInstanceDetector,
                 mockExecutionTreeHelper, eventBus, ped,
-                mockPreviousNodeAuthorizer, mockCountersignRollbackStrategy);
+                mockCountersignRollbackStrategy);
     }
 
     @Test
@@ -1163,6 +1158,23 @@ public class TaskExecutionWorkflowTest {
         when(mockRuntimeService.createChangeActivityStateBuilder()).thenReturn(mockChangeStateBuilder);
         when(mockChangeStateBuilder.processInstanceId(anyString())).thenReturn(mockChangeStateBuilder);
         when(mockChangeStateBuilder.moveActivityIdTo(anyString(), anyString())).thenReturn(mockChangeStateBuilder);
+    }
+
+    /**
+     * stub 上一节点最后一次完成的历史任务（撤回授权校验用）。
+     */
+    private void stubPreviousNodeHistory(String nodeId, String assignee) {
+        HistoricTaskInstance prevTask = createMockHistoricTask(
+                "ht-prev", "leave:1:abc", nodeId, "pi-001", assignee, "上一节点",
+                new Date(), new Date(), null);
+        HistoricTaskInstanceQuery histTaskQuery = mock(HistoricTaskInstanceQuery.class);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(histTaskQuery);
+        when(histTaskQuery.processInstanceId("pi-001")).thenReturn(histTaskQuery);
+        when(histTaskQuery.taskDefinitionKey(nodeId)).thenReturn(histTaskQuery);
+        when(histTaskQuery.finished()).thenReturn(histTaskQuery);
+        when(histTaskQuery.orderByHistoricTaskInstanceEndTime()).thenReturn(histTaskQuery);
+        when(histTaskQuery.desc()).thenReturn(histTaskQuery);
+        when(histTaskQuery.listPage(0, 1)).thenReturn(Collections.singletonList(prevTask));
     }
 
     private void stubHistoricTaskLookup(String processInstanceId, String taskDefKey,

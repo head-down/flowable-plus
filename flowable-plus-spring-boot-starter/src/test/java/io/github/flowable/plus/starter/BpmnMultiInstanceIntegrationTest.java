@@ -8,7 +8,6 @@ import io.github.flowable.plus.core.model.DefaultNodeFinder;
 import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.model.NodeFinder;
 import io.github.flowable.plus.core.strategy.CountersignRollbackStrategies;
-import io.github.flowable.plus.core.support.PreviousNodeAuthorizer;
 import io.github.flowable.plus.core.domain.PlusHistoricProcessInstance;
 import io.github.flowable.plus.core.domain.PlusHistoricTask;
 import io.github.flowable.plus.core.domain.PlusTask;
@@ -67,7 +66,6 @@ class BpmnMultiInstanceIntegrationTest {
     private CounterSignWorkflow counterSignWorkflow;
     private TaskExecutionWorkflow taskExecutionWorkflow;
     private NodeFinder mockNodeFinder;
-    private PreviousNodeAuthorizer mockPreviousNodeAuthorizer;
 
     private final AtomicInteger onStartCount = new AtomicInteger();
     private final AtomicInteger onVoteCount = new AtomicInteger();
@@ -84,8 +82,6 @@ class BpmnMultiInstanceIntegrationTest {
         multiInstanceDetector = new MultiInstanceDetector(bpmnModelCache);
         UserContext userContext = () -> USER_ID;
         mockNodeFinder = mock(NodeFinder.class);
-        mockPreviousNodeAuthorizer = mock(PreviousNodeAuthorizer.class);
-        when(mockPreviousNodeAuthorizer.isAuthorized(anyString(), anyString())).thenReturn(true);
 
         onStartCount.set(0);
         onVoteCount.set(0);
@@ -115,7 +111,6 @@ class BpmnMultiInstanceIntegrationTest {
                 mockRuntimeService, mockNodeFinder, multiInstanceDetector,
                 mock(io.github.flowable.plus.core.spi.ExecutionTreeHelper.class), new EventBus(null),
                 mock(io.github.flowable.plus.core.support.ProcessEndDetector.class),
-                mockPreviousNodeAuthorizer,
                 CountersignRollbackStrategies.strict(multiInstanceDetector));
     }
 

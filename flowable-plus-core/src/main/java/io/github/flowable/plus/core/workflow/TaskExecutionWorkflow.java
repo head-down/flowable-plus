@@ -7,7 +7,6 @@ import io.github.flowable.plus.core.enums.CommentType;
 import io.github.flowable.plus.core.event.EventBus;
 import io.github.flowable.plus.core.exception.InvalidTargetNodeException;
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
-import io.github.flowable.plus.core.exception.PermissionDeniedException;
 import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.model.NodeFinder;
 import io.github.flowable.plus.core.spi.ExecutionTreeHelper;
@@ -15,7 +14,6 @@ import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.strategy.CountersignRollbackStrategies;
 import io.github.flowable.plus.core.strategy.PreviousNodeResolutionStrategy;
 import io.github.flowable.plus.core.strategy.CountersignRollbackStrategy;
-import io.github.flowable.plus.core.support.PreviousNodeAuthorizer;
 import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.support.TaskValidation;
 import io.github.flowable.plus.core.vo.JumpableNodeVO;
@@ -52,7 +50,6 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
     private final ExecutionTreeHelper executionTreeHelper;
     private final EventBus eventBus;
     private final ProcessEndDetector processEndDetector;
-    private final PreviousNodeAuthorizer previousNodeAuthorizer;
     private final CountersignRollbackStrategy countersignRollbackStrategy;
 
     public TaskExecutionWorkflow(UserContext userContext, TaskService taskService,
@@ -61,7 +58,6 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
                                   ExecutionTreeHelper executionTreeHelper,
                                   EventBus eventBus,
                                   ProcessEndDetector processEndDetector,
-                                  PreviousNodeAuthorizer previousNodeAuthorizer,
                                   CountersignRollbackStrategy countersignRollbackStrategy) {
         this.userContext = userContext;
         this.taskService = taskService;
@@ -72,7 +68,6 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
         this.executionTreeHelper = executionTreeHelper;
         this.eventBus = eventBus;
         this.processEndDetector = processEndDetector;
-        this.previousNodeAuthorizer = previousNodeAuthorizer;
         this.countersignRollbackStrategy = countersignRollbackStrategy;
     }
 
@@ -189,10 +184,9 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
                 task.getProcessDefinitionId(), task.getTaskDefinitionKey(), processInstanceId);
         String prevNodeId = resolvePreviousNode(prevNodes, processInstanceId, strategy);
 
-        if (!previousNodeAuthorizer.isAuthorized(currentUserId, taskId, strategy)) {
-            throw new PermissionDeniedException(
-                    "用户 " + currentUserId + " 不是上一节点审批人，无权撤回任务 " + taskId);
-        }
+        // 上一节点审批人身份校验（收敛至 TaskValidation）
+        TaskValidation.validatePreviousNodeAssignee(historyService, processInstanceId,
+                prevNodeId, currentUserId, taskId, "撤回");
 
         executeRollback(task, prevNodeId, reason, CommentType.WITHDRAW.name());
 

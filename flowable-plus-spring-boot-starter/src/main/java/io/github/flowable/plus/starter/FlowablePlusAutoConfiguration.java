@@ -7,7 +7,6 @@ import io.github.flowable.plus.core.support.ActionInferenceStrategy;
 import io.github.flowable.plus.core.support.BpmnFormDataHelper;
 import io.github.flowable.plus.core.support.CountersignAssigneesListener;
 import io.github.flowable.plus.core.support.DefaultActionInferenceStrategy;
-import io.github.flowable.plus.core.support.PreviousNodeAuthorizer;
 import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.model.BpmnModelCache;
 import io.github.flowable.plus.core.workflow.CounterSignWorkflow;
@@ -225,26 +224,6 @@ public class FlowablePlusAutoConfiguration {
     }
 
     /**
-     * 注册 PreviousNodeAuthorizer Bean。
-     *
-     * <p>封装"上一节点审批人身份校验"的流水线查询逻辑，
-     * 供 TaskExecutionWorkflow 和 CounterSignWorkflow
-     * 复用，消除内联权限代码重复。</p>
-     *
-     * @param taskService    Flowable 任务服务
-     * @param historyService Flowable 历史服务
-     * @param nodeFinder      BPMN 节点遍历器
-     * @return PreviousNodeAuthorizer 实例
-     */
-    @Bean
-    @ConditionalOnMissingBean
-    public PreviousNodeAuthorizer previousNodeAuthorizer(TaskService taskService,
-                                                           HistoryService historyService,
-                                                           NodeFinder nodeFinder) {
-        return new PreviousNodeAuthorizer(taskService, historyService, nodeFinder);
-    }
-
-    /**
      * 注册 AssigneeResolverRegistry Bean。
      *
      * <p>收集所有 {@link AssiSignerResolver} SPI 实现，
@@ -373,11 +352,10 @@ public class FlowablePlusAutoConfiguration {
                                                         ExecutionTreeHelper executionTreeHelper,
                                                         EventBus eventBus,
                                                         ProcessEndDetector processEndDetector,
-                                                        PreviousNodeAuthorizer previousNodeAuthorizer,
                                                         CountersignRollbackStrategy countersignRollbackStrategy) {
         return new TaskExecutionWorkflow(userContext, taskService, historyService,
                 processEngine.getRuntimeService(), nodeFinder, multiInstanceDetector,
-                executionTreeHelper, eventBus, processEndDetector, previousNodeAuthorizer,
+                executionTreeHelper, eventBus, processEndDetector,
                 countersignRollbackStrategy);
     }
 

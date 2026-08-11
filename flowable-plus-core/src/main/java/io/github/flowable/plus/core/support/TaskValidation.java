@@ -10,6 +10,8 @@ import org.flowable.engine.TaskService;
 import org.flowable.task.api.history.HistoricTaskInstance;
 import org.flowable.task.api.Task;
 
+import java.util.List;
+
 /**
  * 任务校验工具类，提供任务存在性和权限校验的共享方法。
  *
@@ -52,6 +54,37 @@ public final class TaskValidation {
         if (task.getAssignee() == null || !task.getAssignee().equals(currentUserId)) {
             throw new PermissionDeniedException(
                     "用户 " + currentUserId + " 不是任务 " + taskId + " 的审批人，无权" + operation);
+        }
+    }
+
+    /**
+     * 校验当前用户是否为上一节点审批人（撤回专用权限）。
+     *
+     * <p>查询上一节点最后一次完成的历史任务并比对审批人；
+     * 无历史任务或审批人不匹配时抛 {@link PermissionDeniedException}。</p>
+     *
+     * <p>调用方需先通过 {@link #validateTaskExists} 获取 task 对象，
+     * 并已解析出唯一的上一节点 ID。</p>
+     *
+     * @param historyService    历史服务
+     * @param processInstanceId 流程实例 ID
+     * @param prevNodeId        上一节点定义 key
+     * @param currentUserId     当前用户 ID
+     * @param taskId            任务 ID（用于错误消息）
+     * @param operation         操作名（用于错误消息）
+     */
+    public static void validatePreviousNodeAssignee(HistoryService historyService,
+                                                    String processInstanceId, String prevNodeId,
+                                                    String currentUserId, String taskId, String operation) {
+        List<HistoricTaskInstance> prevTasks = historyService.createHistoricTaskInstanceQuery()
+                .processInstanceId(processInstanceId)
+                .taskDefinitionKey(prevNodeId)
+                .finished()
+                .orderByHistoricTaskInstanceEndTime().desc()
+                .listPage(0, 1);
+        if (prevTasks.isEmpty() || !currentUserId.equals(prevTasks.get(0).getAssignee())) {
+            throw new PermissionDeniedException(
+                    "用户 " + currentUserId + " 不是任务 " + taskId + " 的上一节点审批人，无权" + operation);
         }
     }
 
