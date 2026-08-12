@@ -9,6 +9,9 @@ on:
 jobs:
   build:
     name: Java ${{ matrix.java }} / ${{ matrix.db }} / ${{ matrix.os }}
+    # 矩阵各 job 共享 CI status context，满足 master 分支保护规则对 "CI" 状态检查的要求
+    # （同 context 多 job 取最差结论，全部成功才为 success）
+    status: CI
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
