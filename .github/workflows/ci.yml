@@ -61,10 +61,15 @@ jobs:
         with:
           script: |
             const outcome = '${{ needs.build.result }}' === 'success' ? 'success' : 'failure';
+            // pull_request 事件下 Actions 检出的是 merge ref，context.sha 为 merge commit；
+            // 分支保护规则评估 head commit 的 status，故显式取 PR head SHA。
+            const sha = context.payload.pull_request
+              ? context.payload.pull_request.head.sha
+              : context.sha;
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              sha: context.sha,
+              sha: sha,
               context: 'CI',
               state: outcome,
               description: `矩阵构建结果: ${outcome}`,
