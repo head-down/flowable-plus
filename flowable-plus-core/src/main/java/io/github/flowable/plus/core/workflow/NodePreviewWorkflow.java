@@ -1,7 +1,9 @@
 package io.github.flowable.plus.core.workflow;
 
 import io.github.flowable.plus.core.enums.TraversalMode;
+import io.github.flowable.plus.core.spi.ApproverContext;
 import io.github.flowable.plus.core.spi.ApproverResolver;
+import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.vo.ApproverInfoVO;
 import io.github.flowable.plus.core.vo.NextTaskNodeVO;
@@ -41,6 +43,7 @@ public class NodePreviewWorkflow {
     private final BpmnModelCache bpmnModelCache;
     private final NodeFinder nodeFinder;
     private final ApproverResolver approverResolver;
+    private final UserContext userContext;
     private final TaskService taskService;
     private final RuntimeService runtimeService;
     private final BpmnFormDataHelper bpmnFormDataHelper;
@@ -49,6 +52,7 @@ public class NodePreviewWorkflow {
                                 BpmnModelCache bpmnModelCache,
                                 NodeFinder nodeFinder,
                                 ApproverResolver approverResolver,
+                                UserContext userContext,
                                 TaskService taskService,
                                 RuntimeService runtimeService,
                                 BpmnFormDataHelper bpmnFormDataHelper) {
@@ -56,6 +60,7 @@ public class NodePreviewWorkflow {
         this.bpmnModelCache = bpmnModelCache;
         this.nodeFinder = nodeFinder;
         this.approverResolver = approverResolver;
+        this.userContext = userContext;
         this.taskService = taskService;
         this.runtimeService = runtimeService;
         this.bpmnFormDataHelper = bpmnFormDataHelper;
@@ -99,7 +104,8 @@ public class NodePreviewWorkflow {
 
         List<String> nodeIds = traverseDefinitionNodes(definition.getId(), bpmnModel, mode, variables);
 
-        return toNodeApproverVOs(bpmnModel, nodeIds);
+        ApproverContext context = buildDefinitionContext(variables);
+        return toNodeApproverVOs(bpmnModel, nodeIds, context);
     }
 
     // ======================== 任务锚点：审批中下游预测 ========================
@@ -152,7 +158,8 @@ public class NodePreviewWorkflow {
 
         List<String> nodeIds = traverseTaskNodes(task, mode, variables);
 
-        return toApproverInfoVOs(bpmnModel, nodeIds);
+        ApproverContext context = buildTaskContext(task, variables);
+        return toApproverInfoVOs(bpmnModel, nodeIds, context);
     }
 
     // ======================== 内部步骤 ========================
@@ -221,9 +228,29 @@ public class NodePreviewWorkflow {
     }
 
     /**
+     * 定义锚点上下文：无 processInstanceId / taskId，variables 来自调用方（可为 null）。
+     */
+    private ApproverContext buildDefinitionContext(Map<String, Object> variables) {
+        return new ApproverContext(variables, resolveCurrentUserId(), null, null);
+    }
+
+    /**
+     * 任务锚点上下文：运行时全量变量 + 当前用户 + 实例 / 任务 ID。
+     */
+    private ApproverContext buildTaskContext(Task task, Map<String, Object> variables) {
+        return new ApproverContext(variables, resolveCurrentUserId(),
+                task.getProcessInstanceId(), task.getId());
+    }
+
+    private String resolveCurrentUserId() {
+        return userContext == null ? null : userContext.getCurrentUserId();
+    }
+
+    /**
      * 节点分组 VO 映射：仅保留 UserTask 节点。
      */
-    private List<NodeApproverVO> toNodeApproverVOs(BpmnModel bpmnModel, List<String> nodeIds) {
+    private List<NodeApproverVO> toNodeApproverVOs(BpmnModel bpmnModel, List<String> nodeIds,
+                                                   ApproverContext context) {
         List<NodeApproverVO> result = new ArrayList<>();
         for (String nodeId : nodeIds) {
             FlowElement flowElement = bpmnModel.getFlowElement(nodeId);
@@ -231,7 +258,7 @@ public class NodePreviewWorkflow {
                 continue;
             }
             UserTask userTask = (UserTask) flowElement;
-            List<ApproverInfoVO> approvers = approverResolver.resolveApprovers(userTask);
+            List<ApproverInfoVO> approvers = approverResolver.resolveApprovers(userTask, context);
             result.add(NodeApproverVO.builder()
                     .nodeId(nodeId)
                     .nodeName(userTask.getName())
@@ -264,7 +291,8 @@ public class NodePreviewWorkflow {
     /**
      * 扁平审批人 VO 映射：仅保留 UserTask 节点，跨节点不作去重。
      */
-    private List<ApproverInfoVO> toApproverInfoVOs(BpmnModel bpmnModel, List<String> nodeIds) {
+    private List<ApproverInfoVO> toApproverInfoVOs(BpmnModel bpmnModel, List<String> nodeIds,
+                                                   ApproverContext context) {
         List<ApproverInfoVO> result = new ArrayList<>();
         for (String nodeId : nodeIds) {
             FlowElement element = bpmnModel.getFlowElement(nodeId);
@@ -272,7 +300,7 @@ public class NodePreviewWorkflow {
                 continue;
             }
             UserTask userTask = (UserTask) element;
-            List<ApproverInfoVO> approvers = approverResolver.resolveApprovers(userTask);
+            List<ApproverInfoVO> approvers = approverResolver.resolveApprovers(userTask, context);
             for (ApproverInfoVO vo : approvers) {
                 vo.setNodeId(nodeId);
                 vo.setNodeName(userTask.getName());
