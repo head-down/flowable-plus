@@ -52,6 +52,8 @@ jobs:
     name: 上报 CI 聚合状态（分支保护所需的 status context）
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      statuses: write
     if: always()
     steps:
       - name: 写入 CI status context
