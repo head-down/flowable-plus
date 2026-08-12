@@ -1,0 +1,199 @@
+package io.github.flowable.plus.core.model;
+
+import io.github.flowable.plus.core.domain.PlusTask;
+import org.flowable.bpmn.model.Activity;
+import org.flowable.bpmn.model.BpmnModel;
+import org.flowable.bpmn.model.MultiInstanceLoopCharacteristics;
+import org.flowable.bpmn.model.Process;
+import org.flowable.bpmn.model.UserTask;
+import org.flowable.engine.HistoryService;
+import org.flowable.engine.TaskService;
+import org.flowable.task.api.TaskQuery;
+import org.flowable.task.api.history.HistoricTaskInstanceQuery;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.util.Date;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+/**
+ * MultiInstanceDetector 运行时判定（ADR-0034）单元测试。
+ *
+ * <p>覆盖 {@link MultiInstanceDetector#isRuntimeMultiInstance} /
+ * {@link MultiInstanceDetector#isPseudoSingleton} 的伪单例/真多实例/最后 1 人未投
+ * 三种运行时判据，以及模型判定短路（普通节点零查询）。</p>
+ */
+class MultiInstanceDetectorTest {
+
+    private static final String PROCESS_DEF_ID = "leave:1:abc";
+    private static final String PROCESS_INST_ID = "pi-001";
+    private static final String MI_ACTIVITY_ID = "csTask";
+
+    private BpmnModelCache mockBpmnModelCache;
+    private TaskService mockTaskService;
+    private HistoryService mockHistoryService;
+    private MultiInstanceDetector detector;
+
+    @BeforeEach
+    void setUp() {
+        mockBpmnModelCache = mock(BpmnModelCache.class);
+        mockTaskService = mock(TaskService.class);
+        mockHistoryService = mock(HistoryService.class);
+        detector = new MultiInstanceDetector(mockBpmnModelCache, mockTaskService, mockHistoryService);
+    }
+
+    // ======================== 构造函数空值校验 ========================
+
+    @Test
+    void testConstructorNullBpmnModelCache() {
+        assertThatThrownBy(() -> new MultiInstanceDetector(null, mockTaskService, mockHistoryService))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("BpmnModelCache");
+    }
+
+    @Test
+    void testConstructorNullTaskService() {
+        assertThatThrownBy(() -> new MultiInstanceDetector(mockBpmnModelCache, null, mockHistoryService))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("TaskService");
+    }
+
+    @Test
+    void testConstructorNullHistoryService() {
+        assertThatThrownBy(() -> new MultiInstanceDetector(mockBpmnModelCache, mockTaskService, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("HistoryService");
+    }
+
+    // ======================== isRuntimeMultiInstance ========================
+
+    @Test
+    void testRuntimeMultiInstanceOnNormalNodeShortCircuitsWithoutQueries() {
+        stubModel(false);
+        PlusTask task = createTask(MI_ACTIVITY_ID);
+
+        assertThat(detector.isRuntimeMultiInstance(task)).isFalse();
+
+        // 普通节点模型短路：不产生任何运行时查询
+        verify(mockTaskService, never()).createTaskQuery();
+        verify(mockHistoryService, never()).createHistoricTaskInstanceQuery();
+    }
+
+    @Test
+    void testRuntimeMultiInstancePseudoSingletonAllowed() {
+        stubModel(true);
+        stubActiveCount(1L);
+        stubHistoryCount(1L);
+        PlusTask task = createTask(MI_ACTIVITY_ID);
+
+        assertThat(detector.isRuntimeMultiInstance(task)).isFalse();
+    }
+
+    @Test
+    void testRuntimeMultiInstanceRealMultiBlocked() {
+        stubModel(true);
+        stubActiveCount(2L);
+        PlusTask task = createTask(MI_ACTIVITY_ID);
+
+        assertThat(detector.isRuntimeMultiInstance(task)).isTrue();
+    }
+
+    @Test
+    void testRuntimeMultiInstanceLastUnvotedBlocked() {
+        // 会签剩最后 1 人未投：活跃任务数==1，但历史任务数>1 → 非伪单例 → 运行时多实例
+        stubModel(true);
+        stubActiveCount(1L);
+        stubHistoryCount(2L);
+        PlusTask task = createTask(MI_ACTIVITY_ID);
+
+        assertThat(detector.isRuntimeMultiInstance(task)).isTrue();
+    }
+
+    @Test
+    void testRuntimeMultiInstanceHistoryCountOneButActiveCountZeroBlocked() {
+        // 活跃任务数为 0（异常态）→ 非伪单例 → 运行时多实例拦截（安全侧）
+        stubModel(true);
+        stubActiveCount(0L);
+        PlusTask task = createTask(MI_ACTIVITY_ID);
+
+        assertThat(detector.isRuntimeMultiInstance(task)).isTrue();
+    }
+
+    // ======================== isPseudoSingleton ========================
+
+    @Test
+    void testPseudoSingletonActiveOneHistoryOne() {
+        stubActiveCount(1L);
+        stubHistoryCount(1L);
+        PlusTask task = createTask(MI_ACTIVITY_ID);
+
+        assertThat(detector.isPseudoSingleton(task)).isTrue();
+    }
+
+    @Test
+    void testPseudoSingletonActiveCountNotOne() {
+        stubActiveCount(2L);
+        PlusTask task = createTask(MI_ACTIVITY_ID);
+
+        assertThat(detector.isPseudoSingleton(task)).isFalse();
+        // activeCount != 1 时短路，不查询历史
+        verify(mockHistoryService, never()).createHistoricTaskInstanceQuery();
+    }
+
+    @Test
+    void testPseudoSingletonHistoryCountNotOne() {
+        // 会签剩最后 1 人未投（他人已完成）或减签后 1 人 → 历史任务数 > 1 → 非伪单例
+        stubActiveCount(1L);
+        stubHistoryCount(2L);
+        PlusTask task = createTask(MI_ACTIVITY_ID);
+
+        assertThat(detector.isPseudoSingleton(task)).isFalse();
+    }
+
+    // ======================== Helpers ========================
+
+    private void stubModel(boolean multiInstance) {
+        BpmnModel model = new BpmnModel();
+        Process process = new Process();
+        process.setId("testProcess");
+        model.addProcess(process);
+
+        Activity activity = new UserTask();
+        activity.setId(MI_ACTIVITY_ID);
+        if (multiInstance) {
+            activity.setLoopCharacteristics(new MultiInstanceLoopCharacteristics());
+        }
+        process.addFlowElement(activity);
+
+        when(mockBpmnModelCache.getBpmnModel(PROCESS_DEF_ID)).thenReturn(model);
+    }
+
+    private void stubActiveCount(long count) {
+        TaskQuery query = mock(TaskQuery.class);
+        when(query.processInstanceId(PROCESS_INST_ID)).thenReturn(query);
+        when(query.taskDefinitionKey(MI_ACTIVITY_ID)).thenReturn(query);
+        when(query.active()).thenReturn(query);
+        when(query.count()).thenReturn(count);
+        when(mockTaskService.createTaskQuery()).thenReturn(query);
+    }
+
+    private void stubHistoryCount(long count) {
+        HistoricTaskInstanceQuery query = mock(HistoricTaskInstanceQuery.class);
+        when(query.processInstanceId(PROCESS_INST_ID)).thenReturn(query);
+        when(query.taskDefinitionKey(MI_ACTIVITY_ID)).thenReturn(query);
+        when(query.count()).thenReturn(count);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(query);
+    }
+
+    private PlusTask createTask(String taskDefinitionKey) {
+        return new PlusTask("task-001", PROCESS_DEF_ID, taskDefinitionKey, PROCESS_INST_ID,
+                "user1", null, "测试任务", "exec-001", new Date());
+    }
+}

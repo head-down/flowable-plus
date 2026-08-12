@@ -264,15 +264,6 @@ public class CounterSignWorkflowTest {
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
 
-        // isMultiInstanceFinished 中 finishedCount 查询（无人已完成 → 未完成）
-        // isPseudoSingleton 历史任务数查询：仅当前活跃任务 → 1（伪单例）
-        HistoricTaskInstanceQuery hqFinished = mock(HistoricTaskInstanceQuery.class);
-        when(hqFinished.processInstanceId(anyString())).thenReturn(hqFinished);
-        when(hqFinished.taskDefinitionKey(anyString())).thenReturn(hqFinished);
-        when(hqFinished.finished()).thenReturn(hqFinished);
-        when(hqFinished.count()).thenReturn(1L);
-        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(hqFinished);
-
         // determineNextRoundIndex 兜底路径：周期边界查询 + 本节点 key 过滤查询（均空 → 不过滤）
         HistoricTaskInstanceQuery boundaryQ = mock(HistoricTaskInstanceQuery.class);
         when(boundaryQ.processInstanceId(anyString())).thenReturn(boundaryQ);
@@ -285,11 +276,10 @@ public class CounterSignWorkflowTest {
         when(keyQ.list()).thenReturn(Collections.emptyList());
         // 本轮已投票查重（ADR-0024）：无已完成投票 → 空列表
         HistoricTaskInstanceQuery votedQ = stubVotedListQuery(Collections.emptyList());
-        // 查询顺序：determineNextRoundIndex(边界,key) → resolveVotedAssigneesInRound(边界,已投票列表) → isPseudoSingleton(count)
-        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(boundaryQ, keyQ, boundaryQ, votedQ, hqFinished);
-        // isPseudoSingleton：历史任务数查询（全局历史 = 当前唯一活跃任务 → 伪单例）
+        // 查询顺序：determineNextRoundIndex(边界,key) → resolveVotedAssigneesInRound(边界,已投票列表)
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(boundaryQ, keyQ, boundaryQ, votedQ);
 
-        // Q1: validateTaskExists, Q2: resolveCurrentAssignees, Q3: isMultiInstanceFinished
+        // Q1: validateTaskExists, Q2: resolveCurrentAssignees, Q3: 后续活跃任务查询兜底
         Task assignee = createMockTask("sub-1", definitionId, "csTask", "pi-001", USER_ID);
         Task mockExistTask = createMockTask(task.getId(), task.getProcessDefinitionId(),
                 task.getTaskDefinitionKey(), task.getProcessInstanceId(), task.getAssignee());
@@ -324,14 +314,6 @@ public class CounterSignWorkflowTest {
         stubTaskExists(task);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
 
-        // isMultiInstanceFinished 中 finishedCount 查询（无人已完成）
-        HistoricTaskInstanceQuery hqFinished = mock(HistoricTaskInstanceQuery.class);
-        when(hqFinished.processInstanceId(anyString())).thenReturn(hqFinished);
-        when(hqFinished.taskDefinitionKey(anyString())).thenReturn(hqFinished);
-        when(hqFinished.finished()).thenReturn(hqFinished);
-        when(hqFinished.count()).thenReturn(0L);
-        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(hqFinished);
-
         // determineNextRoundIndex 兜底路径：周期边界查询 + 本节点 key 过滤查询（均空 → 不过滤）
         HistoricTaskInstanceQuery boundaryQ = mock(HistoricTaskInstanceQuery.class);
         when(boundaryQ.processInstanceId(anyString())).thenReturn(boundaryQ);
@@ -344,8 +326,8 @@ public class CounterSignWorkflowTest {
         when(keyQ.list()).thenReturn(Collections.emptyList());
         // 本轮已投票查重（ADR-0024）：无已完成投票 → 空列表
         HistoricTaskInstanceQuery votedQ = stubVotedListQuery(Collections.emptyList());
-        // 查询顺序：determineNextRoundIndex(边界,key) → resolveVotedAssigneesInRound(边界,已投票列表) → isPseudoSingleton(count)
-        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(boundaryQ, keyQ, boundaryQ, votedQ, hqFinished);
+        // 查询顺序：determineNextRoundIndex(边界,key) → resolveVotedAssigneesInRound(边界,已投票列表)
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(boundaryQ, keyQ, boundaryQ, votedQ);
 
         Task assignee = createMockTask("sub-1", definitionId, "csTask", "pi-001", USER_ID);
 
@@ -387,18 +369,13 @@ public class CounterSignWorkflowTest {
         String definitionId = "leave:1:abc";
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
+        when(mockMultiInstanceDetector.isPseudoSingleton(any(PlusTask.class))).thenReturn(true);
 
-        // isMultiInstanceFinished + isPseudoSingleton 中历史任务数查询：仅当前活跃任务 → 伪单例
-        HistoricTaskInstanceQuery hqFinished = mock(HistoricTaskInstanceQuery.class);
-        when(hqFinished.processInstanceId(anyString())).thenReturn(hqFinished);
-        when(hqFinished.taskDefinitionKey(anyString())).thenReturn(hqFinished);
-        when(hqFinished.finished()).thenReturn(hqFinished);
-        when(hqFinished.count()).thenReturn(1L);
         // 本轮已投票查重（ADR-0024）：无已完成投票 → 空列表
         HistoricTaskInstanceQuery boundaryQ = stubBoundaryQuery();
         HistoricTaskInstanceQuery votedQ = stubVotedListQuery(Collections.emptyList());
-        // 查询顺序：resolveVotedAssigneesInRound(边界,已投票列表) → isPseudoSingleton(count)
-        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(boundaryQ, votedQ, hqFinished);
+        // 查询顺序：resolveVotedAssigneesInRound(边界,已投票列表) → isPseudoSingleton(由 detector 判定)
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(boundaryQ, votedQ);
 
         // 状态感知的 initiator 变量：trySetCounterSignInitiator setVariable 后，
         // addCounterSigner 内模式 A 分派检查的 getVariable 应读到 USER_ID
@@ -424,12 +401,6 @@ public class CounterSignWorkflowTest {
         when(q2.taskDefinitionKey(anyString())).thenReturn(q2);
         when(q2.active()).thenReturn(q2);
         when(q2.list()).thenReturn(Collections.singletonList(assignee));
-        // Q3: isPseudoSingleton — activeCount=1（trySetCounterSignInitiator 内部）
-        TaskQuery q3 = mock(TaskQuery.class);
-        when(q3.processInstanceId(anyString())).thenReturn(q3);
-        when(q3.taskDefinitionKey(anyString())).thenReturn(q3);
-        when(q3.active()).thenReturn(q3);
-        when(q3.count()).thenReturn(1L);
 
         // Q4: isMultiInstanceFinished — activeCount=1
         TaskQuery q4 = mock(TaskQuery.class);
@@ -455,7 +426,7 @@ public class CounterSignWorkflowTest {
         when(q6.active()).thenReturn(q6);
         when(q6.list()).thenReturn(Arrays.asList(assignee, taskB, taskC, taskD));
 
-        when(mockTaskService.createTaskQuery()).thenReturn(q1, q2, q2, q5, q3, q6);
+        when(mockTaskService.createTaskQuery()).thenReturn(q1, q2, q2, q5, q6);
 
         // determineCurrentRoundIndex：活跃任务有 csRoundIndex=0（原始审批人隐式轮次）
         when(mockTaskService.getVariableLocal(eq("sub-1"), eq("csRoundIndex"))).thenReturn(0);
@@ -989,6 +960,7 @@ public class CounterSignWorkflowTest {
         String definitionId = "leave:1:abc";
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
+        when(mockMultiInstanceDetector.isPseudoSingleton(any(PlusTask.class))).thenReturn(true);
 
         Task mockExistTask = createMockTask(task.getId(), definitionId, "csTask", "pi-001", USER_ID);
 
@@ -1004,20 +976,6 @@ public class CounterSignWorkflowTest {
         when(q2.taskDefinitionKey(anyString())).thenReturn(q2);
         when(q2.active()).thenReturn(q2);
         when(q2.list()).thenReturn(Collections.singletonList(assignee));
-
-        // Q3: isPseudoSingleton — activeCount=1
-        TaskQuery q3 = mock(TaskQuery.class);
-        when(q3.processInstanceId(anyString())).thenReturn(q3);
-        when(q3.taskDefinitionKey(anyString())).thenReturn(q3);
-        when(q3.active()).thenReturn(q3);
-        when(q3.count()).thenReturn(1L);
-
-        // isPseudoSingleton 历史任务数查询：仅当前活跃任务（historyTaskCount=1 → 伪单例）
-        HistoricTaskInstanceQuery hqFinished = mock(HistoricTaskInstanceQuery.class);
-        when(hqFinished.processInstanceId(anyString())).thenReturn(hqFinished);
-        when(hqFinished.taskDefinitionKey(anyString())).thenReturn(hqFinished);
-        when(hqFinished.finished()).thenReturn(hqFinished);
-        when(hqFinished.count()).thenReturn(1L);
 
         // 本轮已投票查重（ADR-0024）：无已完成投票 → 空列表
         HistoricTaskInstanceQuery boundaryQ = stubBoundaryQuery();
@@ -1038,9 +996,9 @@ public class CounterSignWorkflowTest {
         when(q5.active()).thenReturn(q5);
         when(q5.list()).thenReturn(Arrays.asList(assignee, taskNew));
 
-        when(mockTaskService.createTaskQuery()).thenReturn(q1, q2, q2, q4, q3, q5);
-        // 查询顺序：resolveVotedAssigneesInRound(边界,已投票列表) → isPseudoSingleton(count)
-        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(boundaryQ, votedQ, hqFinished);
+        when(mockTaskService.createTaskQuery()).thenReturn(q1, q2, q2, q4, q5);
+        // 查询顺序：resolveVotedAssigneesInRound(边界,已投票列表) → isPseudoSingleton(由 detector 判定)
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(boundaryQ, votedQ);
 
         when(mockTaskService.getVariableLocal(eq("sub-1"), eq("csRoundIndex"))).thenReturn(0);
 
@@ -1374,6 +1332,7 @@ public class CounterSignWorkflowTest {
         String definitionId = "leave:1:abc";
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
+        when(mockMultiInstanceDetector.isPseudoSingleton(any(PlusTask.class))).thenReturn(false);
 
         Task mockExistTask = createMockTask(task.getId(), definitionId, "csTask", "pi-001", USER_ID);
 
@@ -1390,13 +1349,6 @@ public class CounterSignWorkflowTest {
         when(q2.taskDefinitionKey(anyString())).thenReturn(q2);
         when(q2.active()).thenReturn(q2);
         when(q2.list()).thenReturn(Arrays.asList(self, other));
-
-        // Q3: isPseudoSingleton — activeCount=2（不是伪单例，不写 initiator）
-        TaskQuery q3 = mock(TaskQuery.class);
-        when(q3.processInstanceId(anyString())).thenReturn(q3);
-        when(q3.taskDefinitionKey(anyString())).thenReturn(q3);
-        when(q3.active()).thenReturn(q3);
-        when(q3.count()).thenReturn(2L);
 
         // 本轮已投票查重（ADR-0024）：无已完成投票 → 空列表
         HistoricTaskInstanceQuery boundaryQ = stubBoundaryQuery();
@@ -1417,7 +1369,7 @@ public class CounterSignWorkflowTest {
         when(q5.active()).thenReturn(q5);
         when(q5.list()).thenReturn(Arrays.asList(self, other, taskNew));
 
-        when(mockTaskService.createTaskQuery()).thenReturn(q1, q2, q2, q4, q3, q5);
+        when(mockTaskService.createTaskQuery()).thenReturn(q1, q2, q2, q4, q5);
         // 查询顺序：resolveVotedAssigneesInRound(边界,已投票列表)
         when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(boundaryQ, votedQ);
 
@@ -1720,6 +1672,7 @@ public class CounterSignWorkflowTest {
         String definitionId = "leave:1:abc";
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
+        when(mockMultiInstanceDetector.isPseudoSingleton(any(PlusTask.class))).thenReturn(false);
 
         // Q1: validateTaskExists
         Task mockExistTask = createMockTask(task.getId(), definitionId, "csTask", "pi-001", USER_ID);
@@ -1736,19 +1689,7 @@ public class CounterSignWorkflowTest {
         when(q2.active()).thenReturn(q2);
         when(q2.list()).thenReturn(Collections.singletonList(self));
 
-        // Q3: isPseudoSingleton — activeCount=1
-        TaskQuery q3 = mock(TaskQuery.class);
-        when(q3.processInstanceId(anyString())).thenReturn(q3);
-        when(q3.taskDefinitionKey(anyString())).thenReturn(q3);
-        when(q3.active()).thenReturn(q3);
-        when(q3.count()).thenReturn(1L);
-
         // isPseudoSingleton 历史任务数=2（他人已完成投票的任务 + 当前活跃任务）→ 非伪单例
-        HistoricTaskInstanceQuery hqFinished = mock(HistoricTaskInstanceQuery.class);
-        when(hqFinished.processInstanceId(anyString())).thenReturn(hqFinished);
-        when(hqFinished.taskDefinitionKey(anyString())).thenReturn(hqFinished);
-        when(hqFinished.finished()).thenReturn(hqFinished);
-        when(hqFinished.count()).thenReturn(2L);
         // 无修复时 isNewRound=true → determineNextRoundIndex 历史任务查询 → 空
         HistoricTaskInstanceQuery hqHistory = mock(HistoricTaskInstanceQuery.class);
         when(hqHistory.processInstanceId(anyString())).thenReturn(hqHistory);
@@ -1779,7 +1720,7 @@ public class CounterSignWorkflowTest {
         when(q6.active()).thenReturn(q6);
         when(q6.list()).thenReturn(Arrays.asList(self, taskNew));
 
-        when(mockTaskService.createTaskQuery()).thenReturn(q1, q2, q2, q4, q3, q5);
+        when(mockTaskService.createTaskQuery()).thenReturn(q1, q2, q2, q4, q5);
 
         // 周期边界查询：无历史周期分隔 → 空列表 → 不过滤
         HistoricTaskInstanceQuery boundaryQ = mock(HistoricTaskInstanceQuery.class);
@@ -1790,8 +1731,8 @@ public class CounterSignWorkflowTest {
 
         // 本轮已投票查重（ADR-0024）：无已完成投票 → 空列表
         HistoricTaskInstanceQuery votedQ = stubVotedListQuery(Collections.emptyList());
-        // 查询顺序：determineNextRoundIndex(边界,key) → resolveVotedAssigneesInRound(边界,已投票列表) → isPseudoSingleton(count)
-        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(boundaryQ, hqHistory, boundaryQ, votedQ, hqFinished);
+        // 查询顺序：determineNextRoundIndex(边界,key) → resolveVotedAssigneesInRound(边界,已投票列表) → isPseudoSingleton(由 detector 判定)
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(boundaryQ, hqHistory, boundaryQ, votedQ);
 
         counterSignWorkflow.addCounterSigner("task-001", Collections.singletonList("newUser"));
 
@@ -1817,6 +1758,7 @@ public class CounterSignWorkflowTest {
         String definitionId = "leave:1:abc";
         PlusTask task = createTask("task-001", definitionId, "csTask", "pi-001", USER_ID);
         when(mockMultiInstanceDetector.isMultiInstance(any(PlusTask.class))).thenReturn(true);
+        when(mockMultiInstanceDetector.isPseudoSingleton(any(PlusTask.class))).thenReturn(false);
 
         // Q1: validateTaskExists
         Task mockExistTask = createMockTask(task.getId(), definitionId, "csTask", "pi-001", USER_ID);
@@ -1832,20 +1774,7 @@ public class CounterSignWorkflowTest {
         when(q2.active()).thenReturn(q2);
         when(q2.list()).thenReturn(Collections.singletonList(self));
 
-        // Q3: isPseudoSingleton — activeCount=1
-        TaskQuery q3 = mock(TaskQuery.class);
-        when(q3.processInstanceId(anyString())).thenReturn(q3);
-        when(q3.taskDefinitionKey(anyString())).thenReturn(q3);
-        when(q3.active()).thenReturn(q3);
-        when(q3.count()).thenReturn(1L);
-
         // isPseudoSingleton 历史任务数=2（上一周期 oldCS + 本周期 newCS）→ 非伪单例，不写 initiator
-        HistoricTaskInstanceQuery hqFinished = mock(HistoricTaskInstanceQuery.class);
-        when(hqFinished.processInstanceId(anyString())).thenReturn(hqFinished);
-        when(hqFinished.taskDefinitionKey(anyString())).thenReturn(hqFinished);
-        when(hqFinished.finished()).thenReturn(hqFinished);
-        when(hqFinished.count()).thenReturn(2L);
-
         // 历史任务时间线：上一周期 csTask(旧) → confirmTask → 本周期 csTask(新)
         Date t1 = new Date(1000);
         Date t2 = new Date(2000);
@@ -1899,11 +1828,11 @@ public class CounterSignWorkflowTest {
         when(q5.active()).thenReturn(q5);
         when(q5.list()).thenReturn(Arrays.asList(self, taskNew));
 
-        when(mockTaskService.createTaskQuery()).thenReturn(q1, q2, q2, q4, q3, q5);
+        when(mockTaskService.createTaskQuery()).thenReturn(q1, q2, q2, q4, q5);
         // 本轮已投票查重（ADR-0024）：本周期无已完成投票 → 空列表
         HistoricTaskInstanceQuery votedQ = stubVotedListQuery(Collections.emptyList());
-        // 查询顺序：determineNextRoundIndex(边界,key) → resolveVotedAssigneesInRound(边界,已投票列表) → isPseudoSingleton(count)
-        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(boundaryQ, keyQ, boundaryQ, votedQ, hqFinished);
+        // 查询顺序：determineNextRoundIndex(边界,key) → resolveVotedAssigneesInRound(边界,已投票列表) → isPseudoSingleton(由 detector 判定)
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(boundaryQ, keyQ, boundaryQ, votedQ);
 
         counterSignWorkflow.addCounterSigner("task-001", Collections.singletonList("newUser"));
 

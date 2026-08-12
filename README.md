@@ -65,7 +65,7 @@ flowable-plus (父 POM, packaging=pom)
 | 接口 | 方法数 | 职责 |
 |------|--------|------|
 | `ProcessLifecycleOperations` | 2 | `startProcess`, `invalidateProcess` |
-| `TaskExecutionOperations` | 11 | `completeTask`, `completeTaskAsSingleton`, `claimTask`, `rejectTask`×2, `rejectTaskToInitiator`, `withdrawTask`×2, `transferTask`, `jumpToNode`, `getJumpableNodes` |
+| `TaskExecutionOperations` | 10 | `completeTask`, `claimTask`, `rejectTask`×2, `rejectTaskToInitiator`, `withdrawTask`×2, `transferTask`, `jumpToNode`, `getJumpableNodes` |
 | `CounterSignOperations` | 5 | `counterSign`, `addCounterSigner`, `removeCounterSigner`, `delegateTask`, `resolveDelegate` |
 | `QueryOperations` | 13 | `queryTodoTasks`×2, `queryDoneTasks`×2, `queryDoneTasksPrecise`, `getNextNodeApprovers`×2, `getNextTaskNodes`, `getNextTaskApprovers`, `getProcessSummary`, `batchQueryProcessSummaries`, `getApprovalPersonnel`, `getBusinessKeyByProcessInstanceId` |
 | `HistoryOperations` | 1 | `getApprovalHistory` |

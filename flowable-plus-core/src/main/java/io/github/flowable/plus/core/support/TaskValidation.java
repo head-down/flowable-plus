@@ -102,12 +102,15 @@ public final class TaskValidation {
     }
 
     /**
-     * 断言任务为非多实例子任务，适用于常规审批/驳回/撤回场景。
+     * 断言任务为<b>运行时</b>非多实例子任务，适用于常规审批/驳回/撤回/跳转场景。
      *
-     * @throws IllegalArgumentException 多实例子任务时抛出
+     * <p>采用运行时判定（ADR-0034）：伪单例（模型为会签但运行时仅 1 人）放行，
+     * 真多实例（含"会签剩最后 1 人未投"）拦截。</p>
+     *
+     * @throws IllegalArgumentException 运行时多实例子任务时抛出
      */
     public static void validateNotMultiInstance(MultiInstanceDetector multiInstanceDetector, PlusTask task, String taskId) {
-        if (multiInstanceDetector.isMultiInstance(task)) {
+        if (multiInstanceDetector.isRuntimeMultiInstance(task)) {
             throw new IllegalArgumentException(
                     "任务 " + taskId + " 是多实例子任务，请使用会签操作(counterSign)");
         }

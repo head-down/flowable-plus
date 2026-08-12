@@ -108,7 +108,7 @@ fix(countersign): 修复重复加签静默跳过的 bug
 
 ## 架构决策记录（ADR）
 
-任何影响公开 API、模块边界或领域语义的决策，应在 `docs/adr/` 下新增 ADR（编号递增，格式参考现有条目），并在 [CODEBUDDY.md](CODEBUDDY.md) 的 ADR 表格中登记。ADR 编号当前为 0032，新条目从 0033 开始。
+任何影响公开 API、模块边界或领域语义的决策，应在 `docs/adr/` 下新增 ADR（编号递增，格式参考现有条目），并在 [CODEBUDDY.md](CODEBUDDY.md) 的 ADR 表格中登记。ADR 编号当前为 0034，新条目从 0035 开始。
 
 ## 许可
 
