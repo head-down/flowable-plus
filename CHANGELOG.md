@@ -2,6 +2,14 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，但当前处于内测阶段（无外部使用者），版本号按项目实际需要调整。
 
+## [Unreleased]
+
+### Bug 修复
+
+**常规操作多实例拦截（ADR-0034）**
+- 常规审批操作（`completeTask` / `rejectTask` / `rejectTaskToInitiator` / `withdrawTask` / `jumpToNode`）的多实例拦截从模型静态判定改为运行时判定：伪单例（会签节点运行时仅 1 个活跃子任务、且该节点全局历史任务数==1）放行常规操作，解决"财务/风控负责人"等伪单例会签节点无可用提交/同意路径的问题；真多实例（含会签剩最后 1 人未投）保持拦截，必须走 counterSign
+- 删除 `completeTaskAsSingleton`（伪单例放行被 `completeTask` 自动覆盖；8/6 新增、零测试、无人使用）
+
 ## [1.0.0] - 2026-08-11（重新发布）
 
 本次为 v1.0.0 的**重新发布**，替代 2026-07-21 的首次 GA。首次 GA 后累计 82 个提交（+15112 / -2031 行），含 20 个 bug 修复、22 个新功能与多轮架构收敛。因项目尚无外部使用者，破坏性变更不影响任何下游，故保持版本号 1.0.0 而非按语义化版本升 minor/major。

@@ -443,34 +443,10 @@ public class CounterSignWorkflow implements CounterSignOperations {
     }
 
     /**
-     * 判断是否为伪单例状态：活跃审批人仅 1 人，且该节点自进入以来从未出现过第二个任务。
-     *
-     * <p>判据：全局历史任务数（含活跃/已完成/被减签删除）== 1，即只有当前这一个活跃任务。
-     * 与 finished 计数口径无关，因此：
-     * <ul>
-     *   <li>模式 A 伪单例首次加签：历史任务数 == 1 → 伪单例 ✓</li>
-     *   <li>模式 B 固定会签减签至 1 人：历史任务数 &gt; 1 → 非伪单例，不会被误翻转 ✓</li>
-     *   <li>模式 B 折返后新周期 1 人：全局历史任务数仍 &gt; 1（含上一周期）→ 非伪单例 ✓</li>
-     * </ul></p>
-     */
-    private boolean isPseudoSingleton(PlusTask task) {
-        long activeCount = taskService.createTaskQuery()
-                .processInstanceId(task.getProcessInstanceId())
-                .taskDefinitionKey(task.getTaskDefinitionKey())
-                .active()
-                .count();
-        if (activeCount != 1) {
-            return false;
-        }
-        long historyTaskCount = historyService.createHistoricTaskInstanceQuery()
-                .processInstanceId(task.getProcessInstanceId())
-                .taskDefinitionKey(task.getTaskDefinitionKey())
-                .count();
-        return historyTaskCount == 1;
-    }
-
-    /**
      * 尝试设置会签发起人变量。仅在伪单例状态下首次调用加签且变量尚未设置时写入。
+     *
+     * <p>伪单例判据统一收敛至 {@link MultiInstanceDetector#isPseudoSingleton}（ADR-0034），
+     * 消除会签侧与常规审批拦截侧的口径漂移。判据说明详见该方法的 Javadoc。</p>
      */
     private void trySetCounterSignInitiator(PlusTask task) {
         String varName = buildCountersignInitiatorVarName(task.getTaskDefinitionKey());
@@ -480,7 +456,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
             return;
         }
 
-        if (!isPseudoSingleton(task)) {
+        if (!multiInstanceDetector.isPseudoSingleton(task)) {
             return;
         }
 

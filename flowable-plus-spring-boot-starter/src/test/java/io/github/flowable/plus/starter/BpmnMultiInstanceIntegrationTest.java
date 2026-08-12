@@ -79,7 +79,7 @@ class BpmnMultiInstanceIntegrationTest {
         mockHistoryService = mock(HistoryService.class);
 
         bpmnModelCache = new DefaultBpmnModelCache(mockRepoService);
-        multiInstanceDetector = new MultiInstanceDetector(bpmnModelCache);
+        multiInstanceDetector = new MultiInstanceDetector(bpmnModelCache, mockTaskService, mockHistoryService);
         UserContext userContext = () -> USER_ID;
         mockNodeFinder = mock(NodeFinder.class);
 
@@ -460,6 +460,12 @@ class BpmnMultiInstanceIntegrationTest {
         when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
         when(taskQuery.taskId("task-001")).thenReturn(taskQuery);
         when(taskQuery.singleResult()).thenReturn(mockTask);
+
+        // 运行时判定（ADR-0034）：模型为多实例 + 活跃任务数 > 1 → 真多实例 → 拦截
+        when(taskQuery.processInstanceId("pi-001")).thenReturn(taskQuery);
+        when(taskQuery.taskDefinitionKey("csTask")).thenReturn(taskQuery);
+        when(taskQuery.active()).thenReturn(taskQuery);
+        when(taskQuery.count()).thenReturn(2L);
 
         assertThatThrownBy(() -> taskExecutionWorkflow.completeTask("task-001", null, "同意"))
                 .isInstanceOf(IllegalArgumentException.class)

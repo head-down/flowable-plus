@@ -626,16 +626,21 @@ public class FlowablePlusAutoConfiguration {
     /**
      * 注册 MultiInstanceDetector Bean。
      *
-     * <p>从 BPMN 模型缓存中提取的多实例检测逻辑独立模块。
+     * <p>从 BPMN 模型缓存提取多实例检测逻辑 + 运行时多实例/伪单例判定
+     * （ADR-0034，运行时判定需要 TaskService/HistoryService）。
      * 应用可通过声明同名 Bean 覆盖。</p>
      *
-     * @param bpmnModelCache BPMN 模型缓存
+     * @param bpmnModelCache  BPMN 模型缓存
+     * @param taskService     Flowable 任务服务
+     * @param historyService  Flowable 历史服务
      * @return MultiInstanceDetector 实例
      */
     @Bean
     @ConditionalOnMissingBean
-    public MultiInstanceDetector multiInstanceDetector(BpmnModelCache bpmnModelCache) {
-        return new MultiInstanceDetector(bpmnModelCache);
+    public MultiInstanceDetector multiInstanceDetector(BpmnModelCache bpmnModelCache,
+                                                        TaskService taskService,
+                                                        HistoryService historyService) {
+        return new MultiInstanceDetector(bpmnModelCache, taskService, historyService);
     }
 
     /**
