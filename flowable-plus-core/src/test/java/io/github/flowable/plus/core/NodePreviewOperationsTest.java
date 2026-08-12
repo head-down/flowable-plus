@@ -1,8 +1,10 @@
 package io.github.flowable.plus.core;
 
 import io.github.flowable.plus.core.enums.TraversalMode;
+import io.github.flowable.plus.core.spi.ApproverContext;
 import io.github.flowable.plus.core.spi.ApproverResolver;
 import io.github.flowable.plus.core.spi.GroupResolver;
+import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.vo.ApproverInfoVO;
 import io.github.flowable.plus.core.vo.NextTaskNodeVO;
 import io.github.flowable.plus.core.vo.NodeApproverVO;
@@ -53,6 +55,7 @@ public class NodePreviewOperationsTest {
     private GroupResolver mockGroupResolver;
     private ApproverResolver approverResolver;
     private BpmnFormDataHelper bpmnFormDataHelper;
+    private UserContext mockUserContext;
     private NodePreviewWorkflow nodePreviewWorkflow;
 
     @BeforeEach
@@ -62,14 +65,16 @@ public class NodePreviewOperationsTest {
         mockTaskService = mock(TaskService.class);
         mockNodeFinder = mock(NodeFinder.class);
         mockGroupResolver = mock(GroupResolver.class);
+        mockUserContext = mock(UserContext.class);
+        when(mockUserContext.getCurrentUserId()).thenReturn("u1001");
 
         bpmnModelCache = new DefaultBpmnModelCache(mockRepoService);
         approverResolver = new UserTaskApproverResolver(mockGroupResolver);
         bpmnFormDataHelper = new BpmnFormDataHelper();
 
         nodePreviewWorkflow = new NodePreviewWorkflow(mockRepoService, bpmnModelCache,
-                mockNodeFinder, approverResolver, mockTaskService, mockRuntimeService,
-                bpmnFormDataHelper);
+                mockNodeFinder, approverResolver, mockUserContext, mockTaskService,
+                mockRuntimeService, bpmnFormDataHelper);
     }
 
     // ======================== 参数校验 ========================
@@ -196,7 +201,7 @@ public class NodePreviewOperationsTest {
         stubProcessDefinition(processKey, definitionId);
 
         NodePreviewWorkflow npwWithoutResolver = new NodePreviewWorkflow(mockRepoService, bpmnModelCache,
-                mockNodeFinder, new UserTaskApproverResolver(null), mockTaskService,
+                mockNodeFinder, new UserTaskApproverResolver(null), mockUserContext, mockTaskService,
                 mockRuntimeService, bpmnFormDataHelper);
 
         UserTask userTask = buildUserTask("taskA", "多级审批", null, null,
@@ -747,6 +752,97 @@ public class NodePreviewOperationsTest {
                 .hasMessageContaining("taskId");
     }
 
+    // ======================== 运行上下文传递（ApproverContext） ========================
+
+    @Test
+    public void testDefinitionAnchorPassesContextToResolver() {
+        String processKey = "leave";
+        String definitionId = "leave:1:abc";
+        Map<String, Object> variables = new HashMap<>();
+        variables.put("amount", 5000);
+
+        stubProcessDefinition(processKey, definitionId);
+
+        CapturingApproverResolver capturingResolver = new CapturingApproverResolver();
+        NodePreviewWorkflow npw = new NodePreviewWorkflow(mockRepoService, bpmnModelCache,
+                mockNodeFinder, capturingResolver, mockUserContext, mockTaskService,
+                mockRuntimeService, bpmnFormDataHelper);
+
+        UserTask taskA = buildUserTask("taskA", "主管审批", "supervisor", null, null);
+        BpmnModel model = buildBpmnModel(taskA);
+        when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
+        when(mockNodeFinder.findAllReachableUserTasks(definitionId, variables))
+                .thenReturn(Collections.singletonList("taskA"));
+
+        List<NodeApproverVO> result = npw.getNextNodeApprovers(processKey, TraversalMode.FULL, variables);
+
+        assertThat(result).hasSize(1);
+        assertThat(capturingResolver.capturedContext).isNotNull();
+        assertThat(capturingResolver.capturedContext.getVariables()).containsEntry("amount", 5000);
+        assertThat(capturingResolver.capturedContext.getCurrentUserId()).isEqualTo("u1001");
+        assertThat(capturingResolver.capturedContext.getProcessInstanceId()).isNull();
+        assertThat(capturingResolver.capturedContext.getTaskId()).isNull();
+    }
+
+    @Test
+    public void testDefinitionAnchorWithoutVariablesStillPassesCurrentUser() {
+        String processKey = "leave";
+        String definitionId = "leave:1:abc";
+
+        stubProcessDefinition(processKey, definitionId);
+
+        CapturingApproverResolver capturingResolver = new CapturingApproverResolver();
+        NodePreviewWorkflow npw = new NodePreviewWorkflow(mockRepoService, bpmnModelCache,
+                mockNodeFinder, capturingResolver, mockUserContext, mockTaskService,
+                mockRuntimeService, bpmnFormDataHelper);
+
+        UserTask taskA = buildUserTask("taskA", "审批", "user", null, null);
+        BpmnModel model = buildBpmnModel(taskA);
+        when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
+        when(mockNodeFinder.findAllReachableUserTasks(definitionId, null))
+                .thenReturn(Collections.singletonList("taskA"));
+
+        npw.getNextNodeApprovers(processKey, TraversalMode.FULL);
+
+        assertThat(capturingResolver.capturedContext).isNotNull();
+        assertThat(capturingResolver.capturedContext.getVariables()).isNull();
+        assertThat(capturingResolver.capturedContext.getCurrentUserId()).isEqualTo("u1001");
+        assertThat(capturingResolver.capturedContext.getProcessInstanceId()).isNull();
+        assertThat(capturingResolver.capturedContext.getTaskId()).isNull();
+    }
+
+    @Test
+    public void testTaskAnchorPassesContextToResolver() {
+        String taskId = "task-001";
+        String processInstanceId = "pi-001";
+        String definitionId = "leave:1:abc";
+        Map<String, Object> variables = new HashMap<>();
+        variables.put("amount", 5000);
+
+        Task task = mockTask(taskId, definitionId, processInstanceId, "nodeA");
+        when(mockRuntimeService.getVariables(processInstanceId)).thenReturn(variables);
+
+        CapturingApproverResolver capturingResolver = new CapturingApproverResolver();
+        NodePreviewWorkflow npw = new NodePreviewWorkflow(mockRepoService, bpmnModelCache,
+                mockNodeFinder, capturingResolver, mockUserContext, mockTaskService,
+                mockRuntimeService, bpmnFormDataHelper);
+
+        UserTask downstreamA = buildUserTask("nodeB", "部门经理", "manager1", null, null);
+        BpmnModel model = buildBpmnModel(downstreamA);
+        when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
+        when(mockNodeFinder.findNextUserTasks(definitionId, "nodeA", processInstanceId, variables))
+                .thenReturn(Collections.singletonList("nodeB"));
+
+        List<ApproverInfoVO> result = npw.getNextTaskApprovers(taskId, TraversalMode.FULL);
+
+        assertThat(result).hasSize(1);
+        assertThat(capturingResolver.capturedContext).isNotNull();
+        assertThat(capturingResolver.capturedContext.getVariables()).containsEntry("amount", 5000);
+        assertThat(capturingResolver.capturedContext.getCurrentUserId()).isEqualTo("u1001");
+        assertThat(capturingResolver.capturedContext.getProcessInstanceId()).isEqualTo(processInstanceId);
+        assertThat(capturingResolver.capturedContext.getTaskId()).isEqualTo(taskId);
+    }
+
     // ======================== 辅助方法 ========================
 
     private Task mockTask(String taskId, String definitionId, String processInstanceId, String taskDefinitionKey) {
@@ -812,5 +908,21 @@ public class NodePreviewOperationsTest {
         }
         model.addProcess(process);
         return model;
+    }
+
+    /**
+     * 捕获解析器：记录最后一次收到的 {@link ApproverContext}，用于验证上下文传递。
+     */
+    private static class CapturingApproverResolver implements ApproverResolver {
+        ApproverContext capturedContext;
+
+        @Override
+        public List<ApproverInfoVO> resolveApprovers(UserTask userTask, ApproverContext context) {
+            this.capturedContext = context;
+            return Collections.singletonList(ApproverInfoVO.builder()
+                    .id("resolved")
+                    .type("assignee")
+                    .build());
+        }
     }
 }

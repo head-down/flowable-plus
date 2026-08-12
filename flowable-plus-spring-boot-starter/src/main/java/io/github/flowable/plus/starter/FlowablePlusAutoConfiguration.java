@@ -497,6 +497,7 @@ public class FlowablePlusAutoConfiguration {
      * @param bpmnModelCache     BPMN 模型缓存
      * @param nodeFinder         BPMN 节点遍历策略
      * @param approverResolver   审批人解析策略
+     * @param userContext        用户上下文（组装审批人解析上下文）
      * @param taskService        Flowable 任务服务
      * @param runtimeService     Flowable 运行时服务
      * @param bpmnFormDataHelper BPMN 扩展属性解析工具
@@ -508,11 +509,12 @@ public class FlowablePlusAutoConfiguration {
                                                     BpmnModelCache bpmnModelCache,
                                                     NodeFinder nodeFinder,
                                                     ApproverResolver approverResolver,
+                                                    UserContext userContext,
                                                     TaskService taskService,
                                                     RuntimeService runtimeService,
                                                     BpmnFormDataHelper bpmnFormDataHelper) {
         return new NodePreviewWorkflow(repositoryService, bpmnModelCache, nodeFinder,
-                approverResolver, taskService, runtimeService, bpmnFormDataHelper);
+                approverResolver, userContext, taskService, runtimeService, bpmnFormDataHelper);
     }
 
     /**

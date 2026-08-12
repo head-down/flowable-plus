@@ -1,5 +1,6 @@
 package io.github.flowable.plus.core.support;
 
+import io.github.flowable.plus.core.spi.ApproverContext;
 import io.github.flowable.plus.core.spi.ApproverResolver;
 import io.github.flowable.plus.core.spi.GroupResolver;
 import io.github.flowable.plus.core.vo.ApproverInfoVO;
@@ -29,6 +30,16 @@ public class UserTaskApproverResolver implements ApproverResolver {
      */
     public UserTaskApproverResolver(GroupResolver groupResolver) {
         this.groupResolver = groupResolver;
+    }
+
+    /**
+     * 两参方法委托单参方法：默认实现不消费运行上下文（ADR-0033 决策 3），
+     * 输出严格保持 1.0.0。注意委托方向为两参 → 单参，与接口 default（单参 → 两参）相反，
+     * 确保无循环调用。
+     */
+    @Override
+    public List<ApproverInfoVO> resolveApprovers(UserTask userTask, ApproverContext context) {
+        return resolveApprovers(userTask);
     }
 
     @Override

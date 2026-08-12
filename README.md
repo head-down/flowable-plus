@@ -96,7 +96,7 @@ v1.0.0 节点预览 API 已收窄为三入口（见 [ADR-0031](docs/adr/0031-nod
 | `AutoApprovalRule` | 自动审批规则，`startProcess` 后自动完成匹配的首任务 |
 | `IdentityResolver` | 身份解析，将用户/组 ID 解析为显示名称 |
 | `UserContext` | 用户上下文，获取当前登录用户 |
-| `ApproverResolver` | 审批人解析，获取指定节点的审批人列表 |
+| `ApproverResolver` | 审批人解析，获取指定节点的审批人列表；支持 `ApproverContext` 运行上下文感知（流程变量 / 当前用户 / 任务锚点），可完成表达式求值与动态审批人计算 |
 | `GroupResolver` | 候选组解析，将候选组 ID 展开为成员列表 |
 | `CounterSignCallback` | 会签回调，监听会签发起/投票/完成事件 |
 | `ExecutionTreeHelper` | 执行树辅助，隔离 Flowable 内部依赖 |
@@ -194,6 +194,7 @@ List<ApprovalRecordVO> history = flowablePlus.getApprovalHistory("proc-001");
 | ADR-0030 | 删除死接口 TaskQueryEnhancer，回调收敛为 Consumer 单一形态 |
 | ADR-0031 | 节点预览 API 收窄为三入口（8 方法 → 3 入口） |
 | ADR-0032 | 范围外功能判据：脱离业务数据即失去价值的功能归业务层 |
+| ADR-0033 | ApproverResolver 支持运行上下文感知（ApproverContext） |
 
 详见 `docs/adr/` 目录。
 
