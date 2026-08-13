@@ -10,9 +10,13 @@
 
 ## 状态
 
-**Stable — v1.0.0 GA 已发布。**
+**Stable — v1.0.0 GA 已发布，核心功能已完备。**
 
 CI 矩阵覆盖 H2 / MySQL 8.0 / PostgreSQL 14 三种数据库，全量测试通过。详见 [ADR-0014](docs/adr/0014-multi-database-ci-gate.md)。
+
+### 收尾声明
+
+核心审批能力（发起/同意/驳回/撤回/撤销/跳转/会签/加签/减签/委派/转办）与查询、历史、可视化能力已全部实现并收敛，项目进入**按需迭代**阶段：不再主动新增功能。主流产品对标调研已落盘 [调研报告](docs/research/workflow-products-feature-benchmark.md)，识别出的缺失项分类挂账于 GitHub issue **#89（核心缺失项）** 与 **#90（可选增强项）**，等待下游使用方提出真实需求后触发实现。
 
 ## 功能特性
 
@@ -60,16 +64,21 @@ flowable-plus (父 POM, packaging=pom)
 
 ## API 接口一览
 
-`FlowablePlus` 是统一入口门面，实现以下六个接口：
+`FlowablePlus` 是统一读操作门面，实现以下三个读接口（写操作由各 `*Operations` 接口的实现类直接注入，不进门面，见 [ADR-0010](docs/adr/0010-flowable-plus-facade-aggregation-only.md)）：
+
+| 接口 | 方法数 | 职责 |
+|------|--------|------|
+| `QueryOperations` | 13 | `queryTodoTasks`×2, `queryDoneTasks`×2, `queryDoneTasksPrecise`, `getNextNodeApprovers`×2, `getNextTaskNodes`, `getNextTaskApprovers`, `getProcessSummary`, `batchQueryProcessSummaries`, `getApprovalPersonnel`, `getBusinessKeyByProcessInstanceId` |
+| `HistoryOperations` | 1 | `getApprovalHistory` |
+| `DiagramOperations` | 2 | `getProcessDiagramXml`, `getProcessDiagramStates` |
+
+写操作接口（由对应 Workflow 实现类直接注入）：
 
 | 接口 | 方法数 | 职责 |
 |------|--------|------|
 | `ProcessLifecycleOperations` | 2 | `startProcess`, `invalidateProcess` |
 | `TaskExecutionOperations` | 10 | `completeTask`, `claimTask`, `rejectTask`×2, `rejectTaskToInitiator`, `withdrawTask`×2, `transferTask`, `jumpToNode`, `getJumpableNodes` |
 | `CounterSignOperations` | 5 | `counterSign`, `addCounterSigner`, `removeCounterSigner`, `delegateTask`, `resolveDelegate` |
-| `QueryOperations` | 13 | `queryTodoTasks`×2, `queryDoneTasks`×2, `queryDoneTasksPrecise`, `getNextNodeApprovers`×2, `getNextTaskNodes`, `getNextTaskApprovers`, `getProcessSummary`, `batchQueryProcessSummaries`, `getApprovalPersonnel`, `getBusinessKeyByProcessInstanceId` |
-| `HistoryOperations` | 1 | `getApprovalHistory` |
-| `DiagramOperations` | 2 | `getProcessDiagramXml`, `getProcessDiagramStates` |
 
 ## v1.0.0 API 迁移
 
@@ -195,6 +204,8 @@ List<ApprovalRecordVO> history = flowablePlus.getApprovalHistory("proc-001");
 | ADR-0031 | 节点预览 API 收窄为三入口（8 方法 → 3 入口） |
 | ADR-0032 | 范围外功能判据：脱离业务数据即失去价值的功能归业务层 |
 | ADR-0033 | ApproverResolver 支持运行上下文感知（ApproverContext） |
+| ADR-0034 | 常规审批操作多实例拦截改运行时判定（伪单例放行） |
+| ADR-0035 | 折返后发起人决策任务放行常规驳回/返回/跳转/撤回 |
 
 详见 `docs/adr/` 目录。
 
