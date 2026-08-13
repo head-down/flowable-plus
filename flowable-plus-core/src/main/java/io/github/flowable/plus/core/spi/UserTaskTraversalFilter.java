@@ -8,8 +8,8 @@ import java.util.Map;
  * BPMN 正向遍历过滤器：在遍历 UserTask 节点时回调，决定是否收集该节点。
  *
  * <h3>作用范围</h3>
- * <p>在 {@code NodeFinder.findAllReachableUserTasks()} 和 {@code NodeFinder.findNextUserTasks()}
- * 等正向遍历 API 中，每遇到一个 UserTask 都会调用本 SPI 进行过滤。被跳过的节点不会被收集到
+ * <p>在 {@code NodeFinder.findDownstreamUserTasks()} 等正向遍历 API 中，每遇到一个 UserTask
+ * 都会调用本 SPI 进行过滤。被跳过的节点不会被收集到
  * 结果列表中，但不影响遍历深度 — 遍历仍会穿过它继续探索后续节点。</p>
  *
  * <h3>合并策略：AND 逻辑</h3>

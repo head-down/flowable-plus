@@ -97,6 +97,16 @@ v1.0.0 节点预览 API 已收窄为三入口（见 [ADR-0031](docs/adr/0031-nod
 
 `TraversalMode` 取值：`FULL`（全遍历，完整审批链路）/ `ADJACENT`（紧邻遍历，仅第一个审批层级）。
 
+### NodeFinder 接口
+
+v1.0.0 `NodeFinder` 正向遍历三方法已收敛为单一 `TraversalMode` 入口（见 [ADR-0036](docs/adr/0036-node-finder-traversal-narrowing.md)）。直接注入 `NodeFinder` 的下游需按以下映射适配：
+
+| 旧 API（已删除） | 新 API |
+|------------------|--------|
+| `findAllReachableUserTasks(defId, vars)` | `findDownstreamUserTasks(defId, startEventId, TraversalMode.FULL, vars)`（startEventId 为流程定义 StartEvent 的 ID，锚点由调用方解析） |
+| `findNextUserTasks(defId, nodeId, instanceId, vars)` | `findDownstreamUserTasks(defId, nodeId, TraversalMode.FULL, vars)`（**instanceId 已删除**——原实现本就忽略该参数） |
+| `findAdjacentUserTasks(defId, nodeId, vars)` | `findDownstreamUserTasks(defId, nodeId, TraversalMode.ADJACENT, vars)` |
+
 ## SPI 扩展点
 
 | SPI | 用途 |
@@ -206,6 +216,7 @@ List<ApprovalRecordVO> history = flowablePlus.getApprovalHistory("proc-001");
 | ADR-0033 | ApproverResolver 支持运行上下文感知（ApproverContext） |
 | ADR-0034 | 常规审批操作多实例拦截改运行时判定（伪单例放行） |
 | ADR-0035 | 折返后发起人决策任务放行常规驳回/返回/跳转/撤回 |
+| ADR-0036 | NodeFinder 正向遍历接口收窄为 TraversalMode 入口 |
 
 详见 `docs/adr/` 目录。
 

@@ -1,5 +1,6 @@
 package io.github.flowable.plus.core.model;
 
+import io.github.flowable.plus.core.enums.TraversalMode;
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.spi.UserTaskTraversalFilter;
@@ -270,37 +271,10 @@ public class DefaultNodeFinder implements NodeFinder {
     }
 
     @Override
-    public List<String> findAllReachableUserTasks(String processDefinitionId, Map<String, Object> variables) {
-        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(processDefinitionId);
-        if (bpmnModel == null) {
-            throw new NotFoundException("流程定义 " + processDefinitionId + " 不存在");
-        }
-
-        if (bpmnModel.getProcesses() == null || bpmnModel.getProcesses().isEmpty()) {
-            throw new NotFoundException("流程定义 " + processDefinitionId + " 中未找到任何流程");
-        }
-
-        StartEvent startEvent = findStartEvent(bpmnModel);
-        if (startEvent == null) {
-            throw new NotFoundException("流程定义 " + processDefinitionId + " 中未找到 StartEvent");
-        }
-
-        Set<String> visited = new HashSet<>();
-        List<String> result = new ArrayList<>();
-        traceForwardAll(bpmnModel, startEvent, variables, visited, result, false);
-        return result;
-    }
-
-    @Override
-    public List<String> findNextUserTasks(String processDefinitionId, String currentActivityId,
-                                           String processInstanceId, Map<String, Object> variables) {
-        return traceForwardFromOutgoing(processDefinitionId, currentActivityId, variables, false);
-    }
-
-    @Override
-    public List<String> findAdjacentUserTasks(String processDefinitionId, String startNodeId,
-                                               Map<String, Object> variables) {
-        return traceForwardFromOutgoing(processDefinitionId, startNodeId, variables, true);
+    public List<String> findDownstreamUserTasks(String processDefinitionId, String startNodeId,
+                                                 TraversalMode mode, Map<String, Object> variables) {
+        boolean stopAtUserTask = mode == TraversalMode.ADJACENT;
+        return traceForwardFromOutgoing(processDefinitionId, startNodeId, variables, stopAtUserTask);
     }
 
     /**

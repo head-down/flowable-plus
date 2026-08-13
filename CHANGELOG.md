@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### 架构收敛
+
+**NodeFinder 正向遍历接口收窄（C3, ADR-0036）**
+- `NodeFinder` 正向遍历三方法（`findAllReachableUserTasks` / `findNextUserTasks` / `findAdjacentUserTasks`）收敛为单一 `findDownstreamUserTasks(defId, startNodeId, TraversalMode, vars)` 入口，锚点由调用方解析
+- 消除 `findNextUserTasks` 僵尸 `processInstanceId` 参数（原实现忽略）；接口 8 方法 → 6 方法
+- 破坏性变更：直接注入 `NodeFinder` 的下游（jw-zhyg-api）需按 README 迁移表适配 1 处调用
+
 ### Bug 修复
 
 **常规操作多实例拦截（ADR-0034）**

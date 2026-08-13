@@ -120,7 +120,7 @@ public class NodePreviewOperationsTest {
         BpmnModel model = buildBpmnModel(userTask);
 
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
-        when(mockNodeFinder.findAllReachableUserTasks(definitionId, null))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "start", TraversalMode.FULL, null))
                 .thenReturn(Collections.singletonList("taskA"));
 
         List<NodeApproverVO> result = nodePreviewWorkflow.getNextNodeApprovers(processKey, TraversalMode.FULL);
@@ -145,7 +145,7 @@ public class NodePreviewOperationsTest {
         BpmnModel model = buildBpmnModel(userTask);
 
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
-        when(mockNodeFinder.findAllReachableUserTasks(definitionId, null))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "start", TraversalMode.FULL, null))
                 .thenReturn(Collections.singletonList("taskA"));
 
         List<NodeApproverVO> result = nodePreviewWorkflow.getNextNodeApprovers(processKey, TraversalMode.FULL);
@@ -171,7 +171,7 @@ public class NodePreviewOperationsTest {
         BpmnModel model = buildBpmnModel(userTask);
 
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
-        when(mockNodeFinder.findAllReachableUserTasks(definitionId, null))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "start", TraversalMode.FULL, null))
                 .thenReturn(Collections.singletonList("taskA"));
         when(mockGroupResolver.getGroupMembers("dept_manager"))
                 .thenReturn(Arrays.asList("userA", "userB"));
@@ -209,7 +209,7 @@ public class NodePreviewOperationsTest {
         BpmnModel model = buildBpmnModel(userTask);
 
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
-        when(mockNodeFinder.findAllReachableUserTasks(definitionId, null))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "start", TraversalMode.FULL, null))
                 .thenReturn(Collections.singletonList("taskA"));
 
         List<NodeApproverVO> result = npwWithoutResolver.getNextNodeApprovers(processKey, TraversalMode.FULL);
@@ -230,7 +230,7 @@ public class NodePreviewOperationsTest {
         BpmnModel model = buildBpmnModel(taskA, taskB);
 
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
-        when(mockNodeFinder.findAllReachableUserTasks(definitionId, null))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "start", TraversalMode.FULL, null))
                 .thenReturn(Arrays.asList("taskA", "taskB"));
 
         List<NodeApproverVO> result = nodePreviewWorkflow.getNextNodeApprovers(processKey, TraversalMode.FULL);
@@ -255,7 +255,7 @@ public class NodePreviewOperationsTest {
         BpmnModel model = buildBpmnModel(taskA);
 
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
-        when(mockNodeFinder.findAllReachableUserTasks(definitionId, variables))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "start", TraversalMode.FULL, variables))
                 .thenReturn(Collections.singletonList("taskA"));
 
         List<NodeApproverVO> result = nodePreviewWorkflow
@@ -276,7 +276,7 @@ public class NodePreviewOperationsTest {
         BpmnModel model = buildBpmnModel(taskA);
 
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
-        when(mockNodeFinder.findAllReachableUserTasks(definitionId, null))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "start", TraversalMode.FULL, null))
                 .thenReturn(Collections.singletonList("taskA"));
 
         List<NodeApproverVO> result = nodePreviewWorkflow
@@ -326,7 +326,7 @@ public class NodePreviewOperationsTest {
         BpmnModel model = buildBpmnModel(userTask);
 
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
-        when(mockNodeFinder.findAdjacentUserTasks(definitionId, "start", null))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "start", TraversalMode.ADJACENT, null))
                 .thenReturn(Collections.singletonList("taskA"));
 
         List<NodeApproverVO> result = nodePreviewWorkflow.getNextNodeApprovers(processKey, TraversalMode.ADJACENT);
@@ -350,7 +350,7 @@ public class NodePreviewOperationsTest {
         BpmnModel model = buildBpmnModel(taskA, taskB);
 
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
-        when(mockNodeFinder.findAdjacentUserTasks(definitionId, "start", null))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "start", TraversalMode.ADJACENT, null))
                 .thenReturn(Arrays.asList("taskA", "taskB"));
 
         List<NodeApproverVO> result = nodePreviewWorkflow.getNextNodeApprovers(processKey, TraversalMode.ADJACENT);
@@ -373,7 +373,7 @@ public class NodePreviewOperationsTest {
         BpmnModel model = buildBpmnModel(taskA);
 
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
-        when(mockNodeFinder.findAdjacentUserTasks(definitionId, "start", variables))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "start", TraversalMode.ADJACENT, variables))
                 .thenReturn(Collections.singletonList("taskA"));
 
         List<NodeApproverVO> result = nodePreviewWorkflow
@@ -398,7 +398,7 @@ public class NodePreviewOperationsTest {
         UserTask downstreamB = buildUserTask("nodeC", "总经理", "ceo1", null, null);
         BpmnModel model = buildBpmnModel(downstreamA, downstreamB);
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
-        when(mockNodeFinder.findNextUserTasks(definitionId, "nodeA", processInstanceId, new HashMap<>()))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "nodeA", TraversalMode.FULL, new HashMap<>()))
                 .thenReturn(Arrays.asList("nodeB", "nodeC"));
 
         List<ApproverInfoVO> result = nodePreviewWorkflow.getNextTaskApprovers(taskId, TraversalMode.FULL);
@@ -428,7 +428,7 @@ public class NodePreviewOperationsTest {
         UserTask downstreamB = buildUserTask("nodeC", "总经理", "ceo1", null, null);
         BpmnModel model = buildBpmnModel(downstreamA, downstreamB);
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
-        when(mockNodeFinder.findNextUserTasks(definitionId, "nodeA", processInstanceId, new HashMap<>()))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "nodeA", TraversalMode.FULL, new HashMap<>()))
                 .thenReturn(Arrays.asList("nodeB", "nodeC"));
 
         List<ApproverInfoVO> result = nodePreviewWorkflow.getNextTaskApprovers(taskId, TraversalMode.FULL)
@@ -453,7 +453,7 @@ public class NodePreviewOperationsTest {
         UserTask downstreamA = buildUserTask("nodeB", "部门经理", "manager1", null, null);
         BpmnModel model = buildBpmnModel(downstreamA);
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
-        when(mockNodeFinder.findNextUserTasks(definitionId, "nodeA", processInstanceId, new HashMap<>()))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "nodeA", TraversalMode.FULL, new HashMap<>()))
                 .thenReturn(Collections.singletonList("nodeB"));
 
         List<ApproverInfoVO> result = nodePreviewWorkflow.getNextTaskApprovers(taskId, TraversalMode.FULL)
@@ -493,7 +493,7 @@ public class NodePreviewOperationsTest {
         UserTask downstreamB = buildUserTask("nodeC", "总经理", "ceo1", null, null);
         BpmnModel model = buildBpmnModel(downstreamA, downstreamB);
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
-        when(mockNodeFinder.findNextUserTasks(definitionId, "nodeA", processInstanceId, new HashMap<>()))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "nodeA", TraversalMode.FULL, new HashMap<>()))
                 .thenReturn(Arrays.asList("nodeB", "nodeC"));
         when(mockNodeFinder.findReachableEndEvents(definitionId, "nodeA", new HashMap<>()))
                 .thenReturn(Collections.emptyList());
@@ -530,7 +530,7 @@ public class NodePreviewOperationsTest {
         UserTask adjacentA = buildUserTask("nodeB", "部门经理", "manager1", null, null);
         BpmnModel model = buildBpmnModel(adjacentA);
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
-        when(mockNodeFinder.findAdjacentUserTasks(definitionId, "nodeA", new HashMap<>()))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "nodeA", TraversalMode.ADJACENT, new HashMap<>()))
                 .thenReturn(Collections.singletonList("nodeB"));
         when(mockNodeFinder.findReachableEndEvents(definitionId, "nodeA", new HashMap<>()))
                 .thenReturn(Collections.emptyList());
@@ -562,7 +562,7 @@ public class NodePreviewOperationsTest {
         Task task = mockTask(taskId, definitionId, processInstanceId, "nodeA");
         when(mockRuntimeService.getVariables(processInstanceId)).thenReturn(new HashMap<>());
 
-        when(mockNodeFinder.findAdjacentUserTasks(definitionId, "nodeA", new HashMap<>()))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "nodeA", TraversalMode.ADJACENT, new HashMap<>()))
                 .thenReturn(Collections.emptyList());
         when(mockNodeFinder.findReachableEndEvents(definitionId, "nodeA", new HashMap<>()))
                 .thenReturn(Collections.singletonList("endEvent1"));
@@ -587,7 +587,7 @@ public class NodePreviewOperationsTest {
         Task task = mockTask(taskId, definitionId, processInstanceId, "nodeA");
         when(mockRuntimeService.getVariables(processInstanceId)).thenReturn(new HashMap<>());
 
-        when(mockNodeFinder.findAdjacentUserTasks(definitionId, "nodeA", new HashMap<>()))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "nodeA", TraversalMode.ADJACENT, new HashMap<>()))
                 .thenReturn(Collections.emptyList());
         when(mockNodeFinder.findReachableEndEvents(definitionId, "nodeA", new HashMap<>()))
                 .thenReturn(Collections.emptyList());
@@ -612,7 +612,7 @@ public class NodePreviewOperationsTest {
         UserTask adjacentA = buildUserTask("nodeB", "部门经理", "manager1", null, null);
         BpmnModel model = buildBpmnModel(adjacentA);
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
-        when(mockNodeFinder.findAdjacentUserTasks(definitionId, "nodeA", new HashMap<>()))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "nodeA", TraversalMode.ADJACENT, new HashMap<>()))
                 .thenReturn(Collections.singletonList("nodeB"));
         when(mockNodeFinder.findReachableEndEvents(definitionId, "nodeA", new HashMap<>()))
                 .thenReturn(Collections.singletonList("endEvent1"));
@@ -641,7 +641,7 @@ public class NodePreviewOperationsTest {
         Task task = mockTask(taskId, definitionId, processInstanceId, "nodeA");
         when(mockRuntimeService.getVariables(processInstanceId)).thenReturn(new HashMap<>());
 
-        when(mockNodeFinder.findNextUserTasks(definitionId, "nodeA", processInstanceId, new HashMap<>()))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "nodeA", TraversalMode.FULL, new HashMap<>()))
                 .thenReturn(Collections.emptyList());
         when(mockNodeFinder.findReachableEndEvents(definitionId, "nodeA", new HashMap<>()))
                 .thenReturn(Collections.singletonList("endEvent1"));
@@ -669,7 +669,7 @@ public class NodePreviewOperationsTest {
         UserTask downstreamA = buildUserTask("nodeB", "部门经理", "manager1", null, null);
         BpmnModel model = buildBpmnModel(downstreamA);
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
-        when(mockNodeFinder.findNextUserTasks(definitionId, "nodeA", processInstanceId, new HashMap<>()))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "nodeA", TraversalMode.FULL, new HashMap<>()))
                 .thenReturn(Collections.singletonList("nodeB"));
         when(mockNodeFinder.findReachableEndEvents(definitionId, "nodeA", new HashMap<>()))
                 .thenReturn(Collections.singletonList("endEvent1"));
@@ -699,7 +699,7 @@ public class NodePreviewOperationsTest {
         UserTask adjacentB = buildUserTask("nodeC", "总经理", "ceo1", null, null);
         BpmnModel model = buildBpmnModel(adjacentA, adjacentB);
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
-        when(mockNodeFinder.findAdjacentUserTasks(definitionId, "nodeA", new HashMap<>()))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "nodeA", TraversalMode.ADJACENT, new HashMap<>()))
                 .thenReturn(Arrays.asList("nodeB", "nodeC"));
 
         List<ApproverInfoVO> result = nodePreviewWorkflow.getNextTaskApprovers(taskId, TraversalMode.ADJACENT);
@@ -726,7 +726,7 @@ public class NodePreviewOperationsTest {
                 Arrays.asList("user1", "user2"), null);
         BpmnModel model = buildBpmnModel(adjacentA);
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
-        when(mockNodeFinder.findAdjacentUserTasks(definitionId, "nodeA", new HashMap<>()))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "nodeA", TraversalMode.ADJACENT, new HashMap<>()))
                 .thenReturn(Collections.singletonList("nodeB"));
 
         List<ApproverInfoVO> result = nodePreviewWorkflow.getNextTaskApprovers(taskId, TraversalMode.ADJACENT);
@@ -771,7 +771,7 @@ public class NodePreviewOperationsTest {
         UserTask taskA = buildUserTask("taskA", "主管审批", "supervisor", null, null);
         BpmnModel model = buildBpmnModel(taskA);
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
-        when(mockNodeFinder.findAllReachableUserTasks(definitionId, variables))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "start", TraversalMode.FULL, variables))
                 .thenReturn(Collections.singletonList("taskA"));
 
         List<NodeApproverVO> result = npw.getNextNodeApprovers(processKey, TraversalMode.FULL, variables);
@@ -799,7 +799,7 @@ public class NodePreviewOperationsTest {
         UserTask taskA = buildUserTask("taskA", "审批", "user", null, null);
         BpmnModel model = buildBpmnModel(taskA);
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
-        when(mockNodeFinder.findAllReachableUserTasks(definitionId, null))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "start", TraversalMode.FULL, null))
                 .thenReturn(Collections.singletonList("taskA"));
 
         npw.getNextNodeApprovers(processKey, TraversalMode.FULL);
@@ -830,7 +830,7 @@ public class NodePreviewOperationsTest {
         UserTask downstreamA = buildUserTask("nodeB", "部门经理", "manager1", null, null);
         BpmnModel model = buildBpmnModel(downstreamA);
         when(bpmnModelCache.getBpmnModel(definitionId)).thenReturn(model);
-        when(mockNodeFinder.findNextUserTasks(definitionId, "nodeA", processInstanceId, variables))
+        when(mockNodeFinder.findDownstreamUserTasks(definitionId, "nodeA", TraversalMode.FULL, variables))
                 .thenReturn(Collections.singletonList("nodeB"));
 
         List<ApproverInfoVO> result = npw.getNextTaskApprovers(taskId, TraversalMode.FULL);
