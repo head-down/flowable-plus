@@ -11,6 +11,13 @@
 - 消除 `findNextUserTasks` 僵尸 `processInstanceId` 参数（原实现忽略）；接口 8 方法 → 6 方法
 - 破坏性变更：直接注入 `NodeFinder` 的下游（jw-zhyg-api）需按 README 迁移表适配 1 处调用
 
+**已办精确分页 Native SQL 构建收窄（C4）**
+- SQL 拼接从 `TaskQueryModule.queryDoneTasksPrecise` 提取为可单测构建模块 `PreciseDoneQuerySqlBuilder`（输入 userId + 查询条件 → 完整 SQL），转义工具（`escapeSql` / `escapeLike` / `formatDate`）内聚其中；类为内部实现细节，不属公开 API（ADR-0015），不做表前缀注入
+- 新增 SQL 生成与转义单元测试（含 SQL 注入单引号 / LIKE 通配符转义用例）
+- 补齐 `queryDoneTasksPrecise` 真实数据库集成测试：MySQL/PostgreSQL 分支验证基础查询与 keyword 过滤；H2 分支因 MyBatis UUID→Long 映射问题（H2 以 UUID 存流程实例 ID）跳过
+- 修复 keyword 过滤 SQL 的 MySQL 兼容缺陷：原 `ESCAPE '\'` 子句在 MySQL 8 上语法错误（`\'` 被解析为转义单引号导致字符串未闭合），改为不写显式 ESCAPE、依赖 H2/MySQL/PostgreSQL 默认反斜杠转义符（三库一致）；此缺陷此前因 precise 无真实数据库测试而长期存在（见 ADR-0013 实现演化节）
+- 公开 API 无变更
+
 ### Bug 修复
 
 **常规操作多实例拦截（ADR-0034）**

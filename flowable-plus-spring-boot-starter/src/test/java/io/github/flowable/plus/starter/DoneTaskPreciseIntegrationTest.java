@@ -15,6 +15,7 @@ import org.flowable.engine.repository.Deployment;
 import org.flowable.engine.runtime.ProcessInstance;
 import org.flowable.task.api.Task;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -32,8 +33,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Layer 3 集成测试：已办查询验证。
  *
- * <p>验证 queryDoneTasks（非精确查询）在基础场景下的正确性。
- * queryDoneTasksPrecise 在 H2 中因 MyBatis UUID→Long 类型映射问题暂不在此测试。</p>
+ * <p>验证 {@code queryDoneTasks}（非精确查询）在基础场景下的正确性。
+ * {@code queryDoneTasksPrecise}（Native SQL，ADR-0013）在 H2 中因
+ * MyBatis UUID→Long 类型映射问题无法执行，仅在 MySQL/PostgreSQL
+ * 分支验证（H2 分支通过 {@link Assumptions} 跳过）。</p>
  */
 @SpringBootTest(classes = BpmnQueryIntegrationTestApplication.class)
 @Import(SharedTestConfiguration.class)
@@ -246,6 +249,77 @@ class DoneTaskPreciseIntegrationTest extends AbstractIntegrationTest {
         } finally {
             repositoryService.deleteDeployment(candidateDeployment.getId(), true);
         }
+    }
+
+    // ======================== 精确分页查询（Native SQL，ADR-0013） ========================
+
+    @Test
+    void testQueryDoneTasksPreciseBasic() {
+        Assumptions.assumeFalse(isH2(),
+                "H2 存在 MyBatis UUID→Long 映射问题，precise 仅在 MySQL/PostgreSQL 验证");
+
+        identityService.setAuthenticatedUserId(INITIATOR);
+
+        Map<String, Object> variables = new HashMap<>();
+        variables.put("initiator", INITIATOR);
+        variables.put("approver", SAME_USER);
+
+        DynamicUserContext.set(INITIATOR);
+        ProcessInstance pi = runtimeService.startProcessInstanceByKey(
+                "testSimpleLinear", "biz-precise-basic", variables);
+        processInstanceIds.add(pi.getId());
+
+        completeTask(pi.getId(), "draft", INITIATOR);
+        completeTask(pi.getId(), "deptApprove", SAME_USER);
+
+        TaskQueryDTO query = new TaskQueryDTO();
+        query.setPageNum(1);
+        query.setPageSize(10);
+
+        // INITIATOR 完成了 draft，应有精确已办记录
+        PageResult<DoneTaskVO> result = flowablePlus.queryDoneTasksPrecise(INITIATOR, query);
+        assertThat(result.getTotal()).isGreaterThanOrEqualTo(1);
+        assertThat(result.getRecords()).isNotEmpty();
+        assertThat(result.getRecords().get(0).getAssignee()).isEqualTo(INITIATOR);
+    }
+
+    @Test
+    void testQueryDoneTasksPreciseWithKeywordFilter() {
+        Assumptions.assumeFalse(isH2(),
+                "H2 存在 MyBatis UUID→Long 映射问题，precise 仅在 MySQL/PostgreSQL 验证");
+
+        identityService.setAuthenticatedUserId(INITIATOR);
+
+        Map<String, Object> variables = new HashMap<>();
+        variables.put("initiator", INITIATOR);
+        variables.put("approver", SAME_USER);
+
+        DynamicUserContext.set(INITIATOR);
+        ProcessInstance pi = runtimeService.startProcessInstanceByKey(
+                "testSimpleLinear", "biz-precise-keyword", variables);
+        processInstanceIds.add(pi.getId());
+
+        completeTask(pi.getId(), "draft", INITIATOR);
+        completeTask(pi.getId(), "deptApprove", SAME_USER);
+
+        // keyword 命中 businessKey → 有结果
+        TaskQueryDTO query = new TaskQueryDTO();
+        query.setPageNum(1);
+        query.setPageSize(10);
+        query.setKeyword("precise");
+
+        PageResult<DoneTaskVO> result = flowablePlus.queryDoneTasksPrecise(INITIATOR, query);
+        assertThat(result.getTotal()).isGreaterThanOrEqualTo(1);
+
+        // keyword 不命中 → 精确返回空
+        TaskQueryDTO noMatchQuery = new TaskQueryDTO();
+        noMatchQuery.setPageNum(1);
+        noMatchQuery.setPageSize(10);
+        noMatchQuery.setKeyword("zzz-no-such-keyword");
+
+        PageResult<DoneTaskVO> noMatch = flowablePlus.queryDoneTasksPrecise(INITIATOR, noMatchQuery);
+        assertThat(noMatch.getTotal()).isZero();
+        assertThat(noMatch.getRecords()).isEmpty();
     }
 
     // ======================== Helpers ========================
