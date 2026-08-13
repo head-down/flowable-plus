@@ -2,9 +2,14 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，但当前处于内测阶段（无外部使用者），版本号按项目实际需要调整。
 
-## [Unreleased]
+## [1.0.0] - 2026-08-13（重新发布，最终版）
+
+本次为 v1.0.0 的**最终重新发布**，替代 2026-07-21 的首次 GA 与 2026-08-11 的中间版本。首次 GA 后累计 100 个提交，含 20 个 bug 修复、22 个新功能与多轮架构收敛。因项目尚无外部使用者，破坏性变更不影响任何下游，故保持版本号 1.0.0 而非按语义化版本升 minor/major。
 
 ### 架构收敛
+
+**会签轮次状态机收敛（C1）**
+- 会签轮次读写双实现（历史变量解析 + 任务局部变量）收敛至 `CountersignRoundResolver` 深模块，轮次判定统一入口，写侧读侧轮次 bug 集中一处修
 
 **NodeFinder 正向遍历接口收窄（C3, ADR-0036）**
 - `NodeFinder` 正向遍历三方法（`findAllReachableUserTasks` / `findNextUserTasks` / `findAdjacentUserTasks`）收敛为单一 `findDownstreamUserTasks(defId, startNodeId, TraversalMode, vars)` 入口，锚点由调用方解析
@@ -19,17 +24,15 @@
 - 修复 keyword 过滤 SQL 的 MySQL 兼容缺陷：原 `ESCAPE '\'` 子句在 MySQL 8 上语法错误，改为不写显式 ESCAPE、依赖 H2/MySQL/PostgreSQL 默认反斜杠转义符
 - 公开 API 无变更
 
+**架构审查否决项归档（C2/C5/C6, ADR-0037~0039）**
+- 2026-08-13 架构审查六候选全部评估完毕（3 实施 / 3 否决），三否决项归档为 ADR：0037 执行模板提取、0038 会签回退策略工厂拆分、0039 QueryOperations 重载收敛
+- 未来架构审查自动读取 ADR，不再重复评估（纯文档变更）
+
 ### Bug 修复
 
 **常规操作多实例拦截（ADR-0034）**
 - 常规审批操作（`completeTask` / `rejectTask` / `rejectTaskToInitiator` / `withdrawTask` / `jumpToNode`）的多实例拦截从模型静态判定改为运行时判定：伪单例（会签节点运行时仅 1 个活跃子任务、且该节点全局历史任务数==1）放行常规操作，解决"财务/风控负责人"等伪单例会签节点无可用提交/同意路径的问题；真多实例（含会签剩最后 1 人未投）保持拦截，必须走 counterSign
 - 删除 `completeTaskAsSingleton`（伪单例放行被 `completeTask` 自动覆盖；8/6 新增、零测试、无人使用）
-
-## [1.0.0] - 2026-08-11（重新发布）
-
-本次为 v1.0.0 的**重新发布**，替代 2026-07-21 的首次 GA。首次 GA 后累计 82 个提交（+15112 / -2031 行），含 20 个 bug 修复、22 个新功能与多轮架构收敛。因项目尚无外部使用者，破坏性变更不影响任何下游，故保持版本号 1.0.0 而非按语义化版本升 minor/major。
-
-### Bug 修复
 
 **会签核心**
 - 修复会签轮次判定与周期边界隐患 A/B/C/D
@@ -77,11 +80,13 @@
 - 新增 `getBusinessKeyByProcessInstanceId` 反查接口
 - 驳回/撤回支持多候选节点选择策略
 - 审批人解析增加同节点优先级去重
+- `ApproverResolver` 支持运行上下文感知（`ApproverContext`：流程变量 / 当前用户 / 任务锚点），可完成表达式求值与动态审批人计算（ADR-0033）
 
 **流程操作**
 - 新增 `completeTaskAsSingleton` 伪单例任务完成接口
 - `jumpToNode` 增加 `TaskJumpedEvent` 事件发布；事件发布收敛为 EventBus 深层模块（ADR-0011）
 - `ApprovalAction` 新增 `RETURN` 枚举，`CommentType.RETURN` 不再折叠为 `AGREE`
+- 折返后发起人决策任务放行常规驳回/返回/跳转/撤回（ADR-0035）
 
 **可视化**
 - 删除服务端 PNG+SVG 叠加方案，改为 bpmn.js 前端渲染双接口
@@ -102,9 +107,12 @@
 | `DiagramOperations` 重构 | 删除 `getProcessDiagram`（SVG），改为 `getProcessDiagramXml` + `getProcessDiagramStates` 供前端渲染 |
 | 删除死接口 `TaskQueryEnhancer` | 回调收敛为 `Consumer` 单一形态（ADR-0030） |
 | 事件发布收敛 | 事件发布统一走 EventBus 深层模块 |
+| `NodeFinder` 正向遍历收窄 | 三方法 → 单一 `findDownstreamUserTasks` 入口（ADR-0036），迁移映射见 README「NodeFinder 接口」 |
 
 ### 其他
 
 - 开源协议从 MIT 更换为 **Apache 2.0**
-- 新增 ADR-0015 ~ ADR-0031 共 17 篇架构决策记录
+- 新增 ADR-0015 ~ ADR-0039 共 25 篇架构决策记录（含三否决项归档 ADR-0037~0039）
 - 新增会签建模指南、Flowable 6.8.0 MI 节点原地重建技术验证报告等文档
+- 新增 CONTRIBUTING.md 与 CODE_OF_CONDUCT.md（中文版，补齐社区共建基建）
+- 主流产品对标调研报告落盘 `docs/research/workflow-products-feature-benchmark.md`，缺失项分类挂账 issue #89（核心）/ #90（可选）
