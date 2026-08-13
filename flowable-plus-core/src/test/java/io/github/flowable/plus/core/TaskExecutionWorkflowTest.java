@@ -148,6 +148,98 @@ public class TaskExecutionWorkflowTest {
                 .hasMessageContaining("多实例子任务");
     }
 
+    // ======================== 折返发起人决策任务豁免（ADR-0035） ========================
+
+    @Test
+    void testCompleteTaskBlocksInitiatorDecisionTask() {
+        // completeTask 不放行折返发起人决策任务（同意路径由上游 completePseudoSingletonByEngine 独立处理）
+        PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", USER_ID);
+        stubTaskExists(task);
+        when(mockMultiInstanceDetector.isRuntimeMultiInstance(any(PlusTask.class))).thenReturn(true);
+        when(mockMultiInstanceDetector.isInitiatorDecisionTask(any(PlusTask.class))).thenReturn(true);
+
+        assertThatThrownBy(() -> workflow.completeTask("task-001", null, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("多实例子任务");
+    }
+
+    @Test
+    void testRejectTaskAllowsInitiatorDecisionTask() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isRuntimeMultiInstance(any(PlusTask.class))).thenReturn(true);
+        when(mockMultiInstanceDetector.isInitiatorDecisionTask(any(PlusTask.class))).thenReturn(true);
+        when(mockNodeFinder.findPreviousNodes("leave:1:abc", "task2", "pi-001"))
+                .thenReturn(Collections.singletonList("task1"));
+
+        stubRollback();
+
+        workflow.rejectTask("task-001", "不同意");
+
+        verify(mockChangeStateBuilder).moveActivityIdTo("task2", "task1");
+    }
+
+    @Test
+    void testRejectTaskStillBlocksMultiInstanceWhenNotInitiatorDecisionTask() {
+        // 会签剩最后 1 人未投（投票人持任务）：isInitiatorDecisionTask=false → 仍拦截
+        PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isRuntimeMultiInstance(any(PlusTask.class))).thenReturn(true);
+        when(mockMultiInstanceDetector.isInitiatorDecisionTask(any(PlusTask.class))).thenReturn(false);
+
+        assertThatThrownBy(() -> workflow.rejectTask("task-001", "不同意"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("多实例子任务");
+    }
+
+    @Test
+    void testRejectTaskToInitiatorAllowsInitiatorDecisionTask() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isRuntimeMultiInstance(any(PlusTask.class))).thenReturn(true);
+        when(mockMultiInstanceDetector.isInitiatorDecisionTask(any(PlusTask.class))).thenReturn(true);
+        when(mockNodeFinder.findInitiatorNode("leave:1:abc")).thenReturn("startTask");
+
+        stubRollback();
+
+        workflow.rejectTaskToInitiator("task-001", "退回发起人");
+
+        verify(mockExecutionTreeHelper).detachFromParallelGateway(eq("exec-task-001"), anyString());
+    }
+
+    @Test
+    void testWithdrawTaskAllowsInitiatorDecisionTask() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task2", "pi-001", USER_ID);
+        stubTaskExists(task);
+        when(mockMultiInstanceDetector.isRuntimeMultiInstance(any(PlusTask.class))).thenReturn(true);
+        when(mockMultiInstanceDetector.isInitiatorDecisionTask(any(PlusTask.class))).thenReturn(true);
+        when(mockNodeFinder.findPreviousNodes("leave:1:abc", "task2", "pi-001"))
+                .thenReturn(Collections.singletonList("task1"));
+
+        stubPreviousNodeHistory("task1", USER_ID);
+        stubRollback();
+
+        workflow.withdrawTask("task-001", "撤回");
+
+        verify(mockChangeStateBuilder).moveActivityIdTo("task2", "task1");
+    }
+
+    @Test
+    void testJumpToNodeAllowsInitiatorDecisionTask() {
+        PlusTask task = createTask("task-001", "leave:1:abc", "task3", "pi-001", USER_ID);
+        stubTaskExistsWithAssignee(task);
+        when(mockMultiInstanceDetector.isRuntimeMultiInstance(any(PlusTask.class))).thenReturn(true);
+        when(mockMultiInstanceDetector.isInitiatorDecisionTask(any(PlusTask.class))).thenReturn(true);
+        when(mockNodeFinder.findCompletedUserTasks("leave:1:abc", "task3", "pi-001"))
+                .thenReturn(Collections.singletonList("task1"));
+
+        stubRollback();
+
+        workflow.jumpToNode("task-001", "task1", "退回重审", CommentType.RETURN);
+
+        verify(mockChangeStateBuilder).moveActivityIdTo("task3", "task1");
+    }
+
     @Test
     void testCompleteTaskRejectsCompletedTask() {
         stubCompletedTask("task-001");

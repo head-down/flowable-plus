@@ -42,9 +42,6 @@ public class CounterSignWorkflow implements CounterSignOperations {
     /** Task 局部变量名：会签轮次索引 */
     static final String CS_ROUND_INDEX_VAR = "csRoundIndex";
 
-    /** 流程实例级变量前缀：会签发起人，后接 taskDefinitionKey 实现多节点隔离 */
-    static final String COUNTERSIGN_INITIATOR_VAR_PREFIX = "countersignInitiator_";
-
     private static final Logger log = LoggerFactory.getLogger(CounterSignWorkflow.class);
 
     private final UserContext userContext;
@@ -246,7 +243,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
      */
     private boolean detectNewRound(PlusTask task, String processInstanceId, String activityId) {
         boolean modeA = runtimeService.getVariable(processInstanceId,
-                buildCountersignInitiatorVarName(activityId)) != null;
+                MultiInstanceDetector.buildCountersignInitiatorVarName(activityId)) != null;
         return modeA && isMultiInstanceFinished(task);
     }
 
@@ -449,7 +446,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
      * 消除会签侧与常规审批拦截侧的口径漂移。判据说明详见该方法的 Javadoc。</p>
      */
     private void trySetCounterSignInitiator(PlusTask task) {
-        String varName = buildCountersignInitiatorVarName(task.getTaskDefinitionKey());
+        String varName = MultiInstanceDetector.buildCountersignInitiatorVarName(task.getTaskDefinitionKey());
 
         Object existing = runtimeService.getVariable(task.getProcessInstanceId(), varName);
         if (existing != null) {
@@ -461,10 +458,6 @@ public class CounterSignWorkflow implements CounterSignOperations {
         }
 
         runtimeService.setVariable(task.getProcessInstanceId(), varName, userContext.getCurrentUserId());
-    }
-
-    private static String buildCountersignInitiatorVarName(String taskDefinitionKey) {
-        return COUNTERSIGN_INITIATOR_VAR_PREFIX + taskDefinitionKey;
     }
 
     private boolean isMultiInstanceFinished(PlusTask task) {
@@ -733,7 +726,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
 
         // 1. 查询 countersignInitiator 流程变量
         Object initiatorObj = runtimeService.getVariable(
-                task.getProcessInstanceId(), buildCountersignInitiatorVarName(activityId));
+                task.getProcessInstanceId(), MultiInstanceDetector.buildCountersignInitiatorVarName(activityId));
         String countersignInitiator = initiatorObj != null ? initiatorObj.toString() : null;
 
         // 2. 模式A：会签发起人直接放行

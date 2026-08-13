@@ -109,7 +109,8 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
     public void rejectTask(String taskId, String reason, PreviousNodeResolutionStrategy strategy) {
         PlusTask task = TaskValidation.validateTaskExists(taskService, historyService, taskId, "驳回");
         TaskValidation.validateCurrentUserIsAssignee(task, userContext.getCurrentUserId(), taskId, "驳回");
-        TaskValidation.validateNotMultiInstance(multiInstanceDetector, task, taskId);
+        // 放行折返后发起人决策任务（ADR-0035）
+        TaskValidation.validateNotMultiInstance(multiInstanceDetector, task, taskId, true);
 
         String processDefinitionId = task.getProcessDefinitionId();
         String currentActivityId = task.getTaskDefinitionKey();
@@ -129,7 +130,8 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
     public void rejectTaskToInitiator(String taskId, String reason) {
         PlusTask task = TaskValidation.validateTaskExists(taskService, historyService, taskId, "驳回");
         TaskValidation.validateCurrentUserIsAssignee(task, userContext.getCurrentUserId(), taskId, "驳回");
-        TaskValidation.validateNotMultiInstance(multiInstanceDetector, task, taskId);
+        // 放行折返后发起人决策任务（ADR-0035）
+        TaskValidation.validateNotMultiInstance(multiInstanceDetector, task, taskId, true);
 
         String processDefinitionId = task.getProcessDefinitionId();
         String initiatorNode = nodeFinder.findInitiatorNode(processDefinitionId);
@@ -162,7 +164,8 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
     public void withdrawTask(String taskId, String reason, PreviousNodeResolutionStrategy strategy) {
         String currentUserId = userContext.getCurrentUserId();
         PlusTask task = TaskValidation.validateTaskExists(taskService, historyService, taskId, "撤回");
-        TaskValidation.validateNotMultiInstance(multiInstanceDetector, task, taskId);
+        // 放行折返后发起人决策任务（ADR-0035）；仍受其自身"上一节点审批人"权限校验约束
+        TaskValidation.validateNotMultiInstance(multiInstanceDetector, task, taskId, true);
 
         String processInstanceId = task.getProcessInstanceId();
 
@@ -225,7 +228,8 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
 
         PlusTask task = TaskValidation.validateTaskExists(taskService, historyService, taskId, "跳转");
         TaskValidation.validateCurrentUserIsAssignee(task, userContext.getCurrentUserId(), taskId, "跳转");
-        TaskValidation.validateNotMultiInstance(multiInstanceDetector, task, taskId);
+        // 放行折返后发起人决策任务（ADR-0035）
+        TaskValidation.validateNotMultiInstance(multiInstanceDetector, task, taskId, true);
 
         String processDefinitionId = task.getProcessDefinitionId();
         String currentActivityId = task.getTaskDefinitionKey();

@@ -23,6 +23,9 @@ import io.github.flowable.plus.core.domain.PlusTask;
  */
 public class MultiInstanceDetector {
 
+    /** 流程实例级变量前缀：会签发起人，后接 taskDefinitionKey 实现多节点隔离（ADR-0035） */
+    private static final String COUNTERSIGN_INITIATOR_VAR_PREFIX = "countersignInitiator_";
+
     private final BpmnModelCache bpmnModelCache;
     private final TaskService taskService;
     private final HistoryService historyService;
@@ -110,6 +113,66 @@ public class MultiInstanceDetector {
                 .taskDefinitionKey(task.getTaskDefinitionKey())
                 .count();
         return historyTaskCount == 1;
+    }
+
+    /**
+     * 判断任务是否为<b>折返后发起人决策任务</b>：会签发起人单持的 MI 决策任务（ADR-0035）。
+     *
+     * <p>判据（与折返场景运行时特征一一对应）：
+     * <ul>
+     *   <li>BPMN 模型为多实例节点；</li>
+     *   <li>活跃任务数 == 1（只有发起人一个）；</li>
+     *   <li>该节点全局历史任务数 &gt; 1（含上一轮会签投票任务，排除伪单例）；</li>
+     *   <li>当前任务 assignee == 流程变量 {@code countersignInitiator_<taskDefinitionKey>}。</li>
+     * </ul></p>
+     *
+     * <p><b>识别变量</b>：使用 flowable-plus 自产流程变量（模式A下由
+     * {@code CounterSignWorkflow.trySetCounterSignInitiator} 在首次加签时写入），
+     * <b>无 fallback 裸变量</b>，不引入 SPI（上游仅有模式A动态会签，SPI 无使用者）。
+     * 变量缺失（理论不可达）→ 不识别 → 保持拦截，属安全侧失败。</p>
+     *
+     * <p><b>模式A不变量（上游用法约定）</b>：发起人加签后其待办消失、不投票，因此
+     * "会签剩最后 1 人未投"时最后一个未投票人不可能是发起人——该场景 assignee 是投票人
+     * 而非发起人，不满足本判据，保持拦截（必须走 counterSign）。</p>
+     *
+     * @param task 任务领域对象，不可为 null
+     * @return true 如果任务为折返后发起人决策任务
+     */
+    public boolean isInitiatorDecisionTask(PlusTask task) {
+        if (!isMultiInstance(task)) {
+            return false;
+        }
+        long activeCount = taskService.createTaskQuery()
+                .processInstanceId(task.getProcessInstanceId())
+                .taskDefinitionKey(task.getTaskDefinitionKey())
+                .active()
+                .count();
+        if (activeCount != 1) {
+            return false;
+        }
+        long historyTaskCount = historyService.createHistoricTaskInstanceQuery()
+                .processInstanceId(task.getProcessInstanceId())
+                .taskDefinitionKey(task.getTaskDefinitionKey())
+                .count();
+        if (historyTaskCount <= 1) {
+            return false;
+        }
+        Object initiator = taskService.getVariable(task.getId(),
+                buildCountersignInitiatorVarName(task.getTaskDefinitionKey()));
+        return initiator != null && initiator.toString().equals(task.getAssignee());
+    }
+
+    /**
+     * 构建会签发起人流程变量名：{@code countersignInitiator_<taskDefinitionKey>}。
+     *
+     * <p>变量由 {@code CounterSignWorkflow} 在模式A首次加签时写入流程实例级，
+     * 本方法统一变量命名约定，供识别折返后发起人决策任务复用（ADR-0035）。</p>
+     *
+     * @param taskDefinitionKey 任务定义 KEY
+     * @return 会签发起人流程变量名
+     */
+    public static String buildCountersignInitiatorVarName(String taskDefinitionKey) {
+        return COUNTERSIGN_INITIATOR_VAR_PREFIX + taskDefinitionKey;
     }
 
     private boolean isMultiInstanceInternal(BpmnModel bpmnModel, String taskDefinitionKey) {
