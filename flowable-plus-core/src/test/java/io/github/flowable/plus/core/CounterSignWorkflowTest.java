@@ -10,6 +10,7 @@ import io.github.flowable.plus.core.spi.UserContext;
 import io.github.flowable.plus.core.enums.CommentType;
 import io.github.flowable.plus.core.domain.PlusTask;
 import io.github.flowable.plus.core.model.BpmnModelCache;
+import io.github.flowable.plus.core.model.CountersignRoundResolver;
 import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.model.NodeFinder;
 import io.github.flowable.plus.core.workflow.CounterSignWorkflow;
@@ -106,7 +107,8 @@ public class CounterSignWorkflowTest {
 
         counterSignWorkflow = new CounterSignWorkflow(userContext, mockTaskService,
                 mockHistoryService, mockRuntimeService, mockMultiInstanceDetector, mockNodeFinder,
-                Collections.singletonList(trackingCallback), new EventBus(null), mockProcessEndDetector);
+                Collections.singletonList(trackingCallback), new EventBus(null), mockProcessEndDetector,
+                new CountersignRoundResolver(mockHistoryService, mockTaskService));
     }
 
     // ======================== 会签：首次投票 ========================
@@ -1984,7 +1986,8 @@ public class CounterSignWorkflowTest {
         };
         CounterSignWorkflow fp = new CounterSignWorkflow(userContext, mockTaskService,
                 mockHistoryService, mockRuntimeService, mockMultiInstanceDetector, mockNodeFinder,
-                Collections.singletonList(failingCb), new EventBus(null), mockProcessEndDetector);
+                Collections.singletonList(failingCb), new EventBus(null), mockProcessEndDetector,
+                new CountersignRoundResolver(mockHistoryService, mockTaskService));
 
         // 不应抛异常，应继续完成
         fp.counterSign("task-001", true, null, "同意");
@@ -2308,7 +2311,8 @@ public class CounterSignWorkflowTest {
         ProcessEndDetector ped = new ProcessEndDetector(mockRuntimeService, mockHistoryService, eventBus);
         return new CounterSignWorkflow(userContext, mockTaskService,
                 mockHistoryService, mockRuntimeService, mockMultiInstanceDetector, mockNodeFinder,
-                Collections.emptyList(), eventBus, ped);
+                Collections.emptyList(), eventBus, ped,
+                new CountersignRoundResolver(mockHistoryService, mockTaskService));
     }
 
     @Test
