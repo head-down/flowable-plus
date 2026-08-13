@@ -11,6 +11,14 @@
 - 消除 `findNextUserTasks` 僵尸 `processInstanceId` 参数（原实现忽略）；接口 8 方法 → 6 方法
 - 破坏性变更：直接注入 `NodeFinder` 的下游（jw-zhyg-api）需按 README 迁移表适配 1 处调用
 
+**已办精确分页 Native SQL 构建收窄（C4）**
+- SQL 拼接从 `TaskQueryModule.queryDoneTasksPrecise` 提取为可单测构建模块 `PreciseDoneQuerySqlBuilder`，生成 count/list 两个 SQL，转义工具（`escapeSql` / `escapeLike` / `formatDate`）内聚其中；类为内部实现细节，不属公开 API（ADR-0015），不做表前缀注入
+- 新增 SQL 生成与转义单元测试（含 SQL 注入单引号 / LIKE 通配符转义用例）
+- 补齐 `queryDoneTasksPrecise` 真实数据库集成测试（基础查询 + keyword 过滤），H2/MySQL/PostgreSQL 全矩阵执行
+- **修复 count 致命缺陷**：Flowable native `count()` 将传入 SQL 原样执行并取第一列转 long，原实现把 `SELECT RES.*` 传给 `count()`，在 H2/PostgreSQL（流程实例 ID 为 UUID）抛 `NumberFormatException`——该功能自 ADR-0013 引入以来从未在真实数据下正常运行过。修复为 count 用独立 `SELECT COUNT(*)` SQL、list 用 `SELECT RES.* ... ORDER BY` SQL（见 ADR-0013 实现演化节）
+- 修复 keyword 过滤 SQL 的 MySQL 兼容缺陷：原 `ESCAPE '\'` 子句在 MySQL 8 上语法错误，改为不写显式 ESCAPE、依赖 H2/MySQL/PostgreSQL 默认反斜杠转义符
+- 公开 API 无变更
+
 ### Bug 修复
 
 **常规操作多实例拦截（ADR-0034）**
