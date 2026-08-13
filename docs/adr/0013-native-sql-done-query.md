@@ -120,8 +120,10 @@ Flowable 的 Native Query 模板 `${sql}` 在 MyBatis 层做文本替换，SQL �
 
 ## 实现演化（2026-08-13，架构审查 C4）
 
-SQL 拼接从 `queryDoneTasksPrecise` 方法内提取为独立构建模块 `PreciseDoneQuerySqlBuilder`（输入 userId + 查询条件 → 完整 SQL），转义工具（`escapeSql` / `escapeLike` / `formatDate`）内聚其中，可独立单测；`queryDoneTasksPrecise` 仅保留执行与 Phase 2 装配。该类为内部实现细节（唯一消费者为 `TaskQueryModule`），不属公开 API。
+SQL 拼接从 `queryDoneTasksPrecise` 方法内提取为独立构建模块 `PreciseDoneQuerySqlBuilder`，输入 userId + 查询条件，生成 **count 与 list 两个 SQL**（`buildCountSql` / `buildListSql`），转义工具（`escapeSql` / `escapeLike` / `formatDate`）内聚其中，可独立单测；`queryDoneTasksPrecise` 仅保留执行与 Phase 2 装配。该类为内部实现细节（唯一消费者为 `TaskQueryModule`），不属公开 API。
 
-**方言决策（LIKE 转义不写显式 `ESCAPE` 子句）**：原实现写 `ESCAPE '\'`，在 MySQL 8 上是语法错误——`'\'` 中的 `\'` 被 MySQL 解析为转义单引号导致字符串未闭合；而 `ESCAPE '\\'` 在 PostgreSQL（standard_conforming_strings=on）下是两个字符、同样非法。H2/MySQL/PostgreSQL 的 LIKE 默认转义符均为反斜杠，故删除显式 `ESCAPE` 子句，`escapeLike` 产出的 `\%` / `\_` / `\\` 在三库行为一致。此缺陷此前未被发现：`queryDoneTasksPrecise` 长期无真实数据库测试（H2 因 MyBatis UUID→Long 映射问题无法执行，MySQL/PostgreSQL 未补），本次 C4 补齐 MySQL/PostgreSQL 集成测试后修复。
+**count 缺陷与修复（本次 C4 的关键发现）**：Flowable 的 `NativeHistoricProcessInstanceQuery.count()` 不包装 SQL，而是把传入 SQL 原样执行并将**第一列**映射为 long（`selectHistoricProcessInstanceCountByNativeQuery` 语句为 `${sql}`，resultType=long）。原实现把 `SELECT RES.* ...` 的 list SQL 同时传给 `count()`，其第一列是流程实例 ID——在 H2/PostgreSQL 上 ID 为 UUID 字符串，`getLong` 抛 `NumberFormatException`。**该缺陷自 ADR-0013 引入以来从未被发现：`queryDoneTasksPrecise` 无任何真实数据库测试（H2 曾以为仅 H2 特有而跳过，MySQL/PostgreSQL 未补），实际上此功能在真实数据下从未正常运行过。** 修复：count 使用独立的 `SELECT COUNT(*) FROM ...` SQL，list 使用 `SELECT RES.* ... ORDER BY` SQL，两者共享 WHERE 片段。修复后在 H2/MySQL/PostgreSQL 三库均可执行。
+
+**方言决策（LIKE 转义不写显式 `ESCAPE` 子句）**：原实现写 `ESCAPE '\'`，在 MySQL 8 上是语法错误——`'\'` 中的 `\'` 被 MySQL 解析为转义单引号导致字符串未闭合；而 `ESCAPE '\\'` 在 PostgreSQL（standard_conforming_strings=on）下是两个字符、同样非法。H2/MySQL/PostgreSQL 的 LIKE 默认转义符均为反斜杠，故删除显式 `ESCAPE` 子句，`escapeLike` 产出的 `\%` / `\_` / `\\` 在三库行为一致。
 
 **不做表前缀注入**：`ACT_HI_PROCINST` / `ACT_HI_TASKINST` 表名与列名在 Flowable 6.x 中跨数据库一致，表名是库级全局配置而非逐查询变化的点，无真实接缝。

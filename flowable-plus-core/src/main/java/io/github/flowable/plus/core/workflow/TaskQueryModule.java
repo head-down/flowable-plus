@@ -213,8 +213,9 @@ public class TaskQueryModule {
      * 直接查出有已完成任务的流程实例，获取精确的 total 和当前页流程列表。
      * Phase 2 复用现有批量取任务 + 去重逻辑。</p>
      *
-     * <p>SQL 构建见 {@link PreciseDoneQuerySqlBuilder}（ADR-0013），
-     * 参数值在拼接前经转义避免 SQL 注入。</p>
+     * <p>SQL 构建见 {@link PreciseDoneQuerySqlBuilder}（ADR-0013）：
+     * count 与 list 使用各自独立的 SQL（Flowable native {@code count()} 将传入
+     * SQL 原样执行并取第一列转 long，必须用 {@code SELECT COUNT(*)} 形态）。</p>
      *
      * @param userId 用户 ID，不可为 null 或空
      * @param query  查询条件，可为 null
@@ -227,16 +228,15 @@ public class TaskQueryModule {
             query = new TaskQueryDTO();
         }
 
-        // Phase 1: Native SQL 精确查询流程实例
-        String sql = PreciseDoneQuerySqlBuilder.build(userId, query);
-        NativeHistoricProcessInstanceQuery nativeQuery = historyService
-                .createNativeHistoricProcessInstanceQuery()
-                .sql(sql);
-
-        long total = nativeQuery.count();
+        // Phase 1: Native SQL 精确查询流程实例（count 与 list 分用独立 SQL）
+        long total = historyService.createNativeHistoricProcessInstanceQuery()
+                .sql(PreciseDoneQuerySqlBuilder.buildCountSql(userId, query))
+                .count();
 
         int firstResult = (query.getPageNum() - 1) * query.getPageSize();
-        List<HistoricProcessInstance> processes = nativeQuery.listPage(firstResult, query.getPageSize());
+        List<HistoricProcessInstance> processes = historyService.createNativeHistoricProcessInstanceQuery()
+                .sql(PreciseDoneQuerySqlBuilder.buildListSql(userId, query))
+                .listPage(firstResult, query.getPageSize());
 
         if (processes.isEmpty()) {
             log.debug("queryDoneTasksPrecise: total={}, cost={}ms", total, System.currentTimeMillis() - start);

@@ -8,8 +8,13 @@ import java.util.Date;
 /**
  * 已办精确分页查询（ADR-0013）的 Native SQL 构建模块。
  *
- * <p>输入用户 ID 与查询条件，返回可直接传给
- * {@code NativeHistoricProcessInstanceQuery.sql(String)} 的完整 SQL。
+ * <p>输入用户 ID 与查询条件，生成 count 与 list 两个 SQL：
+ * <ul>
+ *   <li>{@link #buildCountSql} — {@code SELECT COUNT(*)}，用于
+ *       {@code NativeHistoricProcessInstanceQuery.count()} 获取精确 total</li>
+ *   <li>{@link #buildListSql} — {@code SELECT RES.* ... ORDER BY}，用于
+ *       {@code listPage} 取当前页流程实例</li>
+ * </ul>
  * 参数值在拼接前经 {@link #escapeSql(String)} / {@link #escapeLike(String)}
  * 转义，避免 SQL 注入；日期格式化为 {@code yyyy-MM-dd HH:mm:ss}。</p>
  *
@@ -29,16 +34,38 @@ final class PreciseDoneQuerySqlBuilder {
     }
 
     /**
-     * 构建精确已办查询 SQL：查出"存在已完成 assignee 任务"的流程实例。
+     * 构建 count SQL：查出"存在已完成 assignee 任务"的流程实例数量。
      *
-     * <p>基础条件是当前用户在该流程实例中至少完成过 1 个任务
-     * （EXISTS 子查询），随后按查询条件追加动态过滤。</p>
+     * <p>Flowable 的 native {@code count()} 将传入 SQL 原样执行并把<b>第一列</b>
+     * 映射为 long（见 ADR-0013 实现演化节），故 count SQL 必须以
+     * {@code SELECT COUNT(*)} 开头，不能复用 {@code SELECT RES.*} 的 list SQL。</p>
      *
      * @param userId 用户 ID，不可为 null 或空
      * @param query  查询条件，可为 null（按空条件处理）
-     * @return 完整 SQL 字符串
+     * @return count SQL 字符串
      */
-    static String build(String userId, TaskQueryDTO query) {
+    static String buildCountSql(String userId, TaskQueryDTO query) {
+        return "SELECT COUNT(*) FROM ACT_HI_PROCINST RES "
+                + buildWhereClause(userId, query);
+    }
+
+    /**
+     * 构建 list SQL：查出"存在已完成 assignee 任务"的流程实例明细，按结束时间倒序。
+     *
+     * @param userId 用户 ID，不可为 null 或空
+     * @param query  查询条件，可为 null（按空条件处理）
+     * @return list SQL 字符串
+     */
+    static String buildListSql(String userId, TaskQueryDTO query) {
+        return "SELECT RES.* FROM ACT_HI_PROCINST RES "
+                + buildWhereClause(userId, query)
+                + " ORDER BY RES.END_TIME_ DESC";
+    }
+
+    /**
+     * 构建 count 与 list 共享的 WHERE 片段（含参数校验与转义）。
+     */
+    private static String buildWhereClause(String userId, TaskQueryDTO query) {
         if (userId == null || userId.isEmpty()) {
             throw new IllegalArgumentException("userId 不可为 null 或空");
         }
@@ -46,9 +73,8 @@ final class PreciseDoneQuerySqlBuilder {
             query = new TaskQueryDTO();
         }
 
-        StringBuilder sql = new StringBuilder(512);
-        sql.append("SELECT RES.* FROM ACT_HI_PROCINST RES WHERE EXISTS (")
-           .append("SELECT 1 FROM ACT_HI_TASKINST T WHERE ")
+        StringBuilder sql = new StringBuilder(256);
+        sql.append("WHERE EXISTS (SELECT 1 FROM ACT_HI_TASKINST T WHERE ")
            .append("T.PROC_INST_ID_ = RES.ID_ AND T.ASSIGNEE_ = '")
            .append(escapeSql(userId))
            .append("' AND T.END_TIME_ IS NOT NULL)");
@@ -77,7 +103,6 @@ final class PreciseDoneQuerySqlBuilder {
                .append("'");
         }
 
-        sql.append(" ORDER BY RES.END_TIME_ DESC");
         return sql.toString();
     }
 

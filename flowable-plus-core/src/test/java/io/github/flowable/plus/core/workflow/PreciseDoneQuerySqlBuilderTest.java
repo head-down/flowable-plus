@@ -12,43 +12,56 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * {@link PreciseDoneQuerySqlBuilder} 单元测试。
  *
- * <p>覆盖 SQL 生成形状与安全关键转义逻辑（SQL 注入 / LIKE 通配符注入）。</p>
+ * <p>覆盖 count/list 两个 SQL 的生成形状与安全关键转义逻辑
+ * （SQL 注入 / LIKE 通配符注入）。</p>
  */
 public class PreciseDoneQuerySqlBuilderTest {
 
-    private static final String BASE_SQL =
-            "SELECT RES.* FROM ACT_HI_PROCINST RES WHERE EXISTS ("
-            + "SELECT 1 FROM ACT_HI_TASKINST T WHERE "
+    private static final String WHERE_EXISTS_USER1 =
+            "WHERE EXISTS (SELECT 1 FROM ACT_HI_TASKINST T WHERE "
             + "T.PROC_INST_ID_ = RES.ID_ AND T.ASSIGNEE_ = 'user1' AND T.END_TIME_ IS NOT NULL)";
 
     // ======================== 参数校验 ========================
 
     @Test
     public void testRejectNullUserId() {
-        assertThatThrownBy(() -> PreciseDoneQuerySqlBuilder.build(null, new TaskQueryDTO()))
+        assertThatThrownBy(() -> PreciseDoneQuerySqlBuilder.buildCountSql(null, new TaskQueryDTO()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("userId");
+        assertThatThrownBy(() -> PreciseDoneQuerySqlBuilder.buildListSql(null, new TaskQueryDTO()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("userId");
     }
 
     @Test
     public void testRejectEmptyUserId() {
-        assertThatThrownBy(() -> PreciseDoneQuerySqlBuilder.build("", new TaskQueryDTO()))
+        assertThatThrownBy(() -> PreciseDoneQuerySqlBuilder.buildCountSql("", new TaskQueryDTO()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("userId");
     }
 
     @Test
     public void testNullQueryTreatedAsEmpty() {
-        assertThat(PreciseDoneQuerySqlBuilder.build("user1", null))
-                .isEqualTo(BASE_SQL + " ORDER BY RES.END_TIME_ DESC");
+        assertThat(PreciseDoneQuerySqlBuilder.buildCountSql("user1", null))
+                .isEqualTo("SELECT COUNT(*) FROM ACT_HI_PROCINST RES " + WHERE_EXISTS_USER1);
+        assertThat(PreciseDoneQuerySqlBuilder.buildListSql("user1", null))
+                .isEqualTo("SELECT RES.* FROM ACT_HI_PROCINST RES " + WHERE_EXISTS_USER1
+                        + " ORDER BY RES.END_TIME_ DESC");
     }
 
     // ======================== SQL 生成 ========================
 
     @Test
-    public void testBuildBasicQuery() {
-        assertThat(PreciseDoneQuerySqlBuilder.build("user1", new TaskQueryDTO()))
-                .isEqualTo(BASE_SQL + " ORDER BY RES.END_TIME_ DESC");
+    public void testBuildCountSqlBasic() {
+        assertThat(PreciseDoneQuerySqlBuilder.buildCountSql("user1", new TaskQueryDTO()))
+                .isEqualTo("SELECT COUNT(*) FROM ACT_HI_PROCINST RES " + WHERE_EXISTS_USER1);
+    }
+
+    @Test
+    public void testBuildListSqlBasic() {
+        assertThat(PreciseDoneQuerySqlBuilder.buildListSql("user1", new TaskQueryDTO()))
+                .isEqualTo("SELECT RES.* FROM ACT_HI_PROCINST RES " + WHERE_EXISTS_USER1
+                        + " ORDER BY RES.END_TIME_ DESC");
     }
 
     @Test
@@ -59,21 +72,22 @@ public class PreciseDoneQuerySqlBuilderTest {
         query.setBeginDate(parseDate("2024-01-01 00:00:00"));
         query.setEndDate(parseDate("2024-01-31 23:59:59"));
 
-        String sql = PreciseDoneQuerySqlBuilder.build("user1", query);
-
-        assertThat(sql).isEqualTo(
-                BASE_SQL
-                + " AND RES.PROC_DEF_ID_ LIKE 'leave:%'"
+        String filter = " AND RES.PROC_DEF_ID_ LIKE 'leave:%'"
                 + " AND RES.BUSINESS_KEY_ LIKE '%借款%'"
                 + " AND RES.END_TIME_ >= '2024-01-01 00:00:00'"
-                + " AND RES.END_TIME_ <= '2024-01-31 23:59:59'"
-                + " ORDER BY RES.END_TIME_ DESC");
+                + " AND RES.END_TIME_ <= '2024-01-31 23:59:59'";
+
+        assertThat(PreciseDoneQuerySqlBuilder.buildCountSql("user1", query))
+                .isEqualTo("SELECT COUNT(*) FROM ACT_HI_PROCINST RES " + WHERE_EXISTS_USER1 + filter);
+        assertThat(PreciseDoneQuerySqlBuilder.buildListSql("user1", query))
+                .isEqualTo("SELECT RES.* FROM ACT_HI_PROCINST RES " + WHERE_EXISTS_USER1
+                        + filter + " ORDER BY RES.END_TIME_ DESC");
     }
 
     @Test
     public void testBuildEscapesUserId() {
         // 用户 ID 含单引号：必须转义为 ''，否则可注入任意 SQL
-        String sql = PreciseDoneQuerySqlBuilder.build("O'Brien", new TaskQueryDTO());
+        String sql = PreciseDoneQuerySqlBuilder.buildListSql("O'Brien", new TaskQueryDTO());
         assertThat(sql).contains("AND T.ASSIGNEE_ = 'O''Brien'");
         assertThat(sql).doesNotContain("= 'O'Brien'");
     }
@@ -84,7 +98,7 @@ public class PreciseDoneQuerySqlBuilderTest {
         TaskQueryDTO query = new TaskQueryDTO();
         query.setKeyword("50%_off\\foo'");
 
-        String sql = PreciseDoneQuerySqlBuilder.build("user1", query);
+        String sql = PreciseDoneQuerySqlBuilder.buildListSql("user1", query);
 
         assertThat(sql).contains("LIKE '%50\\%\\_off\\\\foo''%'");
     }

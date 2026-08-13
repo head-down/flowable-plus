@@ -15,7 +15,6 @@ import org.flowable.engine.repository.Deployment;
 import org.flowable.engine.runtime.ProcessInstance;
 import org.flowable.task.api.Task;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -33,10 +32,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Layer 3 集成测试：已办查询验证。
  *
- * <p>验证 {@code queryDoneTasks}（非精确查询）在基础场景下的正确性。
- * {@code queryDoneTasksPrecise}（Native SQL，ADR-0013）在 H2 中因
- * MyBatis UUID→Long 类型映射问题无法执行，仅在 MySQL/PostgreSQL
- * 分支验证（H2 分支通过 {@link Assumptions} 跳过）。</p>
+ * <p>验证 {@code queryDoneTasks}（非精确查询）与 {@code queryDoneTasksPrecise}
+ * （Native SQL，ADR-0013）在基础场景下的正确性。precise 的 count 使用独立
+ * COUNT SQL（Flowable native count 取第一列转 long），在 H2/MySQL/PostgreSQL
+ * 三库均可执行。</p>
  */
 @SpringBootTest(classes = BpmnQueryIntegrationTestApplication.class)
 @Import(SharedTestConfiguration.class)
@@ -255,9 +254,6 @@ class DoneTaskPreciseIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void testQueryDoneTasksPreciseBasic() {
-        Assumptions.assumeFalse(isH2(),
-                "H2 存在 MyBatis UUID→Long 映射问题，precise 仅在 MySQL/PostgreSQL 验证");
-
         identityService.setAuthenticatedUserId(INITIATOR);
 
         Map<String, Object> variables = new HashMap<>();
@@ -285,9 +281,6 @@ class DoneTaskPreciseIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void testQueryDoneTasksPreciseWithKeywordFilter() {
-        Assumptions.assumeFalse(isH2(),
-                "H2 存在 MyBatis UUID→Long 映射问题，precise 仅在 MySQL/PostgreSQL 验证");
-
         identityService.setAuthenticatedUserId(INITIATOR);
 
         Map<String, Object> variables = new HashMap<>();
