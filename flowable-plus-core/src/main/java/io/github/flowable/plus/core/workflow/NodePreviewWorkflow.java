@@ -192,34 +192,31 @@ public class NodePreviewWorkflow {
     }
 
     /**
-     * 定义锚点遍历：按模式选择 NodeFinder 遍历方法。
+     * 定义锚点遍历：锚点恒为 StartEvent，深度由模式表达。
      */
     private List<String> traverseDefinitionNodes(String definitionId, BpmnModel bpmnModel,
                                                  TraversalMode mode, Map<String, Object> variables) {
-        if (mode == TraversalMode.ADJACENT) {
-            String startNodeId = findStartEventId(bpmnModel);
-            return nodeFinder.findAdjacentUserTasks(definitionId, startNodeId, variables);
-        }
-        return nodeFinder.findAllReachableUserTasks(definitionId, variables);
+        String startNodeId = findStartEventId(bpmnModel);
+        return nodeFinder.findDownstreamUserTasks(definitionId, startNodeId, mode, variables);
     }
 
     /**
-     * 任务锚点遍历：按模式选择 NodeFinder 遍历方法。
+     * 任务锚点遍历：锚点为当前任务节点，深度由模式表达。
      */
     private List<String> traverseTaskNodes(Task task, TraversalMode mode, Map<String, Object> variables) {
-        if (mode == TraversalMode.ADJACENT) {
-            return nodeFinder.findAdjacentUserTasks(
-                    task.getProcessDefinitionId(), task.getTaskDefinitionKey(), variables);
-        }
-        return nodeFinder.findNextUserTasks(
-                task.getProcessDefinitionId(), task.getTaskDefinitionKey(),
-                task.getProcessInstanceId(), variables);
+        return nodeFinder.findDownstreamUserTasks(
+                task.getProcessDefinitionId(), task.getTaskDefinitionKey(), mode, variables);
     }
 
     /**
      * 从 BPMN 模型中查找 StartEvent 节点 ID。
+     *
+     * @throws IllegalStateException 模型无流程或未找到 StartEvent（模型配置错误）
      */
     private String findStartEventId(BpmnModel bpmnModel) {
+        if (bpmnModel.getProcesses() == null || bpmnModel.getProcesses().isEmpty()) {
+            throw new IllegalStateException("BPMN 模型中未找到 StartEvent");
+        }
         return bpmnModel.getProcesses().get(0).getFlowElements().stream()
                 .filter(element -> element instanceof StartEvent)
                 .map(FlowElement::getId)

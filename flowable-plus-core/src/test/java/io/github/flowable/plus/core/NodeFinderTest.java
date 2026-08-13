@@ -1,5 +1,6 @@
 package io.github.flowable.plus.core;
 
+import io.github.flowable.plus.core.enums.TraversalMode;
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.spi.SkipInitiatorNodeFilter;
@@ -240,7 +241,7 @@ public class NodeFinderTest {
                 .hasMessageContaining("流程定义 nonexistent 不存在");
     }
 
-    // ======================== 正向查找下游节点 (findNextUserTasks) ========================
+    // ======================== 正向查找下游节点 (findDownstreamUserTasks, FULL) ========================
 
     /**
      * 简单顺序：task1 → task2，从 task1 正向查找应返回 [task2]
@@ -257,7 +258,7 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-next-1")).thenReturn(model);
 
-        List<String> result = nodeFinder.findNextUserTasks("proc-next-1", "task1", "pi-001",
+        List<String> result = nodeFinder.findDownstreamUserTasks("proc-next-1", "task1", TraversalMode.FULL,
                 Collections.emptyMap());
 
         assertThat(result).containsExactly("task2");
@@ -295,7 +296,7 @@ public class NodeFinderTest {
         Map<String, Object> vars = new HashMap<>();
         vars.put("amount", 3000);
 
-        List<String> result = nodeFinder.findNextUserTasks("proc-next-gw", "task1", "pi-001", vars);
+        List<String> result = nodeFinder.findDownstreamUserTasks("proc-next-gw", "task1", TraversalMode.FULL, vars);
 
         assertThat(result).containsExactly("taskB");
     }
@@ -320,7 +321,7 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-next-par")).thenReturn(model);
 
-        List<String> result = nodeFinder.findNextUserTasks("proc-next-par", "task1", "pi-001",
+        List<String> result = nodeFinder.findDownstreamUserTasks("proc-next-par", "task1", TraversalMode.FULL,
                 Collections.emptyMap());
 
         assertThat(result).containsExactlyInAnyOrder("taskA", "taskB");
@@ -339,7 +340,7 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-next-end")).thenReturn(model);
 
-        List<String> result = nodeFinder.findNextUserTasks("proc-next-end", "task1", "pi-001",
+        List<String> result = nodeFinder.findDownstreamUserTasks("proc-next-end", "task1", TraversalMode.FULL,
                 Collections.emptyMap());
 
         assertThat(result).isEmpty();
@@ -380,7 +381,7 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-next-sub")).thenReturn(model);
 
-        List<String> result = nodeFinder.findNextUserTasks("proc-next-sub", "task1", "pi-001",
+        List<String> result = nodeFinder.findDownstreamUserTasks("proc-next-sub", "task1", TraversalMode.FULL,
                 Collections.emptyMap());
 
         assertThat(result).containsExactlyInAnyOrder("taskSub", "taskAfter");
@@ -399,7 +400,7 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-unknown-node")).thenReturn(model);
 
-        assertThatThrownBy(() -> nodeFinder.findNextUserTasks("proc-unknown-node", "nonexistent", "pi-001",
+        assertThatThrownBy(() -> nodeFinder.findDownstreamUserTasks("proc-unknown-node", "nonexistent", TraversalMode.FULL,
                 Collections.emptyMap()))
                 .isInstanceOf(NotFoundException.class)
                 .hasMessageContaining("不存在");
@@ -412,7 +413,7 @@ public class NodeFinderTest {
     public void testFindNextUserTasksUnknownProcessDefinition() {
         when(repositoryService.getBpmnModel("unknown-proc")).thenReturn(null);
 
-        assertThatThrownBy(() -> nodeFinder.findNextUserTasks("unknown-proc", "task1", "pi-001",
+        assertThatThrownBy(() -> nodeFinder.findDownstreamUserTasks("unknown-proc", "task1", TraversalMode.FULL,
                 Collections.emptyMap()))
                 .isInstanceOf(NotFoundException.class)
                 .hasMessageContaining("不存在");
@@ -452,7 +453,7 @@ public class NodeFinderTest {
         // variables 中不包含 nextNodeCodeTmp
         Map<String, Object> vars = new HashMap<>();
 
-        List<String> result = nodeFinder.findNextUserTasks("proc-fallback", "task1", "pi-001", vars);
+        List<String> result = nodeFinder.findDownstreamUserTasks("proc-fallback", "task1", TraversalMode.FULL, vars);
 
         assertThat(result).containsExactlyInAnyOrder("taskA", "taskB");
     }
@@ -639,7 +640,7 @@ public class NodeFinderTest {
     // ======================== UserTaskTraversalFilter 扩展点 ========================
 
     /**
-     * 无 Filter 时，findNextUserTasks 应收集所有下游节点（向后兼容）。
+     * 无 Filter 时，findDownstreamUserTasks(FULL) 应收集所有下游节点（向后兼容）。
      */
     @Test
     public void testTraversalFilterNoFilterCollectsAll() {
@@ -658,7 +659,7 @@ public class NodeFinderTest {
         nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService,
                 Mockito.mock(ExpressionManager.class), Collections.emptyList());
 
-        List<String> result = nodeFinder.findNextUserTasks("proc-no-filter", "task1", "pi-001",
+        List<String> result = nodeFinder.findDownstreamUserTasks("proc-no-filter", "task1", TraversalMode.FULL,
                 Collections.emptyMap());
 
         assertThat(result).containsExactly("task2", "task3");
@@ -685,7 +686,7 @@ public class NodeFinderTest {
         nodeFinder = new DefaultNodeFinder(bpmnModelCache, historyService,
                 Mockito.mock(ExpressionManager.class), Collections.singletonList(skipTask2));
 
-        List<String> result = nodeFinder.findNextUserTasks("proc-skip-single", "task1", "pi-001",
+        List<String> result = nodeFinder.findDownstreamUserTasks("proc-skip-single", "task1", TraversalMode.FULL,
                 Collections.emptyMap());
 
         // task2 被跳过，但遍历继续穿过它，应收集 task3
@@ -718,7 +719,7 @@ public class NodeFinderTest {
                 Mockito.mock(ExpressionManager.class),
                 java.util.Arrays.asList(passthrough, skipTask2));
 
-        List<String> result = nodeFinder.findNextUserTasks("proc-and-filter", "task1", "pi-001",
+        List<String> result = nodeFinder.findDownstreamUserTasks("proc-and-filter", "task1", TraversalMode.FULL,
                 Collections.emptyMap());
 
         // AND 逻辑：passthrough 通过、skipTask2 拦截 task2 → 只剩 task3
@@ -760,7 +761,7 @@ public class NodeFinderTest {
         Map<String, Object> vars = new HashMap<>();
         vars.put("amount", 3000);
 
-        List<String> result = nodeFinder.findNextUserTasks("proc-filter-gw", "task1", "pi-001", vars);
+        List<String> result = nodeFinder.findDownstreamUserTasks("proc-filter-gw", "task1", TraversalMode.FULL, vars);
 
         // 条件走到 taskB，但 Filter 跳过 taskB → 空列表
         assertThat(result).isEmpty();
@@ -798,8 +799,8 @@ public class NodeFinderTest {
         Map<String, Object> varsFalse = new HashMap<>();
         varsFalse.put("needApproval", false);
 
-        List<String> resultWithout = nodeFinder.findNextUserTasks("proc-filter-vars", "task1",
-                "pi-001", varsFalse);
+        List<String> resultWithout = nodeFinder.findDownstreamUserTasks("proc-filter-vars", "task1",
+                TraversalMode.FULL, varsFalse);
 
         // needApproval=false → 跳过 task2 → 只剩 task3
         assertThat(resultWithout).containsExactly("task3");
@@ -807,8 +808,8 @@ public class NodeFinderTest {
         Map<String, Object> varsTrue = new HashMap<>();
         varsTrue.put("needApproval", true);
 
-        List<String> resultWith = nodeFinder.findNextUserTasks("proc-filter-vars", "task1",
-                "pi-002", varsTrue);
+        List<String> resultWith = nodeFinder.findDownstreamUserTasks("proc-filter-vars", "task1",
+                TraversalMode.FULL, varsTrue);
 
         // needApproval=true → 不跳过 task2 → 收集 task2, task3
         assertThat(resultWith).containsExactly("task2", "task3");
@@ -836,7 +837,7 @@ public class NodeFinderTest {
                 Mockito.mock(ExpressionManager.class),
                 Collections.singletonList(new SkipInitiatorNodeFilter()));
 
-        List<String> result = nodeFinder.findNextUserTasks("proc-skip-start", "task1", "pi-001",
+        List<String> result = nodeFinder.findDownstreamUserTasks("proc-skip-start", "task1", TraversalMode.FULL,
                 Collections.emptyMap());
 
         // task1 被跳过（isStartTask=true），但遍历穿过它收集 task2, task3
@@ -861,7 +862,7 @@ public class NodeFinderTest {
                 Mockito.mock(ExpressionManager.class),
                 Collections.singletonList(new SkipInitiatorNodeFilter()));
 
-        List<String> result = nodeFinder.findNextUserTasks("proc-non-start", "task1", "pi-001",
+        List<String> result = nodeFinder.findDownstreamUserTasks("proc-non-start", "task1", TraversalMode.FULL,
                 Collections.emptyMap());
 
         // isStartTask=false → 不跳过，正常收集 task2
@@ -885,14 +886,14 @@ public class NodeFinderTest {
                 Mockito.mock(ExpressionManager.class),
                 Collections.singletonList(new SkipInitiatorNodeFilter()));
 
-        List<String> result = nodeFinder.findNextUserTasks("proc-no-attr", "task1", "pi-001",
+        List<String> result = nodeFinder.findDownstreamUserTasks("proc-no-attr", "task1", TraversalMode.FULL,
                 Collections.emptyMap());
 
         // 无扩展属性 → 不跳过，正常收集 task2
         assertThat(result).containsExactly("task2");
     }
 
-    // ======================== findAdjacentUserTasks ========================
+    // ======================== findDownstreamUserTasks (ADJACENT) ========================
 
     /**
      * 简单线性：start → taskA → taskB，从 start 紧邻遍历应返回 [taskA]，不穿透 taskA 继续到 taskB。
@@ -909,7 +910,7 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-adj-1")).thenReturn(model);
 
-        List<String> result = nodeFinder.findAdjacentUserTasks("proc-adj-1", "start", null);
+        List<String> result = nodeFinder.findDownstreamUserTasks("proc-adj-1", "start", TraversalMode.ADJACENT, null);
 
         // 仅返回紧邻的 taskA，不包含 taskB
         assertThat(result).containsExactly("taskA");
@@ -933,7 +934,7 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-adj-par")).thenReturn(model);
 
-        List<String> result = nodeFinder.findAdjacentUserTasks("proc-adj-par", "start", null);
+        List<String> result = nodeFinder.findDownstreamUserTasks("proc-adj-par", "start", TraversalMode.ADJACENT, null);
 
         assertThat(result).containsExactlyInAnyOrder("taskA", "taskB");
     }
@@ -972,7 +973,7 @@ public class NodeFinderTest {
         Map<String, Object> vars = new HashMap<>();
         vars.put("amount", 6000);
 
-        List<String> result = nodeFinder.findAdjacentUserTasks("proc-adj-gw", "start", vars);
+        List<String> result = nodeFinder.findDownstreamUserTasks("proc-adj-gw", "start", TraversalMode.ADJACENT, vars);
 
         assertThat(result).containsExactly("taskA");
     }
@@ -990,7 +991,7 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-adj-none")).thenReturn(model);
 
-        List<String> result = nodeFinder.findAdjacentUserTasks("proc-adj-none", "start", null);
+        List<String> result = nodeFinder.findDownstreamUserTasks("proc-adj-none", "start", TraversalMode.ADJACENT, null);
 
         assertThat(result).isEmpty();
     }
@@ -1017,7 +1018,7 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-adj-sub")).thenReturn(model);
 
-        List<String> result = nodeFinder.findAdjacentUserTasks("proc-adj-sub", "task1", null);
+        List<String> result = nodeFinder.findDownstreamUserTasks("proc-adj-sub", "task1", TraversalMode.ADJACENT, null);
 
         // 紧邻遍历：穿透 SubProcess 找到 A，不继续到 B，也不穿透到 taskC
         assertThat(result).containsExactly("taskA");
@@ -1044,7 +1045,7 @@ public class NodeFinderTest {
                 Mockito.mock(ExpressionManager.class),
                 Collections.singletonList(new SkipInitiatorNodeFilter()));
 
-        List<String> result = nodeFinder.findAdjacentUserTasks("proc-adj-skip", "task1", null);
+        List<String> result = nodeFinder.findDownstreamUserTasks("proc-adj-skip", "task1", TraversalMode.ADJACENT, null);
 
         // task1 被 SkipInitiatorNodeFilter 跳过，紧邻收集 task2
         assertThat(result).containsExactly("task2");
@@ -1072,7 +1073,7 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-adj-cycle")).thenReturn(model);
 
-        List<String> result = nodeFinder.findAdjacentUserTasks("proc-adj-cycle", "task1", null);
+        List<String> result = nodeFinder.findDownstreamUserTasks("proc-adj-cycle", "task1", TraversalMode.ADJACENT, null);
 
         // visited 防环截断 svc1→egw 重入，egw→task2 正常收集
         assertThat(result).containsExactly("task2");
@@ -1112,10 +1113,10 @@ public class NodeFinderTest {
         when(repositoryService.getBpmnModel("proc-adj-subset")).thenReturn(model);
 
         // 全遍历
-        List<String> fullResult = nodeFinder.findAllReachableUserTasks("proc-adj-subset", null);
+        List<String> fullResult = nodeFinder.findDownstreamUserTasks("proc-adj-subset", "start", TraversalMode.FULL, null);
 
         // 紧邻遍历
-        List<String> adjacentResult = nodeFinder.findAdjacentUserTasks("proc-adj-subset", "start", null);
+        List<String> adjacentResult = nodeFinder.findDownstreamUserTasks("proc-adj-subset", "start", TraversalMode.ADJACENT, null);
 
         // 紧邻结果是全遍历结果的子集
         assertThat(fullResult).containsAll(adjacentResult);
@@ -1131,7 +1132,7 @@ public class NodeFinderTest {
      *   分支1: → task_direct (UserTask, 直达) <br>
      *   分支2: → service_mid (ServiceTask) → task_indirect (UserTask, 间接)
      *
-     * <p>验证：findAdjacentUserTasks 仅返回 task_direct，不包含 task_indirect。
+     * <p>验证：findDownstreamUserTasks(ADJACENT) 仅返回 task_direct，不包含 task_indirect。
      */
     @Test
     public void testFindAdjacentUserTasksGatewayShortCircuitIndirectPaths() {
@@ -1150,7 +1151,7 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-gw-short")).thenReturn(model);
 
-        List<String> result = nodeFinder.findAdjacentUserTasks("proc-gw-short", "task_src", null);
+        List<String> result = nodeFinder.findDownstreamUserTasks("proc-gw-short", "task_src", TraversalMode.ADJACENT, null);
 
         assertThat(result).containsExactly("task_direct");
     }

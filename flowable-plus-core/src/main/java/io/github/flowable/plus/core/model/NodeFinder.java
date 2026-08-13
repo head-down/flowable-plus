@@ -1,5 +1,6 @@
 package io.github.flowable.plus.core.model;
 
+import io.github.flowable.plus.core.enums.TraversalMode;
 import io.github.flowable.plus.core.exception.NoPreviousNodeException;
 import io.github.flowable.plus.core.exception.NotFoundException;
 
@@ -39,42 +40,23 @@ public interface NodeFinder {
     String findInitiatorNode(String processDefinitionId);
 
     /**
-     * 从 StartEvent 出发正向查找所有可达的 UserTask 节点。
-     * 支持通过可选变量上下文评估网关条件表达式进行分支选择。
+     * 从指定节点出发正向遍历，按遍历深度模式收集下游 UserTask 节点。
+     *
+     * <p>锚点由调用方解析（如流程定义锚点需先定位 StartEvent ID 再传入），
+     * 本方法只负责遍历能力本身。遍历深度由 {@link TraversalMode} 表达：
+     * {@link TraversalMode#FULL} 收集所有可达 UserTask（完整审批链路，穿越 UserTask 继续探索下游），
+     * {@link TraversalMode#ADJACENT} 仅收集紧邻的第一个 UserTask 层级（遇 UserTask 即停止深入）。
+     * 递归进入子流程和 CallActivity；通过变量上下文评估网关条件表达式。</p>
      *
      * @param processDefinitionId 流程定义 ID，不可为 null
-     * @param variables 变量上下文（用于评估网关条件），为 null 时不评估条件，全部展开
-     * @return 按遍历顺序排列的 UserTask 节点 ID 列表
-     * @throws NotFoundException 流程定义不存在或未找到 StartEvent 时抛出
-     */
-    List<String> findAllReachableUserTasks(String processDefinitionId, Map<String, Object> variables);
-
-    /**
-     * 从指定节点出发正向查找所有可达的下游 UserTask 节点。
-     * 支持通过运行时变量评估网关条件表达式，递归进入子流程和 CallActivity。
-     *
-     * @param processDefinitionId 流程定义 ID，不可为 null
-     * @param currentActivityId   当前节点 ID，不可为 null
-     * @param processInstanceId   流程实例 ID，不可为 null
-     * @param variables           运行时变量上下文，用于评估网关条件（不可为 null）
-     * @return 按遍历顺序排列的可达 UserTask 节点 ID 列表，无下游节点时返回空列表
+     * @param startNodeId         起始节点 ID，不可为 null
+     * @param mode                遍历深度模式，不可为 null
+     * @param variables           变量上下文（用于评估网关条件），为 null 时不评估条件，全部展开
+     * @return 按遍历顺序排列的 UserTask 节点 ID 列表，无下游节点时返回空列表
      * @throws NotFoundException 流程定义或节点不存在时抛出
      */
-    List<String> findNextUserTasks(String processDefinitionId, String currentActivityId,
-                                   String processInstanceId, Map<String, Object> variables);
-
-    /**
-     * 从指定节点出发正向穿越网关/子流程入口，收集紧邻的第一个 UserTask 层级。
-     * 遇到 UserTask 时收集并停止深入，不继续穿越其 outgoing。
-     *
-     * @param processDefinitionId 流程定义 ID，不可为 null
-     * @param startNodeId 起始节点 ID，不可为 null
-     * @param variables 变量上下文（用于评估网关条件），为 null 时不评估条件，全部展开
-     * @return 紧邻的 UserTask 节点 ID 列表，无下游节点时返回空列表
-     * @throws NotFoundException 流程定义或节点不存在时抛出
-     */
-    List<String> findAdjacentUserTasks(String processDefinitionId, String startNodeId,
-                                       Map<String, Object> variables);
+    List<String> findDownstreamUserTasks(String processDefinitionId, String startNodeId,
+                                         TraversalMode mode, Map<String, Object> variables);
 
     /**
      * 从当前节点向后回溯，收集所有已完成的上游 UserTask 节点 ID。
