@@ -12,6 +12,8 @@
 
 **Stable — v1.0.0 GA 已发布，核心功能已完备。**
 
+变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+
 CI 矩阵覆盖 H2 / MySQL 8.0 / PostgreSQL 14 三种数据库，全量测试通过。详见 [ADR-0014](docs/adr/0014-multi-database-ci-gate.md)。
 
 ### 收尾声明
@@ -217,6 +219,9 @@ List<ApprovalRecordVO> history = flowablePlus.getApprovalHistory("proc-001");
 | ADR-0034 | 常规审批操作多实例拦截改运行时判定（伪单例放行） |
 | ADR-0035 | 折返后发起人决策任务放行常规驳回/返回/跳转/撤回 |
 | ADR-0036 | NodeFinder 正向遍历接口收窄为 TraversalMode 入口 |
+| ADR-0037 | 否决审批操作样板提取执行模板（架构审查 C2） |
+| ADR-0038 | 否决会签回退策略工厂拆分（架构审查 C5） |
+| ADR-0039 | 否决 QueryOperations 重载收敛（架构审查 C6） |
 
 详见 `docs/adr/` 目录。
 
