@@ -110,7 +110,25 @@ public final class TaskValidation {
      * @throws IllegalArgumentException 运行时多实例子任务时抛出
      */
     public static void validateNotMultiInstance(MultiInstanceDetector multiInstanceDetector, PlusTask task, String taskId) {
-        if (multiInstanceDetector.isRuntimeMultiInstance(task)) {
+        validateNotMultiInstance(multiInstanceDetector, task, taskId, false);
+    }
+
+    /**
+     * 断言任务为<b>运行时</b>非多实例子任务，可豁免"折返后发起人决策任务"（ADR-0035）。
+     *
+     * <p>在 {@link #validateNotMultiInstance(MultiInstanceDetector, PlusTask, String)} 基础上，
+     * 当 {@code allowInitiatorDecisionTask == true} 时，若任务命中
+     * {@link MultiInstanceDetector#isInitiatorDecisionTask}（折返后发起人单持 MI 决策任务），
+     * 则放行驳回/返回/跳转/撤回等常规操作；其余真多实例（含"会签剩最后 1 人未投"）保持拦截。</p>
+     *
+     * @param allowInitiatorDecisionTask true 时豁免发起人决策任务（用于 rejectTask /
+     *                                   rejectTaskToInitiator / jumpToNode / withdrawTask）
+     * @throws IllegalArgumentException 运行时多实例子任务（且非豁免场景）时抛出
+     */
+    public static void validateNotMultiInstance(MultiInstanceDetector multiInstanceDetector, PlusTask task,
+                                                String taskId, boolean allowInitiatorDecisionTask) {
+        if (multiInstanceDetector.isRuntimeMultiInstance(task)
+                && !(allowInitiatorDecisionTask && multiInstanceDetector.isInitiatorDecisionTask(task))) {
             throw new IllegalArgumentException(
                     "任务 " + taskId + " 是多实例子任务，请使用会签操作(counterSign)");
         }

@@ -157,6 +157,82 @@ class MultiInstanceDetectorTest {
         assertThat(detector.isPseudoSingleton(task)).isFalse();
     }
 
+    // ======================== isInitiatorDecisionTask（ADR-0035） ========================
+
+    @Test
+    void testInitiatorDecisionTaskOnNormalNodeShortCircuitsWithoutQueries() {
+        stubModel(false);
+        PlusTask task = createTask(MI_ACTIVITY_ID);
+
+        assertThat(detector.isInitiatorDecisionTask(task)).isFalse();
+
+        // 普通节点模型短路：不产生任何运行时查询
+        verify(mockTaskService, never()).createTaskQuery();
+        verify(mockHistoryService, never()).createHistoricTaskInstanceQuery();
+    }
+
+    @Test
+    void testInitiatorDecisionTaskActiveCountNotOne() {
+        stubModel(true);
+        stubActiveCount(2L);
+        PlusTask task = createTask(MI_ACTIVITY_ID);
+
+        assertThat(detector.isInitiatorDecisionTask(task)).isFalse();
+
+        // activeCount != 1 时短路，不查询历史、不读变量
+        verify(mockHistoryService, never()).createHistoricTaskInstanceQuery();
+        verify(mockTaskService, never()).getVariable(anyString(), anyString());
+    }
+
+    @Test
+    void testInitiatorDecisionTaskHistoryCountOneNotRecognized() {
+        // 伪单例（活跃 1 人、历史 1 人）→ 不是折返决策任务，不读变量
+        stubModel(true);
+        stubActiveCount(1L);
+        stubHistoryCount(1L);
+        PlusTask task = createTask(MI_ACTIVITY_ID);
+
+        assertThat(detector.isInitiatorDecisionTask(task)).isFalse();
+
+        verify(mockTaskService, never()).getVariable(anyString(), anyString());
+    }
+
+    @Test
+    void testInitiatorDecisionTaskMissingVariableNotRecognized() {
+        // 折返后 1 人持任务但无 countersignInitiator 变量（模式B/未加签）→ 不识别，保持拦截
+        stubModel(true);
+        stubActiveCount(1L);
+        stubHistoryCount(2L);
+        when(mockTaskService.getVariable("task-001", "countersignInitiator_csTask")).thenReturn(null);
+        PlusTask task = createTask(MI_ACTIVITY_ID);
+
+        assertThat(detector.isInitiatorDecisionTask(task)).isFalse();
+    }
+
+    @Test
+    void testInitiatorDecisionTaskAssigneeMismatchNotRecognized() {
+        // "会签剩最后 1 人未投"：assignee 是投票人而非发起人 → 不识别，保持拦截
+        stubModel(true);
+        stubActiveCount(1L);
+        stubHistoryCount(2L);
+        when(mockTaskService.getVariable("task-001", "countersignInitiator_csTask")).thenReturn("initiator");
+        PlusTask task = createTask(MI_ACTIVITY_ID); // assignee = "user1" ≠ initiator
+
+        assertThat(detector.isInitiatorDecisionTask(task)).isFalse();
+    }
+
+    @Test
+    void testInitiatorDecisionTaskRecognized() {
+        // 折返后发起人单持 MI 决策任务：assignee == countersignInitiator_<key> 变量 → 识别
+        stubModel(true);
+        stubActiveCount(1L);
+        stubHistoryCount(3L);
+        when(mockTaskService.getVariable("task-001", "countersignInitiator_csTask")).thenReturn("user1");
+        PlusTask task = createTask(MI_ACTIVITY_ID); // assignee = "user1"
+
+        assertThat(detector.isInitiatorDecisionTask(task)).isTrue();
+    }
+
     // ======================== Helpers ========================
 
     private void stubModel(boolean multiInstance) {
