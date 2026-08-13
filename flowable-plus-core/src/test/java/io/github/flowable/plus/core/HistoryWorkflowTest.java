@@ -3,6 +3,7 @@ package io.github.flowable.plus.core;
 import io.github.flowable.plus.core.enums.ApprovalAction;
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.model.BpmnModelCache;
+import io.github.flowable.plus.core.model.CountersignRoundResolver;
 import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.spi.IdentityResolver;
 import io.github.flowable.plus.core.support.ActionInferenceStrategy;
@@ -86,7 +87,7 @@ public class HistoryWorkflowTest {
 
         historyWorkflow = new HistoryWorkflow(mockHistoryService, mockTaskService,
                 mockBpmnModelCache, mockMultiInstanceDetector, mockIdentityResolver,
-                actionInferenceStrategy);
+                actionInferenceStrategy, new CountersignRoundResolver(mockHistoryService, mockTaskService));
 
         // 每次 createHistoricVariableInstanceQuery() 创建新 mock，通过追踪 variableName 区分返回值
         resetVarQueryStubs();

@@ -3,6 +3,7 @@ package io.github.flowable.plus.starter;
 import io.github.flowable.plus.core.model.BpmnModelCache;
 import io.github.flowable.plus.core.event.EventBus;
 import io.github.flowable.plus.core.workflow.CounterSignWorkflow;
+import io.github.flowable.plus.core.model.CountersignRoundResolver;
 import io.github.flowable.plus.core.model.DefaultBpmnModelCache;
 import io.github.flowable.plus.core.model.DefaultNodeFinder;
 import io.github.flowable.plus.core.model.MultiInstanceDetector;
@@ -105,7 +106,8 @@ class BpmnMultiInstanceIntegrationTest {
         counterSignWorkflow = new CounterSignWorkflow(userContext, mockTaskService,
                 mockHistoryService, mockRuntimeService, multiInstanceDetector, mockNodeFinder,
                 Collections.singletonList(trackingCallback), new EventBus(null),
-                mock(io.github.flowable.plus.core.support.ProcessEndDetector.class));
+                mock(io.github.flowable.plus.core.support.ProcessEndDetector.class),
+                new CountersignRoundResolver(mockHistoryService, mockTaskService));
 
         taskExecutionWorkflow = new TaskExecutionWorkflow(userContext, mockTaskService, mockHistoryService,
                 mockRuntimeService, mockNodeFinder, multiInstanceDetector,
@@ -490,7 +492,8 @@ class BpmnMultiInstanceIntegrationTest {
         CounterSignWorkflow fp = new CounterSignWorkflow(userCtx, mockTaskService,
                 mockHistoryService, mockRuntimeService, multiInstanceDetector, mockNodeFinder,
                 Collections.singletonList(failingCb), new EventBus(null),
-                mock(io.github.flowable.plus.core.support.ProcessEndDetector.class));
+                mock(io.github.flowable.plus.core.support.ProcessEndDetector.class),
+                new CountersignRoundResolver(mockHistoryService, mockTaskService));
 
         PlusTask task = createPlusTask("task-001", "pi-001", "proc-cs", "csTask", USER_ID);
         stubCounterSignMocks(task, createActiveAssignees(USER_ID), 0L, 0L);

@@ -3,6 +3,7 @@ package io.github.flowable.plus.core.workflow;
 import io.github.flowable.plus.core.enums.ApprovalAction;
 import io.github.flowable.plus.core.exception.NotFoundException;
 import io.github.flowable.plus.core.model.BpmnModelCache;
+import io.github.flowable.plus.core.model.CountersignRoundResolver;
 import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.spi.IdentityResolver;
 import io.github.flowable.plus.core.support.ActionInferenceStrategy;
@@ -14,7 +15,6 @@ import org.flowable.engine.history.HistoricActivityInstance;
 import org.flowable.engine.history.HistoricProcessInstance;
 import org.flowable.engine.task.Comment;
 import org.flowable.task.api.history.HistoricTaskInstance;
-import org.flowable.variable.api.history.HistoricVariableInstance;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -60,11 +60,13 @@ public class HistoryWorkflow {
     private final MultiInstanceDetector multiInstanceDetector;
     private final IdentityResolver identityResolver;
     private final ActionInferenceStrategy actionInferenceStrategy;
+    private final CountersignRoundResolver countersignRoundResolver;
 
     public HistoryWorkflow(HistoryService historyService, TaskService taskService,
                            BpmnModelCache bpmnModelCache, MultiInstanceDetector multiInstanceDetector,
                            IdentityResolver identityResolver,
-                           ActionInferenceStrategy actionInferenceStrategy) {
+                           ActionInferenceStrategy actionInferenceStrategy,
+                           CountersignRoundResolver countersignRoundResolver) {
         if (historyService == null) {
             throw new IllegalArgumentException("HistoryService 不可为 null");
         }
@@ -83,12 +85,16 @@ public class HistoryWorkflow {
         if (actionInferenceStrategy == null) {
             throw new IllegalArgumentException("ActionInferenceStrategy 不可为 null");
         }
+        if (countersignRoundResolver == null) {
+            throw new IllegalArgumentException("CountersignRoundResolver 不可为 null");
+        }
         this.historyService = historyService;
         this.taskService = taskService;
         this.bpmnModelCache = bpmnModelCache;
         this.multiInstanceDetector = multiInstanceDetector;
         this.identityResolver = identityResolver;
         this.actionInferenceStrategy = actionInferenceStrategy;
+        this.countersignRoundResolver = countersignRoundResolver;
     }
 
     // ======================== 主方法 ========================
@@ -427,8 +433,8 @@ public class HistoryWorkflow {
             return Collections.emptyList();
         }
 
-        // 2. 查询 csRoundIndex Task 局部变量
-        Map<String, Integer> roundByTaskId = queryCsRoundIndex(processInstanceId);
+        // 2. 查询 csRoundIndex Task 局部变量（C1 收敛：委托给 CountersignRoundResolver）
+        Map<String, Integer> roundByTaskId = countersignRoundResolver.roundIndexByTaskId(processInstanceId);
 
         // 3. 赋值 roundIndex：有显式值直接使用，无则默认 0（原始审批人隐式轮次）
         for (CountersignSubRecord sub : allSubRecords) {
@@ -457,29 +463,6 @@ public class HistoryWorkflow {
         List<ApprovalRecordVO> result = new ArrayList<>();
         for (List<CountersignSubRecord> roundSubRecords : roundMap.values()) {
             result.add(buildRoundVO(roundSubRecords, miGroup));
-        }
-        return result;
-    }
-
-    /**
-     * 查询 Task 局部变量 csRoundIndex，返回 taskId → roundIndex 映射。
-     * Task 局部变量通过 {@code setVariableLocal(taskId, ...)} 设置，
-     * 持久化到 ACT_HI_VARINST（关联 taskId，而非 executionId）。
-     */
-    private Map<String, Integer> queryCsRoundIndex(String processInstanceId) {
-        Map<String, Integer> result = new HashMap<>();
-
-        List<HistoricVariableInstance> vars = historyService
-                .createHistoricVariableInstanceQuery()
-                .processInstanceId(processInstanceId)
-                .variableName(CounterSignWorkflow.CS_ROUND_INDEX_VAR)
-                .list();
-
-        for (HistoricVariableInstance var : vars) {
-            String taskId = var.getTaskId();
-            if (taskId != null && var.getValue() instanceof Integer) {
-                result.put(taskId, (Integer) var.getValue());
-            }
         }
         return result;
     }

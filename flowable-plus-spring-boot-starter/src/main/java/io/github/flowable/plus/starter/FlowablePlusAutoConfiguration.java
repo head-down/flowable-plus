@@ -9,6 +9,7 @@ import io.github.flowable.plus.core.support.CountersignAssigneesListener;
 import io.github.flowable.plus.core.support.DefaultActionInferenceStrategy;
 import io.github.flowable.plus.core.support.ProcessEndDetector;
 import io.github.flowable.plus.core.model.BpmnModelCache;
+import io.github.flowable.plus.core.model.CountersignRoundResolver;
 import io.github.flowable.plus.core.workflow.CounterSignWorkflow;
 import io.github.flowable.plus.core.workflow.DiagramWorkflow;
 import io.github.flowable.plus.core.workflow.FlowableExecutionTreeHelper;
@@ -385,12 +386,13 @@ public class FlowablePlusAutoConfiguration {
                                                    @Autowired(required = false) List<CounterSignCallback> counterSignCallbacks,
                                                    FlowablePlusCounterSignProperties counterSignProps,
                                                    EventBus eventBus,
-                                                   ProcessEndDetector processEndDetector) {
+                                                   ProcessEndDetector processEndDetector,
+                                                   CountersignRoundResolver countersignRoundResolver) {
         List<CounterSignCallback> callbacks = counterSignProps.isEnabled() && counterSignCallbacks != null
                 ? counterSignCallbacks : Collections.emptyList();
         return new CounterSignWorkflow(userContext, taskService, historyService,
                 processEngine.getRuntimeService(), multiInstanceDetector, nodeFinder, callbacks,
-                eventBus, processEndDetector);
+                eventBus, processEndDetector, countersignRoundResolver);
     }
 
     /**
@@ -570,9 +572,11 @@ public class FlowablePlusAutoConfiguration {
                                             BpmnModelCache bpmnModelCache,
                                             MultiInstanceDetector multiInstanceDetector,
                                             IdentityResolver identityResolver,
-                                            ActionInferenceStrategy actionInferenceStrategy) {
+                                            ActionInferenceStrategy actionInferenceStrategy,
+                                            CountersignRoundResolver countersignRoundResolver) {
         return new HistoryWorkflow(historyService, taskService, bpmnModelCache,
-                multiInstanceDetector, identityResolver, actionInferenceStrategy);
+                multiInstanceDetector, identityResolver, actionInferenceStrategy,
+                countersignRoundResolver);
     }
 
     /**
@@ -641,6 +645,24 @@ public class FlowablePlusAutoConfiguration {
                                                         TaskService taskService,
                                                         HistoryService historyService) {
         return new MultiInstanceDetector(bpmnModelCache, taskService, historyService);
+    }
+
+    /**
+     * 注册 CountersignRoundResolver Bean。
+     *
+     * <p>会签轮次解析器（C1 收敛），将 {@code csRoundIndex} 轮次概念在写侧
+     * （CounterSignWorkflow）与读侧（HistoryWorkflow）的双实现收敛为单一查询深模块，
+     * 依赖面只有 HistoryService + TaskService。</p>
+     *
+     * @param taskService    Flowable 任务服务
+     * @param historyService Flowable 历史服务
+     * @return CountersignRoundResolver 实例
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CountersignRoundResolver countersignRoundResolver(TaskService taskService,
+                                                             HistoryService historyService) {
+        return new CountersignRoundResolver(historyService, taskService);
     }
 
     /**

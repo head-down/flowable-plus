@@ -75,3 +75,21 @@
     经确认当前无下游消费证据，风险可控
   - 历史 ADR（0025/0027）中对 `ApprovalTraceVO` / `getApprovalTrace` 的引用
     成为历史记录，仅部分补充交叉引用指向本 ADR
+
+## 补充说明（2026-08-13）
+
+**决策 4「常量收敛」的落点迁移**：C1 会签轮次状态机读写双实现收敛将
+`csRoundIndex` 轮次概念（含 `CS_ROUND_INDEX_VAR` 常量）从写侧 `CounterSignWorkflow`
+与读侧 `HistoryWorkflow` 的双实现收敛为单一查询深模块 `CountersignRoundResolver`
+（`model/` 包，final 类，依赖面仅 HistoryService + TaskService）。
+
+- 常量现为 `CountersignRoundResolver.CS_ROUND_INDEX_VAR`（model 包、
+  public static final），`CounterSignWorkflow`（写侧打标）与 `HistoryWorkflow`
+  （读侧查询）均引用之。
+- 本 ADR 决策 4 的"统一引用 `CounterSignWorkflow.CS_ROUND_INDEX_VAR`
+  （同包 package-visible）"随之失效：收敛方向不变（消除常量双定义、单一来源），
+  仅落点从 `CounterSignWorkflow` 迁至 `CountersignRoundResolver`。
+- 轮次查询逻辑（`isRoundFinished` / `nextRoundIndex` / `currentRoundIndex` /
+  `votedAssigneesInRound` / `roundIndexByTaskId`）同步收敛至 resolver；
+  写侧打标 `setVariableLocal` 与 modeA 检测（读 `countersignInitiator`）保留在
+  `CounterSignWorkflow`。ADR-0019/0020/0024 语义不变，本次为纯重构。
