@@ -6,7 +6,6 @@ import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.model.NodeFinder;
 import io.github.flowable.plus.core.support.AssigneeResolverRegistry;
 import io.github.flowable.plus.core.vo.RollbackResult;
-import org.flowable.engine.HistoryService;
 
 import java.util.List;
 
@@ -32,19 +31,14 @@ import java.util.List;
 class AutoRebuildCountersignRollbackStrategy implements CountersignRollbackStrategy {
 
     private final NodeFinder nodeFinder;
-    private final HistoryService historyService;
     private final MultiInstanceDetector multiInstanceDetector;
     private final AssigneeResolverRegistry assigneeResolverRegistry;
 
     AutoRebuildCountersignRollbackStrategy(NodeFinder nodeFinder,
-                                            HistoryService historyService,
                                             MultiInstanceDetector multiInstanceDetector,
                                             AssigneeResolverRegistry assigneeResolverRegistry) {
         if (nodeFinder == null) {
             throw new IllegalArgumentException("NodeFinder 不可为 null");
-        }
-        if (historyService == null) {
-            throw new IllegalArgumentException("HistoryService 不可为 null");
         }
         if (multiInstanceDetector == null) {
             throw new IllegalArgumentException("MultiInstanceDetector 不可为 null");
@@ -53,7 +47,6 @@ class AutoRebuildCountersignRollbackStrategy implements CountersignRollbackStrat
             throw new IllegalArgumentException("AssigneeResolverRegistry 不可为 null");
         }
         this.nodeFinder = nodeFinder;
-        this.historyService = historyService;
         this.multiInstanceDetector = multiInstanceDetector;
         this.assigneeResolverRegistry = assigneeResolverRegistry;
     }
@@ -65,13 +58,9 @@ class AutoRebuildCountersignRollbackStrategy implements CountersignRollbackStrat
         String processDefinitionId = task.getProcessDefinitionId();
         String processInstanceId = task.getProcessInstanceId();
 
-        // Step 1: 运行时判断是否为多实例
-        long count = historyService.createHistoricTaskInstanceQuery()
-                .processInstanceId(processInstanceId)
-                .taskDefinitionKey(targetActivityId)
-                .count();
-
-        if (count <= 1) {
+        // Step 1: 运行时判断是否为多实例（模型 + 历史计数复合判据单点：MultiInstanceDetector，ADR-0040）
+        if (!multiInstanceDetector.isRuntimeMultiInstanceNode(
+                processDefinitionId, processInstanceId, targetActivityId)) {
             // 运行时单例，直接放行
             return RollbackResult.direct(targetActivityId);
         }

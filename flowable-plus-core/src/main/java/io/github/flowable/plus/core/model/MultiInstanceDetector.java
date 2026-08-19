@@ -100,19 +100,10 @@ public class MultiInstanceDetector {
      * @return true 如果活跃任务数==1 且该节点全局历史任务数==1
      */
     public boolean isPseudoSingleton(PlusTask task) {
-        long activeCount = taskService.createTaskQuery()
-                .processInstanceId(task.getProcessInstanceId())
-                .taskDefinitionKey(task.getTaskDefinitionKey())
-                .active()
-                .count();
-        if (activeCount != 1) {
+        if (countActiveTasks(task.getProcessInstanceId(), task.getTaskDefinitionKey()) != 1) {
             return false;
         }
-        long historyTaskCount = historyService.createHistoricTaskInstanceQuery()
-                .processInstanceId(task.getProcessInstanceId())
-                .taskDefinitionKey(task.getTaskDefinitionKey())
-                .count();
-        return historyTaskCount == 1;
+        return countHistoryTasks(task.getProcessInstanceId(), task.getTaskDefinitionKey()) == 1;
     }
 
     /**
@@ -142,24 +133,51 @@ public class MultiInstanceDetector {
         if (!isMultiInstance(task)) {
             return false;
         }
-        long activeCount = taskService.createTaskQuery()
-                .processInstanceId(task.getProcessInstanceId())
-                .taskDefinitionKey(task.getTaskDefinitionKey())
-                .active()
-                .count();
-        if (activeCount != 1) {
+        if (countActiveTasks(task.getProcessInstanceId(), task.getTaskDefinitionKey()) != 1) {
             return false;
         }
-        long historyTaskCount = historyService.createHistoricTaskInstanceQuery()
-                .processInstanceId(task.getProcessInstanceId())
-                .taskDefinitionKey(task.getTaskDefinitionKey())
-                .count();
-        if (historyTaskCount <= 1) {
+        if (countHistoryTasks(task.getProcessInstanceId(), task.getTaskDefinitionKey()) <= 1) {
             return false;
         }
         Object initiator = taskService.getVariable(task.getId(),
                 buildCountersignInitiatorVarName(task.getTaskDefinitionKey()));
         return initiator != null && initiator.toString().equals(task.getAssignee());
+    }
+
+    /**
+     * 判断指定流程实例中的节点是否为<b>运行时</b>多实例（会签回退重定向判定口径，ADR-0040）。
+     *
+     * <p>复合判据（单点定义）：BPMN 模型为多实例节点 <b>且</b> 该节点全局历史任务数 &gt; 1。
+     * 消费方：{@code getJumpableNodes}（可跳转节点预览）与
+     * {@code AutoRedirectCountersignRollbackStrategy}（回退目标重定向），
+     * 两处的「运行时 MI」判定由此统一。</p>
+     *
+     * <p><b>与 {@link #isRuntimeMultiInstance(PlusTask) 拦截口径}有意并存</b>（ADR-0040），
+     * 二者意图不同，差异如下：</p>
+     * <table border="1" cellpadding="3" cellspacing="0" summary="两个运行时多实例判定口径差异">
+     * <tr><th>&nbsp;</th><th>{@link #isRuntimeMultiInstance(PlusTask)}</th><th>本方法</th></tr>
+     * <tr><td>输入</td><td>PlusTask（有 taskId/assignee）</td><td>defId + piId + nodeId（无任务锚点）</td></tr>
+     * <tr><td>判据</td><td>模型 MI 且 !(active==1 且 history==1)</td><td>模型 MI 且 history &gt; 1</td></tr>
+     * <tr><td>用途</td><td>常规审批操作拦截（ADR-0034）</td><td>回退重定向判定（ADR-0021）</td></tr>
+     * <tr><td>是否看活跃数</td><td>是（伪单例排除）</td><td>否（只看全局历史数）</td></tr>
+     * <tr><td>边界分叉</td><td>active==0 时 true（安全侧）</td><td>history==1 时 false（直连放行）</td></tr>
+     * </table>
+     * <p>两口径在全局历史 == 1 时结论一致（均放行/非运行时多实例）；
+     * 分叉出现在活跃数边界（如活跃==0 或伪单例首次加签场景），属各自语义的正确行为。
+     * <b>严禁以「统一」为名合并两者</b>——意图不同。</p>
+     *
+     * @param processDefinitionId 流程定义 ID
+     * @param processInstanceId   流程实例 ID
+     * @param taskDefinitionKey   任务定义 KEY
+     * @return true 如果模型为多实例节点且该节点全局历史任务数 &gt; 1
+     */
+    public boolean isRuntimeMultiInstanceNode(String processDefinitionId,
+                                              String processInstanceId,
+                                              String taskDefinitionKey) {
+        if (!isMultiInstanceNode(processDefinitionId, taskDefinitionKey)) {
+            return false;
+        }
+        return countHistoryTasks(processInstanceId, taskDefinitionKey) > 1;
     }
 
     /**
@@ -173,6 +191,27 @@ public class MultiInstanceDetector {
      */
     public static String buildCountersignInitiatorVarName(String taskDefinitionKey) {
         return COUNTERSIGN_INITIATOR_VAR_PREFIX + taskDefinitionKey;
+    }
+
+    /**
+     * 统计节点当前活跃任务数（ADR-0040：活跃/历史计数口径单点）。
+     */
+    private long countActiveTasks(String processInstanceId, String taskDefinitionKey) {
+        return taskService.createTaskQuery()
+                .processInstanceId(processInstanceId)
+                .taskDefinitionKey(taskDefinitionKey)
+                .active()
+                .count();
+    }
+
+    /**
+     * 统计节点全局历史任务数（含全部状态：活跃、已完成、被减签删除）。
+     */
+    private long countHistoryTasks(String processInstanceId, String taskDefinitionKey) {
+        return historyService.createHistoricTaskInstanceQuery()
+                .processInstanceId(processInstanceId)
+                .taskDefinitionKey(taskDefinitionKey)
+                .count();
     }
 
     private boolean isMultiInstanceInternal(BpmnModel bpmnModel, String taskDefinitionKey) {

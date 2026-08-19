@@ -3,7 +3,6 @@ package io.github.flowable.plus.core.strategy;
 import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.model.NodeFinder;
 import io.github.flowable.plus.core.support.AssigneeResolverRegistry;
-import org.flowable.engine.HistoryService;
 import org.springframework.lang.Nullable;
 
 import java.util.List;
@@ -39,33 +38,38 @@ public final class CountersignRollbackStrategies {
     /**
      * 创建自动重定向策略：运行时判断 + MI 节点自动重定向至前置单例节点（默认行为）。
      *
+     * <p>运行时判定口径已收敛至
+     * {@link MultiInstanceDetector#isRuntimeMultiInstanceNode}（ADR-0040），
+     * 本策略不再直接依赖 HistoryService。</p>
+     *
      * @param nodeFinder            BPMN 节点遍历器
-     * @param historyService        Flowable 历史服务
      * @param multiInstanceDetector 多实例检测器
      * @return CountersignRollbackStrategy 实例
      */
     public static CountersignRollbackStrategy autoRedirect(
-            NodeFinder nodeFinder, HistoryService historyService,
-            MultiInstanceDetector multiInstanceDetector) {
+            NodeFinder nodeFinder, MultiInstanceDetector multiInstanceDetector) {
         return new AutoRedirectCountersignRollbackStrategy(
-                nodeFinder, historyService, multiInstanceDetector);
+                nodeFinder, multiInstanceDetector);
     }
 
     /**
      * 创建原地重建策略：运行时判断 + SPI 获取新审批人列表原地重建 MI。
      *
+     * <p>运行时判定口径已收敛至
+     * {@link MultiInstanceDetector#isRuntimeMultiInstanceNode}（ADR-0040），
+     * 本策略不再直接依赖 HistoryService。</p>
+     *
      * @param nodeFinder               BPMN 节点遍历器
-     * @param historyService           Flowable 历史服务
      * @param multiInstanceDetector    多实例检测器
      * @param assigneeResolverRegistry 审批人解析注册表（SPI）
      * @return CountersignRollbackStrategy 实例
      */
     public static CountersignRollbackStrategy autoRebuild(
-            NodeFinder nodeFinder, HistoryService historyService,
+            NodeFinder nodeFinder,
             MultiInstanceDetector multiInstanceDetector,
             AssigneeResolverRegistry assigneeResolverRegistry) {
         return new AutoRebuildCountersignRollbackStrategy(
-                nodeFinder, historyService, multiInstanceDetector, assigneeResolverRegistry);
+                nodeFinder, multiInstanceDetector, assigneeResolverRegistry);
     }
 
     /**

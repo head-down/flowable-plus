@@ -5,7 +5,6 @@ import io.github.flowable.plus.core.exception.InvalidTargetNodeException;
 import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.model.NodeFinder;
 import io.github.flowable.plus.core.vo.RollbackResult;
-import org.flowable.engine.HistoryService;
 
 /**
  * 自动重定向模式的会签回退策略：运行时判断 + MI 节点重定向至前置单例节点。
@@ -27,23 +26,17 @@ import org.flowable.engine.HistoryService;
 class AutoRedirectCountersignRollbackStrategy implements CountersignRollbackStrategy {
 
     private final NodeFinder nodeFinder;
-    private final HistoryService historyService;
     private final MultiInstanceDetector multiInstanceDetector;
 
     AutoRedirectCountersignRollbackStrategy(NodeFinder nodeFinder,
-                                            HistoryService historyService,
                                             MultiInstanceDetector multiInstanceDetector) {
         if (nodeFinder == null) {
             throw new IllegalArgumentException("NodeFinder 不可为 null");
-        }
-        if (historyService == null) {
-            throw new IllegalArgumentException("HistoryService 不可为 null");
         }
         if (multiInstanceDetector == null) {
             throw new IllegalArgumentException("MultiInstanceDetector 不可为 null");
         }
         this.nodeFinder = nodeFinder;
-        this.historyService = historyService;
         this.multiInstanceDetector = multiInstanceDetector;
     }
 
@@ -54,13 +47,9 @@ class AutoRedirectCountersignRollbackStrategy implements CountersignRollbackStra
         String processDefinitionId = task.getProcessDefinitionId();
         String processInstanceId = task.getProcessInstanceId();
 
-        // Step 1: 运行时判断是否为多实例
-        long count = historyService.createHistoricTaskInstanceQuery()
-                .processInstanceId(processInstanceId)
-                .taskDefinitionKey(targetActivityId)
-                .count();
-
-        if (count <= 1) {
+        // Step 1: 运行时判断是否为多实例（模型 + 历史计数复合判据单点：MultiInstanceDetector，ADR-0040）
+        if (!multiInstanceDetector.isRuntimeMultiInstanceNode(
+                processDefinitionId, processInstanceId, targetActivityId)) {
             // 运行时单例，直接放行
             return RollbackResult.direct(targetActivityId);
         }

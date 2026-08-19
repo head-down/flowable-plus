@@ -5,8 +5,6 @@ import io.github.flowable.plus.core.exception.InvalidTargetNodeException;
 import io.github.flowable.plus.core.model.MultiInstanceDetector;
 import io.github.flowable.plus.core.model.NodeFinder;
 import io.github.flowable.plus.core.vo.RollbackResult;
-import org.flowable.engine.HistoryService;
-import org.flowable.task.api.history.HistoricTaskInstanceQuery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -32,17 +30,15 @@ public class AutoRedirectCountersignRollbackStrategyTest {
     private static final String PREDECESSOR_ID = "task1";
 
     private NodeFinder mockNodeFinder;
-    private HistoryService mockHistoryService;
     private MultiInstanceDetector mockMultiInstanceDetector;
     private AutoRedirectCountersignRollbackStrategy strategy;
 
     @BeforeEach
     void setUp() {
         mockNodeFinder = mock(NodeFinder.class);
-        mockHistoryService = mock(HistoryService.class);
         mockMultiInstanceDetector = mock(MultiInstanceDetector.class);
         strategy = new AutoRedirectCountersignRollbackStrategy(
-                mockNodeFinder, mockHistoryService, mockMultiInstanceDetector);
+                mockNodeFinder, mockMultiInstanceDetector);
     }
 
     // ======================== 运行时单例 → 直接放行 ========================
@@ -51,8 +47,8 @@ public class AutoRedirectCountersignRollbackStrategyTest {
     void testRuntimeSingleDirectPass() {
         PlusTask task = createTask("task-001", PROCESS_DEF_ID, "task2", PROCESS_INST_ID);
 
-        // count = 0（目标节点从未执行过）
-        stubHistoryCount(PROCESS_INST_ID, MI_ACTIVITY_ID, 0L);
+        // 运行时判定：目标节点非运行时多实例（从未执行过）
+        stubRuntimeMultiInstance(false);
 
         RollbackResult result = strategy.resolveRollbackTarget(
                 task, MI_ACTIVITY_ID);
@@ -66,8 +62,8 @@ public class AutoRedirectCountersignRollbackStrategyTest {
     void testRuntimeSingleCountOneDirectPass() {
         PlusTask task = createTask("task-001", PROCESS_DEF_ID, "task2", PROCESS_INST_ID);
 
-        // count = 1（只有一个人执行过）
-        stubHistoryCount(PROCESS_INST_ID, MI_ACTIVITY_ID, 1L);
+        // 运行时判定：只有一个人执行过（全局历史 == 1）
+        stubRuntimeMultiInstance(false);
 
         RollbackResult result = strategy.resolveRollbackTarget(
                 task, MI_ACTIVITY_ID);
@@ -82,8 +78,8 @@ public class AutoRedirectCountersignRollbackStrategyTest {
     void testRuntimeMultiWithPredecessorRedirects() {
         PlusTask task = createTask("task-001", PROCESS_DEF_ID, "task2", PROCESS_INST_ID);
 
-        // count > 1（真正的多实例）
-        stubHistoryCount(PROCESS_INST_ID, MI_ACTIVITY_ID, 3L);
+        // 运行时判定：真正的多实例（全局历史 > 1）
+        stubRuntimeMultiInstance(true);
 
         // 有唯一前置单例节点
         when(mockMultiInstanceDetector.isMultiInstanceNode(PROCESS_DEF_ID, PREDECESSOR_ID))
@@ -111,7 +107,7 @@ public class AutoRedirectCountersignRollbackStrategyTest {
     void testRedirectMessageContainsFallbackNames() {
         PlusTask task = createTask("task-001", PROCESS_DEF_ID, "task2", PROCESS_INST_ID);
 
-        stubHistoryCount(PROCESS_INST_ID, MI_ACTIVITY_ID, 5L);
+        stubRuntimeMultiInstance(true);
         when(mockMultiInstanceDetector.isMultiInstanceNode(PROCESS_DEF_ID, PREDECESSOR_ID))
                 .thenReturn(false);
         when(mockNodeFinder.findPreviousNodes(PROCESS_DEF_ID, MI_ACTIVITY_ID, PROCESS_INST_ID))
@@ -133,7 +129,7 @@ public class AutoRedirectCountersignRollbackStrategyTest {
     void testRuntimeMultiWithoutPredecessorThrows() {
         PlusTask task = createTask("task-001", PROCESS_DEF_ID, "task2", PROCESS_INST_ID);
 
-        stubHistoryCount(PROCESS_INST_ID, MI_ACTIVITY_ID, 3L);
+        stubRuntimeMultiInstance(true);
 
         // 无前置节点
         when(mockNodeFinder.findPreviousNodes(PROCESS_DEF_ID, MI_ACTIVITY_ID, PROCESS_INST_ID))
@@ -153,7 +149,7 @@ public class AutoRedirectCountersignRollbackStrategyTest {
     void testRuntimeMultiWithMultiplePredecessorsThrows() {
         PlusTask task = createTask("task-001", PROCESS_DEF_ID, "task2", PROCESS_INST_ID);
 
-        stubHistoryCount(PROCESS_INST_ID, MI_ACTIVITY_ID, 3L);
+        stubRuntimeMultiInstance(true);
 
         // 多个前置节点（都不是 MI）
         when(mockMultiInstanceDetector.isMultiInstanceNode(PROCESS_DEF_ID, "taskA"))
@@ -175,7 +171,7 @@ public class AutoRedirectCountersignRollbackStrategyTest {
     void testRuntimeMultiWithAllMIPredecessorsThrows() {
         PlusTask task = createTask("task-001", PROCESS_DEF_ID, "task2", PROCESS_INST_ID);
 
-        stubHistoryCount(PROCESS_INST_ID, MI_ACTIVITY_ID, 3L);
+        stubRuntimeMultiInstance(true);
 
         // 前置节点全是 MI 节点，过滤后为空
         when(mockMultiInstanceDetector.isMultiInstanceNode(PROCESS_DEF_ID, "miNode1"))
@@ -197,7 +193,7 @@ public class AutoRedirectCountersignRollbackStrategyTest {
     void testBlockedErrorMessageContainsGuidance() {
         PlusTask task = createTask("task-001", PROCESS_DEF_ID, "task2", PROCESS_INST_ID);
 
-        stubHistoryCount(PROCESS_INST_ID, MI_ACTIVITY_ID, 3L);
+        stubRuntimeMultiInstance(true);
         when(mockNodeFinder.findPreviousNodes(PROCESS_DEF_ID, MI_ACTIVITY_ID, PROCESS_INST_ID))
                 .thenReturn(Collections.emptyList());
         when(mockNodeFinder.getNodeName(PROCESS_DEF_ID, MI_ACTIVITY_ID))
@@ -216,7 +212,7 @@ public class AutoRedirectCountersignRollbackStrategyTest {
     void testBlockedErrorMessageWithoutNodeName() {
         PlusTask task = createTask("task-001", PROCESS_DEF_ID, "task2", PROCESS_INST_ID);
 
-        stubHistoryCount(PROCESS_INST_ID, MI_ACTIVITY_ID, 3L);
+        stubRuntimeMultiInstance(true);
         when(mockNodeFinder.findPreviousNodes(PROCESS_DEF_ID, MI_ACTIVITY_ID, PROCESS_INST_ID))
                 .thenReturn(Collections.emptyList());
         when(mockNodeFinder.getNodeName(PROCESS_DEF_ID, MI_ACTIVITY_ID)).thenReturn(null);
@@ -232,23 +228,15 @@ public class AutoRedirectCountersignRollbackStrategyTest {
     @Test
     void testConstructorNullNodeFinder() {
         assertThatThrownBy(() -> new AutoRedirectCountersignRollbackStrategy(
-                null, mockHistoryService, mockMultiInstanceDetector))
+                null, mockMultiInstanceDetector))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("NodeFinder");
     }
 
     @Test
-    void testConstructorNullHistoryService() {
-        assertThatThrownBy(() -> new AutoRedirectCountersignRollbackStrategy(
-                mockNodeFinder, null, mockMultiInstanceDetector))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("HistoryService");
-    }
-
-    @Test
     void testConstructorNullMultiInstanceDetector() {
         assertThatThrownBy(() -> new AutoRedirectCountersignRollbackStrategy(
-                mockNodeFinder, mockHistoryService, null))
+                mockNodeFinder, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("MultiInstanceDetector");
     }
@@ -320,11 +308,12 @@ public class AutoRedirectCountersignRollbackStrategyTest {
                 "user1", null, "测试任务", "exec-" + taskId, new Date());
     }
 
-    private void stubHistoryCount(String processInstanceId, String taskDefinitionKey, long count) {
-        HistoricTaskInstanceQuery histQuery = mock(HistoricTaskInstanceQuery.class);
-        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(histQuery);
-        when(histQuery.processInstanceId(processInstanceId)).thenReturn(histQuery);
-        when(histQuery.taskDefinitionKey(taskDefinitionKey)).thenReturn(histQuery);
-        when(histQuery.count()).thenReturn(count);
+    /**
+     * Stub 运行时 MI 判定（复合判据已收敛至 MultiInstanceDetector，ADR-0040）。
+     */
+    private void stubRuntimeMultiInstance(boolean runtimeMultiInstance) {
+        when(mockMultiInstanceDetector.isRuntimeMultiInstanceNode(
+                PROCESS_DEF_ID, PROCESS_INST_ID, MI_ACTIVITY_ID))
+                .thenReturn(runtimeMultiInstance);
     }
 }

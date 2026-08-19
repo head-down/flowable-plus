@@ -785,17 +785,12 @@ public class TaskExecutionWorkflowTest {
         PlusTask task = createTask("task-001", "leave:1:abc", "task3", "pi-001", USER_ID);
         stubTaskExistsWithAssignee(task);
 
-        // MI 节点在 BPMN 模型中，但运行时 count <= 1
+        // MI 节点在 BPMN 模型中，但运行时全局历史数 <= 1（复合判据已收敛至 MID，ADR-0040）
         when(mockNodeFinder.findCompletedUserTasks("leave:1:abc", "task3", "pi-001"))
                 .thenReturn(Collections.singletonList("miNode"));
         when(mockNodeFinder.getNodeName("leave:1:abc", "miNode")).thenReturn("会签节点");
-        when(mockMultiInstanceDetector.isMultiInstanceNode("leave:1:abc", "miNode")).thenReturn(true);
-
-        // count = 1（运行时单例）
-        HistoricTaskInstanceQuery countQuery = mock(HistoricTaskInstanceQuery.class);
-        when(countQuery.processInstanceId("pi-001")).thenReturn(countQuery);
-        when(countQuery.taskDefinitionKey("miNode")).thenReturn(countQuery);
-        when(countQuery.count()).thenReturn(1L);
+        when(mockMultiInstanceDetector.isRuntimeMultiInstanceNode("leave:1:abc", "pi-001", "miNode"))
+                .thenReturn(false);
 
         // 历史任务查询
         HistoricTaskInstance historicTask = createMockHistoricTask(
@@ -809,8 +804,7 @@ public class TaskExecutionWorkflowTest {
         when(histQuery.desc()).thenReturn(histQuery);
         when(histQuery.listPage(0, 1)).thenReturn(Collections.singletonList(historicTask));
 
-        when(mockHistoryService.createHistoricTaskInstanceQuery())
-                .thenReturn(countQuery).thenReturn(histQuery);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(histQuery);
 
         List<JumpableNodeVO> result = workflow.getJumpableNodes("task-001");
 
@@ -829,13 +823,9 @@ public class TaskExecutionWorkflowTest {
         when(mockNodeFinder.findCompletedUserTasks("leave:1:abc", "task3", "pi-001"))
                 .thenReturn(Collections.singletonList("miNode"));
         when(mockNodeFinder.getNodeName("leave:1:abc", "miNode")).thenReturn("会签节点");
-        when(mockMultiInstanceDetector.isMultiInstanceNode("leave:1:abc", "miNode")).thenReturn(true);
-
-        // count = 3（运行时真正多实例）
-        HistoricTaskInstanceQuery countQuery = mock(HistoricTaskInstanceQuery.class);
-        when(countQuery.processInstanceId("pi-001")).thenReturn(countQuery);
-        when(countQuery.taskDefinitionKey("miNode")).thenReturn(countQuery);
-        when(countQuery.count()).thenReturn(3L);
+        // 运行时真正多实例（全局历史数 > 1，复合判据已收敛至 MID，ADR-0040）
+        when(mockMultiInstanceDetector.isRuntimeMultiInstanceNode("leave:1:abc", "pi-001", "miNode"))
+                .thenReturn(true);
 
         // 前置节点查找
         when(mockNodeFinder.findPreviousNodes("leave:1:abc", "miNode", "pi-001"))
@@ -855,8 +845,7 @@ public class TaskExecutionWorkflowTest {
         when(histQuery.desc()).thenReturn(histQuery);
         when(histQuery.listPage(0, 1)).thenReturn(Collections.singletonList(historicTask));
 
-        when(mockHistoryService.createHistoricTaskInstanceQuery())
-                .thenReturn(countQuery).thenReturn(histQuery);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(histQuery);
 
         List<JumpableNodeVO> result = workflow.getJumpableNodes("task-001");
 
@@ -879,14 +868,9 @@ public class TaskExecutionWorkflowTest {
                 .thenReturn(Arrays.asList("miNode", "task2"));
         when(mockNodeFinder.getNodeName("leave:1:abc", "miNode")).thenReturn("会签节点");
         when(mockNodeFinder.getNodeName("leave:1:abc", "task2")).thenReturn("普通节点");
-        when(mockMultiInstanceDetector.isMultiInstanceNode("leave:1:abc", "miNode")).thenReturn(true);
-        when(mockMultiInstanceDetector.isMultiInstanceNode("leave:1:abc", "task2")).thenReturn(false);
-
-        // miNode count = 3，但无前置 → 应被过滤
-        HistoricTaskInstanceQuery countQuery = mock(HistoricTaskInstanceQuery.class);
-        when(countQuery.processInstanceId("pi-001")).thenReturn(countQuery);
-        when(countQuery.taskDefinitionKey("miNode")).thenReturn(countQuery);
-        when(countQuery.count()).thenReturn(3L);
+        // miNode 运行时多实例（复合判据已收敛至 MID，ADR-0040），但无前置 → 应被过滤
+        when(mockMultiInstanceDetector.isRuntimeMultiInstanceNode("leave:1:abc", "pi-001", "miNode"))
+                .thenReturn(true);
         when(mockNodeFinder.findPreviousNodes("leave:1:abc", "miNode", "pi-001"))
                 .thenReturn(Collections.emptyList());
 
@@ -902,8 +886,7 @@ public class TaskExecutionWorkflowTest {
         when(histQuery2.desc()).thenReturn(histQuery2);
         when(histQuery2.listPage(0, 1)).thenReturn(Collections.singletonList(historicTask2));
 
-        when(mockHistoryService.createHistoricTaskInstanceQuery())
-                .thenReturn(countQuery).thenReturn(histQuery2);
+        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(histQuery2);
 
         List<JumpableNodeVO> result = workflow.getJumpableNodes("task-001");
 

@@ -275,32 +275,24 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
         for (String nodeId : nodeIds) {
             String nodeName = nodeFinder.getNodeName(processDefinitionId, nodeId);
 
-            // 运行时检测 MI 节点
-            boolean isMIInModel = multiInstanceDetector.isMultiInstanceNode(processDefinitionId, nodeId);
+            // 运行时检测 MI 节点（模型 + 历史计数复合判据单点：MultiInstanceDetector，ADR-0040）
             String displayName = null;
 
-            if (isMIInModel) {
-                long runtimeCount = historyService.createHistoricTaskInstanceQuery()
-                        .processInstanceId(processInstanceId)
-                        .taskDefinitionKey(nodeId)
-                        .count();
-
-                if (runtimeCount > 1) {
-                    // 运行时多实例：查找前置单例节点
-                    String predecessorId = CountersignRollbackStrategies
-                            .resolveMultiInstancePredecessor(
-                                    processDefinitionId, processInstanceId, nodeId,
-                                    nodeFinder, multiInstanceDetector);
-                    if (predecessorId != null) {
-                        String predecessorName = nodeFinder.getNodeName(
-                                processDefinitionId, predecessorId);
-                        displayName = nodeName + "（系统将重定向至: " + predecessorName + "）";
-                    } else {
-                        // 无前置单例节点，不包含在可跳转列表中
-                        continue;
-                    }
+            if (multiInstanceDetector.isRuntimeMultiInstanceNode(
+                    processDefinitionId, processInstanceId, nodeId)) {
+                // 运行时多实例：查找前置单例节点
+                String predecessorId = CountersignRollbackStrategies
+                        .resolveMultiInstancePredecessor(
+                                processDefinitionId, processInstanceId, nodeId,
+                                nodeFinder, multiInstanceDetector);
+                if (predecessorId != null) {
+                    String predecessorName = nodeFinder.getNodeName(
+                            processDefinitionId, predecessorId);
+                    displayName = nodeName + "（系统将重定向至: " + predecessorName + "）";
+                } else {
+                    // 无前置单例节点，不包含在可跳转列表中
+                    continue;
                 }
-                // runtimeCount <= 1: 运行时单例，正常包含
             }
 
             List<HistoricTaskInstance> tasks = historyService.createHistoricTaskInstanceQuery()

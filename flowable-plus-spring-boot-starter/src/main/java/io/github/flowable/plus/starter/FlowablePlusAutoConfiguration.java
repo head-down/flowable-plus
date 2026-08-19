@@ -273,7 +273,6 @@ public class FlowablePlusAutoConfiguration {
      *
      * @param multiInstanceDetector 多实例检测模块
      * @param nodeFinder            BPMN 节点遍历器
-     * @param historyService        Flowable 历史服务
      * @param rollbackProperties    会签回退配置属性
      * @return CountersignRollbackStrategy 实例
      */
@@ -282,7 +281,6 @@ public class FlowablePlusAutoConfiguration {
     public CountersignRollbackStrategy countersignRollbackStrategy(
             MultiInstanceDetector multiInstanceDetector,
             NodeFinder nodeFinder,
-            HistoryService historyService,
             FlowablePlusCountersignRollbackProperties rollbackProperties,
             AssigneeResolverRegistry assigneeResolverRegistry) {
         FlowablePlusCountersignRollbackProperties.CountersignRollbackStrategyType strategy =
@@ -290,15 +288,15 @@ public class FlowablePlusAutoConfiguration {
         switch (strategy) {
             case AUTO_REDIRECT:
                 return CountersignRollbackStrategies.autoRedirect(
-                        nodeFinder, historyService, multiInstanceDetector);
+                        nodeFinder, multiInstanceDetector);
             case AUTO_REBUILD:
                 return CountersignRollbackStrategies.autoRebuild(
-                        nodeFinder, historyService, multiInstanceDetector, assigneeResolverRegistry);
+                        nodeFinder, multiInstanceDetector, assigneeResolverRegistry);
             case STRICT:
                 return CountersignRollbackStrategies.strict(multiInstanceDetector);
             default:
                 return CountersignRollbackStrategies.autoRedirect(
-                        nodeFinder, historyService, multiInstanceDetector);
+                        nodeFinder, multiInstanceDetector);
         }
     }
 
