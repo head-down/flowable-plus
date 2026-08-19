@@ -233,6 +233,63 @@ class MultiInstanceDetectorTest {
         assertThat(detector.isInitiatorDecisionTask(task)).isTrue();
     }
 
+    // ======================== isRuntimeMultiInstanceNode（ADR-0040 重定向口径） ========================
+
+    @Test
+    void testRuntimeMultiInstanceNodeOnNormalNodeShortCircuitsWithoutQueries() {
+        stubModel(false);
+
+        assertThat(detector.isRuntimeMultiInstanceNode(
+                PROCESS_DEF_ID, PROCESS_INST_ID, MI_ACTIVITY_ID)).isFalse();
+
+        // 普通节点模型短路：不产生任何运行时查询
+        verify(mockTaskService, never()).createTaskQuery();
+        verify(mockHistoryService, never()).createHistoricTaskInstanceQuery();
+    }
+
+    @Test
+    void testRuntimeMultiInstanceNodeHistoryCountOneIsRuntimeSingleton() {
+        // 全局历史 == 1（伪单例/单实例运行）：非运行时多实例 → 回退直连放行
+        stubModel(true);
+        stubHistoryCount(1L);
+
+        assertThat(detector.isRuntimeMultiInstanceNode(
+                PROCESS_DEF_ID, PROCESS_INST_ID, MI_ACTIVITY_ID)).isFalse();
+    }
+
+    @Test
+    void testRuntimeMultiInstanceNodeHistoryCountZeroIsRuntimeSingleton() {
+        // 节点无历史记录（AutoRedirect direct 放行路径）
+        stubModel(true);
+        stubHistoryCount(0L);
+
+        assertThat(detector.isRuntimeMultiInstanceNode(
+                PROCESS_DEF_ID, PROCESS_INST_ID, MI_ACTIVITY_ID)).isFalse();
+    }
+
+    @Test
+    void testRuntimeMultiInstanceNodeHistoryCountGreaterThanOne() {
+        stubModel(true);
+        stubHistoryCount(2L);
+
+        assertThat(detector.isRuntimeMultiInstanceNode(
+                PROCESS_DEF_ID, PROCESS_INST_ID, MI_ACTIVITY_ID)).isTrue();
+    }
+
+    @Test
+    void testRuntimeMultiInstanceNodeIgnoresActiveCount() {
+        // 口径分叉点（ADR-0040）：重定向判定只看全局历史数，不看活跃数——
+        // 即使活跃为 0（与拦截口径 isRuntimeMultiInstance 的保守行为不同），
+        // 历史 > 1 仍判运行时多实例；且全程不发起活跃任务查询
+        stubModel(true);
+        stubHistoryCount(2L);
+
+        assertThat(detector.isRuntimeMultiInstanceNode(
+                PROCESS_DEF_ID, PROCESS_INST_ID, MI_ACTIVITY_ID)).isTrue();
+
+        verify(mockTaskService, never()).createTaskQuery();
+    }
+
     // ======================== Helpers ========================
 
     private void stubModel(boolean multiInstance) {

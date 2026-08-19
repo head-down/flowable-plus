@@ -7,8 +7,6 @@ import io.github.flowable.plus.core.model.NodeFinder;
 import io.github.flowable.plus.core.support.AssigneeResolverRegistry;
 import io.github.flowable.plus.core.spi.AssigneeResolver;
 import io.github.flowable.plus.core.vo.RollbackResult;
-import org.flowable.engine.HistoryService;
-import org.flowable.task.api.history.HistoricTaskInstanceQuery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -35,7 +33,6 @@ public class AutoRebuildCountersignRollbackStrategyTest {
     private static final String PREDECESSOR_ID = "task1";
 
     private NodeFinder mockNodeFinder;
-    private HistoryService mockHistoryService;
     private MultiInstanceDetector mockMultiInstanceDetector;
     private AssigneeResolverRegistry assigneeResolverRegistry;
     private AutoRebuildCountersignRollbackStrategy strategy;
@@ -43,11 +40,10 @@ public class AutoRebuildCountersignRollbackStrategyTest {
     @BeforeEach
     void setUp() {
         mockNodeFinder = mock(NodeFinder.class);
-        mockHistoryService = mock(HistoryService.class);
         mockMultiInstanceDetector = mock(MultiInstanceDetector.class);
         assigneeResolverRegistry = new AssigneeResolverRegistry();
         strategy = new AutoRebuildCountersignRollbackStrategy(
-                mockNodeFinder, mockHistoryService, mockMultiInstanceDetector,
+                mockNodeFinder, mockMultiInstanceDetector,
                 assigneeResolverRegistry);
     }
 
@@ -57,7 +53,7 @@ public class AutoRebuildCountersignRollbackStrategyTest {
     void testRuntimeSingleCountZeroDirectPass() {
         PlusTask task = createTask("task-001", PROCESS_DEF_ID, "task2", PROCESS_INST_ID);
 
-        stubHistoryCount(PROCESS_INST_ID, MI_ACTIVITY_ID, 0L);
+        stubRuntimeMultiInstance(false);
 
         RollbackResult result = strategy.resolveRollbackTarget(
                 task, MI_ACTIVITY_ID);
@@ -71,7 +67,7 @@ public class AutoRebuildCountersignRollbackStrategyTest {
     void testRuntimeSingleCountOneDirectPass() {
         PlusTask task = createTask("task-001", PROCESS_DEF_ID, "task2", PROCESS_INST_ID);
 
-        stubHistoryCount(PROCESS_INST_ID, MI_ACTIVITY_ID, 1L);
+        stubRuntimeMultiInstance(false);
 
         RollbackResult result = strategy.resolveRollbackTarget(
                 task, MI_ACTIVITY_ID);
@@ -86,14 +82,14 @@ public class AutoRebuildCountersignRollbackStrategyTest {
     void testWithSpiRebuildsInPlace() {
         PlusTask task = createTask("task-001", PROCESS_DEF_ID, "task2", PROCESS_INST_ID);
 
-        stubHistoryCount(PROCESS_INST_ID, MI_ACTIVITY_ID, 3L);
+        stubRuntimeMultiInstance(true);
 
         List<String> assigneeList = Arrays.asList("user1", "user2", "user3");
         AssigneeResolver resolver = (procInstId, taskDefKey) -> assigneeList;
         assigneeResolverRegistry = new AssigneeResolverRegistry(
                 Collections.singletonList(resolver));
         strategy = new AutoRebuildCountersignRollbackStrategy(
-                mockNodeFinder, mockHistoryService, mockMultiInstanceDetector,
+                mockNodeFinder, mockMultiInstanceDetector,
                 assigneeResolverRegistry);
 
         RollbackResult result = strategy.resolveRollbackTarget(
@@ -108,14 +104,14 @@ public class AutoRebuildCountersignRollbackStrategyTest {
     void testWithSpiSingleAssigneeRebuildsInPlace() {
         PlusTask task = createTask("task-001", PROCESS_DEF_ID, "task2", PROCESS_INST_ID);
 
-        stubHistoryCount(PROCESS_INST_ID, MI_ACTIVITY_ID, 2L);
+        stubRuntimeMultiInstance(true);
 
         List<String> assigneeList = Collections.singletonList("user1");
         AssigneeResolver resolver = (procInstId, taskDefKey) -> assigneeList;
         assigneeResolverRegistry = new AssigneeResolverRegistry(
                 Collections.singletonList(resolver));
         strategy = new AutoRebuildCountersignRollbackStrategy(
-                mockNodeFinder, mockHistoryService, mockMultiInstanceDetector,
+                mockNodeFinder, mockMultiInstanceDetector,
                 assigneeResolverRegistry);
 
         RollbackResult result = strategy.resolveRollbackTarget(
@@ -130,7 +126,7 @@ public class AutoRebuildCountersignRollbackStrategyTest {
     void testWithoutSpiRedirectsWhenPredecessorExists() {
         PlusTask task = createTask("task-001", PROCESS_DEF_ID, "task2", PROCESS_INST_ID);
 
-        stubHistoryCount(PROCESS_INST_ID, MI_ACTIVITY_ID, 3L);
+        stubRuntimeMultiInstance(true);
 
         // SPI 无实现 → 降级
         // 有前置单例节点
@@ -158,14 +154,14 @@ public class AutoRebuildCountersignRollbackStrategyTest {
     void testWithSpiEmptyAndPredecessorRedirects() {
         PlusTask task = createTask("task-001", PROCESS_DEF_ID, "task2", PROCESS_INST_ID);
 
-        stubHistoryCount(PROCESS_INST_ID, MI_ACTIVITY_ID, 3L);
+        stubRuntimeMultiInstance(true);
 
         // SPI 返回空列表
         AssigneeResolver resolver = (procInstId, taskDefKey) -> Collections.emptyList();
         assigneeResolverRegistry = new AssigneeResolverRegistry(
                 Collections.singletonList(resolver));
         strategy = new AutoRebuildCountersignRollbackStrategy(
-                mockNodeFinder, mockHistoryService, mockMultiInstanceDetector,
+                mockNodeFinder, mockMultiInstanceDetector,
                 assigneeResolverRegistry);
 
         when(mockMultiInstanceDetector.isMultiInstanceNode(PROCESS_DEF_ID, PREDECESSOR_ID))
@@ -188,7 +184,7 @@ public class AutoRebuildCountersignRollbackStrategyTest {
     void testWithoutSpiNoPredecessorThrows() {
         PlusTask task = createTask("task-001", PROCESS_DEF_ID, "task2", PROCESS_INST_ID);
 
-        stubHistoryCount(PROCESS_INST_ID, MI_ACTIVITY_ID, 3L);
+        stubRuntimeMultiInstance(true);
 
         when(mockNodeFinder.findPreviousNodes(PROCESS_DEF_ID, MI_ACTIVITY_ID, PROCESS_INST_ID))
                 .thenReturn(Collections.emptyList());
@@ -206,14 +202,14 @@ public class AutoRebuildCountersignRollbackStrategyTest {
     void testWithSpiNullAndNoPredecessorThrows() {
         PlusTask task = createTask("task-001", PROCESS_DEF_ID, "task2", PROCESS_INST_ID);
 
-        stubHistoryCount(PROCESS_INST_ID, MI_ACTIVITY_ID, 3L);
+        stubRuntimeMultiInstance(true);
 
         // SPI 返回 null
         AssigneeResolver resolver = (procInstId, taskDefKey) -> null;
         assigneeResolverRegistry = new AssigneeResolverRegistry(
                 Collections.singletonList(resolver));
         strategy = new AutoRebuildCountersignRollbackStrategy(
-                mockNodeFinder, mockHistoryService, mockMultiInstanceDetector,
+                mockNodeFinder, mockMultiInstanceDetector,
                 assigneeResolverRegistry);
 
         when(mockNodeFinder.findPreviousNodes(PROCESS_DEF_ID, MI_ACTIVITY_ID, PROCESS_INST_ID))
@@ -232,23 +228,15 @@ public class AutoRebuildCountersignRollbackStrategyTest {
     @Test
     void testConstructorNullNodeFinder() {
         assertThatThrownBy(() -> new AutoRebuildCountersignRollbackStrategy(
-                null, mockHistoryService, mockMultiInstanceDetector, assigneeResolverRegistry))
+                null, mockMultiInstanceDetector, assigneeResolverRegistry))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("NodeFinder");
     }
 
     @Test
-    void testConstructorNullHistoryService() {
-        assertThatThrownBy(() -> new AutoRebuildCountersignRollbackStrategy(
-                mockNodeFinder, null, mockMultiInstanceDetector, assigneeResolverRegistry))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("HistoryService");
-    }
-
-    @Test
     void testConstructorNullMultiInstanceDetector() {
         assertThatThrownBy(() -> new AutoRebuildCountersignRollbackStrategy(
-                mockNodeFinder, mockHistoryService, null, assigneeResolverRegistry))
+                mockNodeFinder, null, assigneeResolverRegistry))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("MultiInstanceDetector");
     }
@@ -256,7 +244,7 @@ public class AutoRebuildCountersignRollbackStrategyTest {
     @Test
     void testConstructorNullAssigneeResolverRegistry() {
         assertThatThrownBy(() -> new AutoRebuildCountersignRollbackStrategy(
-                mockNodeFinder, mockHistoryService, mockMultiInstanceDetector, null))
+                mockNodeFinder, mockMultiInstanceDetector, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("AssigneeResolverRegistry");
     }
@@ -267,7 +255,7 @@ public class AutoRebuildCountersignRollbackStrategyTest {
     void testRegistryPicksFirstNonEmptyResolver() {
         PlusTask task = createTask("task-001", PROCESS_DEF_ID, "task2", PROCESS_INST_ID);
 
-        stubHistoryCount(PROCESS_INST_ID, MI_ACTIVITY_ID, 3L);
+        stubRuntimeMultiInstance(true);
 
         // 第一个返回空，第二个有结果
         AssigneeResolver emptyResolver = (procInstId, taskDefKey) -> Collections.emptyList();
@@ -276,7 +264,7 @@ public class AutoRebuildCountersignRollbackStrategyTest {
         assigneeResolverRegistry = new AssigneeResolverRegistry(
                 Arrays.asList(emptyResolver, validResolver));
         strategy = new AutoRebuildCountersignRollbackStrategy(
-                mockNodeFinder, mockHistoryService, mockMultiInstanceDetector,
+                mockNodeFinder, mockMultiInstanceDetector,
                 assigneeResolverRegistry);
 
         RollbackResult result = strategy.resolveRollbackTarget(
@@ -289,7 +277,7 @@ public class AutoRebuildCountersignRollbackStrategyTest {
     void testRegistryAllEmptyFallsBack() {
         PlusTask task = createTask("task-001", PROCESS_DEF_ID, "task2", PROCESS_INST_ID);
 
-        stubHistoryCount(PROCESS_INST_ID, MI_ACTIVITY_ID, 3L);
+        stubRuntimeMultiInstance(true);
 
         // 全部返回空
         AssigneeResolver resolver1 = (procInstId, taskDefKey) -> Collections.emptyList();
@@ -297,7 +285,7 @@ public class AutoRebuildCountersignRollbackStrategyTest {
         assigneeResolverRegistry = new AssigneeResolverRegistry(
                 Arrays.asList(resolver1, resolver2));
         strategy = new AutoRebuildCountersignRollbackStrategy(
-                mockNodeFinder, mockHistoryService, mockMultiInstanceDetector,
+                mockNodeFinder, mockMultiInstanceDetector,
                 assigneeResolverRegistry);
 
         when(mockMultiInstanceDetector.isMultiInstanceNode(PROCESS_DEF_ID, PREDECESSOR_ID))
@@ -322,11 +310,12 @@ public class AutoRebuildCountersignRollbackStrategyTest {
                 "user1", null, "测试任务", "exec-" + taskId, new Date());
     }
 
-    private void stubHistoryCount(String processInstanceId, String taskDefinitionKey, long count) {
-        HistoricTaskInstanceQuery histQuery = mock(HistoricTaskInstanceQuery.class);
-        when(mockHistoryService.createHistoricTaskInstanceQuery()).thenReturn(histQuery);
-        when(histQuery.processInstanceId(processInstanceId)).thenReturn(histQuery);
-        when(histQuery.taskDefinitionKey(taskDefinitionKey)).thenReturn(histQuery);
-        when(histQuery.count()).thenReturn(count);
+    /**
+     * Stub 运行时 MI 判定（复合判据已收敛至 MultiInstanceDetector，ADR-0040）。
+     */
+    private void stubRuntimeMultiInstance(boolean runtimeMultiInstance) {
+        when(mockMultiInstanceDetector.isRuntimeMultiInstanceNode(
+                PROCESS_DEF_ID, PROCESS_INST_ID, MI_ACTIVITY_ID))
+                .thenReturn(runtimeMultiInstance);
     }
 }

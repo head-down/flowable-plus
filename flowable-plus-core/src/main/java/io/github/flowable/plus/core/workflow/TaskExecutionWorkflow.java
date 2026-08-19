@@ -275,33 +275,21 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
         for (String nodeId : nodeIds) {
             String nodeName = nodeFinder.getNodeName(processDefinitionId, nodeId);
 
-            // 运行时检测 MI 节点
-            boolean isMIInModel = multiInstanceDetector.isMultiInstanceNode(processDefinitionId, nodeId);
-            String displayName = null;
+            // 判定+前置解析+文案骨架共享（ADR-0041）；执行态 AutoRedirect 策略与本方法共用此助手
+            RollbackResult redirect = CountersignRollbackStrategies.resolveRedirectOutcome(
+                    processDefinitionId, processInstanceId, nodeId,
+                    nodeFinder, multiInstanceDetector,
+                    // 预览态措辞
+                    (targetDisplay, predecessorDisplay) ->
+                            targetDisplay + "（系统将重定向至: " + predecessorDisplay + "）");
 
-            if (isMIInModel) {
-                long runtimeCount = historyService.createHistoricTaskInstanceQuery()
-                        .processInstanceId(processInstanceId)
-                        .taskDefinitionKey(nodeId)
-                        .count();
-
-                if (runtimeCount > 1) {
-                    // 运行时多实例：查找前置单例节点
-                    String predecessorId = CountersignRollbackStrategies
-                            .resolveMultiInstancePredecessor(
-                                    processDefinitionId, processInstanceId, nodeId,
-                                    nodeFinder, multiInstanceDetector);
-                    if (predecessorId != null) {
-                        String predecessorName = nodeFinder.getNodeName(
-                                processDefinitionId, predecessorId);
-                        displayName = nodeName + "（系统将重定向至: " + predecessorName + "）";
-                    } else {
-                        // 无前置单例节点，不包含在可跳转列表中
-                        continue;
-                    }
-                }
-                // runtimeCount <= 1: 运行时单例，正常包含
+            if (redirect == null) {
+                // 运行时 MI 但无前置 → 不包含在可跳转列表中
+                continue;
             }
+
+            // 非运行时 MI → displayName=null；运行时 MI 有前置 → displayName=redirectMessage
+            String displayName = redirect.getRedirectMessage();
 
             List<HistoricTaskInstance> tasks = historyService.createHistoricTaskInstanceQuery()
                     .processInstanceId(processInstanceId)

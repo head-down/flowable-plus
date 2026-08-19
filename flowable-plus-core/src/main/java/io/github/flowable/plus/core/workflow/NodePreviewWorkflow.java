@@ -11,6 +11,8 @@ import io.github.flowable.plus.core.vo.NodeApproverVO;
 import io.github.flowable.plus.core.model.BpmnModelCache;
 import io.github.flowable.plus.core.model.NodeFinder;
 import io.github.flowable.plus.core.support.BpmnFormDataHelper;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.bpmn.model.FlowElement;
 import org.flowable.bpmn.model.StartEvent;
@@ -123,16 +125,12 @@ public class NodePreviewWorkflow {
      * @return 下游节点列表
      */
     public List<NextTaskNodeVO> getNextTaskNodes(String taskId, TraversalMode mode) {
-        requireNonBlank(taskId, "taskId");
+        TaskContext ctx = resolveTaskContext(taskId);
 
-        Task task = resolveTask(taskId);
-        Map<String, Object> variables = runtimeService.getVariables(task.getProcessInstanceId());
-        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(task.getProcessDefinitionId());
+        List<String> nodeIds = traverseTaskNodes(ctx.getTask(), mode, ctx.getVariables());
 
-        List<String> nodeIds = traverseTaskNodes(task, mode, variables);
-
-        List<NextTaskNodeVO> result = toNextTaskNodeVOs(bpmnModel, nodeIds);
-        appendEndEventIfReachable(task, variables, result);
+        List<NextTaskNodeVO> result = toNextTaskNodeVOs(ctx.getBpmnModel(), nodeIds);
+        appendEndEventIfReachable(ctx.getTask(), ctx.getVariables(), result);
         return result;
     }
 
@@ -150,16 +148,12 @@ public class NodePreviewWorkflow {
      * @return 下游节点审批人扁平列表
      */
     public List<ApproverInfoVO> getNextTaskApprovers(String taskId, TraversalMode mode) {
-        requireNonBlank(taskId, "taskId");
+        TaskContext ctx = resolveTaskContext(taskId);
 
-        Task task = resolveTask(taskId);
-        Map<String, Object> variables = runtimeService.getVariables(task.getProcessInstanceId());
-        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(task.getProcessDefinitionId());
+        List<String> nodeIds = traverseTaskNodes(ctx.getTask(), mode, ctx.getVariables());
 
-        List<String> nodeIds = traverseTaskNodes(task, mode, variables);
-
-        ApproverContext context = buildTaskContext(task, variables);
-        return toApproverInfoVOs(bpmnModel, nodeIds, context);
+        ApproverContext context = buildTaskContext(ctx.getTask(), ctx.getVariables());
+        return toApproverInfoVOs(ctx.getBpmnModel(), nodeIds, context);
     }
 
     // ======================== 内部步骤 ========================
@@ -189,6 +183,28 @@ public class NodePreviewWorkflow {
             throw new NotFoundException("任务 " + taskId + " 不存在");
         }
         return task;
+    }
+
+    /**
+     * 任务锚点准备骨架：校验 + 解析任务 + 运行时变量 + BPMN 模型，任务锚点两入口共享。
+     */
+    private TaskContext resolveTaskContext(String taskId) {
+        requireNonBlank(taskId, "taskId");
+        Task task = resolveTask(taskId);
+        Map<String, Object> variables = runtimeService.getVariables(task.getProcessInstanceId());
+        BpmnModel bpmnModel = bpmnModelCache.getBpmnModel(task.getProcessDefinitionId());
+        return new TaskContext(task, variables, bpmnModel);
+    }
+
+    /**
+     * 任务锚点解析结果：任务 + 运行时变量 + BPMN 模型。
+     */
+    @Getter
+    @AllArgsConstructor
+    private static class TaskContext {
+        private final Task task;
+        private final Map<String, Object> variables;
+        private final BpmnModel bpmnModel;
     }
 
     /**
