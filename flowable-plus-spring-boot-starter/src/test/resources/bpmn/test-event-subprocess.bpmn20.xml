@@ -1,0 +1,29 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:activiti="http://activiti.org/bpmn"
+             targetNamespace="http://flowable.plus/test">
+  <message id="alertMsg" name="alert"/>
+  <process id="testEventSubProcess" name="事件子流程串行审批（集成测试）" isExecutable="true">
+    <documentation>用于 FlowableExecutionTreeHelperIntegrationTest：串行主路径 + 中断型消息事件子流程，
+    验证 detachFromParallelGateway 不会误删事件子流程等待执行（scope 结构性子执行）</documentation>
+    <startEvent id="start"/>
+    <userTask id="draft" name="发起" activiti:assignee="${initiator}"/>
+    <userTask id="approve" name="审批" activiti:assignee="${approver1}"/>
+    <endEvent id="end"/>
+
+    <subProcess id="esc" triggeredByEvent="true">
+      <startEvent id="escStart" isInterrupting="true">
+        <messageEventDefinition messageRef="alertMsg"/>
+      </startEvent>
+      <userTask id="escTask" name="事件子流程任务" activiti:assignee="${approver2}"/>
+      <endEvent id="escEnd"/>
+
+      <sequenceFlow id="ef1" sourceRef="escStart" targetRef="escTask"/>
+      <sequenceFlow id="ef2" sourceRef="escTask" targetRef="escEnd"/>
+    </subProcess>
+
+    <sequenceFlow id="f1" sourceRef="start" targetRef="draft"/>
+    <sequenceFlow id="f2" sourceRef="draft" targetRef="approve"/>
+    <sequenceFlow id="f3" sourceRef="approve" targetRef="end"/>
+  </process>
+</definitions>
