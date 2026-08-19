@@ -156,4 +156,23 @@ class EventObjectsTest {
         assertThat(e.getEventTime()).isEqualTo(NOW);
         assertThat(e.getEndTime()).isEqualTo(NOW);
     }
+
+    // ======================== TaskJumpedEvent ========================
+
+    @Test
+    void taskJumpedEvent_shouldExposeAllFields() {
+        TaskJumpedEvent e = TaskJumpedEvent.of(TASK_ID, PID, "审批", "node1", "userA",
+                "node0", "跳转原因", "JUMP", NOW);
+
+        assertThat(e.getTaskId()).isEqualTo(TASK_ID);
+        assertThat(e.getProcessInstanceId()).isEqualTo(PID);
+        assertThat(e.getTaskName()).isEqualTo("审批");
+        assertThat(e.getNodeId()).isEqualTo("node1");
+        assertThat(e.getAssignee()).isEqualTo("userA");
+        assertThat(e.getTargetNodeId()).isEqualTo("node0");
+        assertThat(e.getReason()).isEqualTo("跳转原因");
+        assertThat(e.getCommentType()).isEqualTo("JUMP");
+        assertThat(e.getEventTime()).isEqualTo(NOW);
+        assertThat(e.getJumpTime()).isEqualTo(NOW);
+    }
 }

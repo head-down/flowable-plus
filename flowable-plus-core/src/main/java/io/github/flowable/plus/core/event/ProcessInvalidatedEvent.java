@@ -1,6 +1,7 @@
 package io.github.flowable.plus.core.event;
 
 import io.github.flowable.plus.core.spi.ProcessEventListener;
+import lombok.Getter;
 
 import java.util.Date;
 
@@ -9,6 +10,7 @@ import java.util.Date;
  *
  * @author flowable-plus
  */
+@Getter
 public class ProcessInvalidatedEvent implements DispatchableEvent {
 
     private final String processInstanceId;
@@ -37,32 +39,7 @@ public class ProcessInvalidatedEvent implements DispatchableEvent {
     }
 
     @Override
-    public String getProcessInstanceId() {
-        return processInstanceId;
-    }
-
-    @Override
     public Date getEventTime() {
-        return invalidateTime;
-    }
-
-    public String getProcessDefinitionKey() {
-        return processDefinitionKey;
-    }
-
-    public String getBusinessKey() {
-        return businessKey;
-    }
-
-    public String getOperator() {
-        return operator;
-    }
-
-    public String getReason() {
-        return reason;
-    }
-
-    public Date getInvalidateTime() {
         return invalidateTime;
     }
 

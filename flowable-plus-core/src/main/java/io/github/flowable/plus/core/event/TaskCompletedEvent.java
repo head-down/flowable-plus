@@ -1,6 +1,7 @@
 package io.github.flowable.plus.core.event;
 
 import io.github.flowable.plus.core.spi.ProcessEventListener;
+import lombok.Getter;
 
 import java.util.Date;
 
@@ -9,6 +10,7 @@ import java.util.Date;
  *
  * @author flowable-plus
  */
+@Getter
 public class TaskCompletedEvent implements DispatchableEvent {
 
     private final String taskId;
@@ -38,36 +40,7 @@ public class TaskCompletedEvent implements DispatchableEvent {
     }
 
     @Override
-    public String getProcessInstanceId() {
-        return processInstanceId;
-    }
-
-    @Override
     public Date getEventTime() {
-        return completeTime;
-    }
-
-    public String getTaskId() {
-        return taskId;
-    }
-
-    public String getTaskName() {
-        return taskName;
-    }
-
-    public String getNodeId() {
-        return nodeId;
-    }
-
-    public String getAssignee() {
-        return assignee;
-    }
-
-    public String getComment() {
-        return comment;
-    }
-
-    public Date getCompleteTime() {
         return completeTime;
     }
 
