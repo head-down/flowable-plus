@@ -93,9 +93,14 @@ public class DefaultNodeFinder implements NodeFinder {
             throw new NotFoundException("节点 " + currentActivityId + " 不存在");
         }
 
+        // 顶部预取一次已结束活动集合：排他网关分支解析与最终历史过滤共用同一集合，
+        // 统一为批量 list + 内存判定范式（C15），避免逐候选 count() 的多次引擎往返。
+        Set<String> executedNodeIds = processInstanceId != null
+                ? executedActivityIds(processInstanceId) : null;
+
         Set<String> visited = new HashSet<>();
         List<String> result = new ArrayList<>();
-        traceBackward(bpmnModel, currentElement, processInstanceId, visited, result,
+        traceBackward(bpmnModel, currentElement, executedNodeIds, visited, result,
                 BackwardTraversalStrategy.STOP_AT_FIRST_USER_TASK);
 
         if (result.isEmpty()) {
@@ -106,8 +111,8 @@ public class DefaultNodeFinder implements NodeFinder {
         // 非受控汇合：多个 model 候选 → 1 个实际执行 → 返回 1 个
         // 并行网关汇合：多个 model 候选 → 多个都执行 → 返回多个 → rejectTask size>1 拦截
         // 排他网关历史缺失：resolveExclusiveGateway 返回全量入边 → 多个候选 → filterByHistory 裁决
-        if (result.size() > 1 && processInstanceId != null) {
-            result = filterByHistory(result, processInstanceId);
+        if (result.size() > 1 && executedNodeIds != null) {
+            result = filterByHistory(result, executedNodeIds);
             if (result.isEmpty()) {
                 throw new NoPreviousNodeException("节点 " + currentActivityId + " 无上一审批节点");
             }
@@ -116,18 +121,13 @@ public class DefaultNodeFinder implements NodeFinder {
     }
 
     /**
-     * 通过历史数据过滤候选节点，保留实际执行过的节点。
-     * 使用 activityId + count() 逐候选查询，避免 .list() 全量加载性能问题。
+     * 通过已结束活动集合过滤候选节点，保留实际执行过的节点。
+     * 集合由 {@link #executedActivityIds} 批量预取，此处为纯内存判定。
      */
-    private List<String> filterByHistory(List<String> candidateNodeIds, String processInstanceId) {
+    private List<String> filterByHistory(List<String> candidateNodeIds, Set<String> executedNodeIds) {
         List<String> executedNodes = new ArrayList<>();
         for (String nodeId : candidateNodeIds) {
-            long count = historyService.createHistoricActivityInstanceQuery()
-                    .processInstanceId(processInstanceId)
-                    .activityId(nodeId)
-                    .finished()
-                    .count();
-            if (count > 0) {
+            if (executedNodeIds.contains(nodeId)) {
                 executedNodes.add(nodeId);
             }
         }
@@ -160,9 +160,11 @@ public class DefaultNodeFinder implements NodeFinder {
 
     /**
      * 从指定元素开始向后追踪，根据策略收集上一 UserTask。
+     *
+     * @param executedNodeIds 已结束活动 ID 集合（可为 null，此时排他网关不解析历史分支）
      */
     private void traceBackward(BpmnModel bpmnModel, FlowElement element,
-                                String processInstanceId, Set<String> visited,
+                                Set<String> executedNodeIds, Set<String> visited,
                                 java.util.Collection<String> result,
                                 BackwardTraversalStrategy strategy) {
         if (!(element instanceof FlowNode)) {
@@ -189,13 +191,13 @@ public class DefaultNodeFinder implements NodeFinder {
                 result.add(source.getId());
                 if (strategy == BackwardTraversalStrategy.COLLECT_ALL_UPSTREAM) {
                     // 穿越 UserTask 继续回溯上游节点
-                    traceBackward(bpmnModel, source, processInstanceId, visited, result, strategy);
+                    traceBackward(bpmnModel, source, executedNodeIds, visited, result, strategy);
                 }
             } else if (source instanceof ExclusiveGateway) {
                 traceExclusiveGatewayBackward(bpmnModel, (ExclusiveGateway) source,
-                        processInstanceId, visited, result, strategy);
+                        executedNodeIds, visited, result, strategy);
             } else if (source instanceof ParallelGateway) {
-                traceBackward(bpmnModel, source, processInstanceId, visited, result, strategy);
+                traceBackward(bpmnModel, source, executedNodeIds, visited, result, strategy);
             } else if (source instanceof StartEvent) {
                 // 到达 StartEvent，停止
             }
@@ -206,7 +208,7 @@ public class DefaultNodeFinder implements NodeFinder {
      * 穿越排他网关向后追踪，根据策略选择分支路径。
      */
     private void traceExclusiveGatewayBackward(BpmnModel bpmnModel, ExclusiveGateway gateway,
-                                                String processInstanceId, Set<String> visited,
+                                                Set<String> executedNodeIds, Set<String> visited,
                                                 java.util.Collection<String> result,
                                                 BackwardTraversalStrategy strategy) {
         if (!visited.add(gateway.getId())) {
@@ -215,7 +217,7 @@ public class DefaultNodeFinder implements NodeFinder {
 
         List<SequenceFlow> resolvedFlows;
         if (strategy == BackwardTraversalStrategy.STOP_AT_FIRST_USER_TASK) {
-            resolvedFlows = resolveExclusiveGateway(processInstanceId, gateway.getIncomingFlows());
+            resolvedFlows = resolveExclusiveGateway(executedNodeIds, gateway.getIncomingFlows());
         } else {
             List<SequenceFlow> incomingFlows = gateway.getIncomingFlows();
             resolvedFlows = incomingFlows != null ? incomingFlows : Collections.<SequenceFlow>emptyList();
@@ -230,10 +232,10 @@ public class DefaultNodeFinder implements NodeFinder {
             if (source instanceof UserTask) {
                 result.add(source.getId());
                 if (strategy == BackwardTraversalStrategy.COLLECT_ALL_UPSTREAM) {
-                    traceBackward(bpmnModel, source, processInstanceId, visited, result, strategy);
+                    traceBackward(bpmnModel, source, executedNodeIds, visited, result, strategy);
                 }
             } else {
-                traceBackward(bpmnModel, source, processInstanceId, visited, result, strategy);
+                traceBackward(bpmnModel, source, executedNodeIds, visited, result, strategy);
             }
         }
     }
@@ -241,26 +243,21 @@ public class DefaultNodeFinder implements NodeFinder {
     /**
      * 解析排他网关的实际执行分支。
      *
-     * <p>使用 activityId + count() 逐候选查询，避免 .list() 全量加载性能问题。
+     * <p>使用批量预取的已结束活动集合做内存判定；集合为 null 时视为无历史数据。
      * 历史匹配失败时返回全部入边（而非盲猜首条），
      * 让外层 filterByHistory 做最终裁决，防止"安全网穿透"导致静默数据污染。</p>
      */
-    private List<SequenceFlow> resolveExclusiveGateway(String processInstanceId, List<SequenceFlow> incomingFlows) {
+    private List<SequenceFlow> resolveExclusiveGateway(Set<String> executedNodeIds, List<SequenceFlow> incomingFlows) {
         if (incomingFlows == null || incomingFlows.isEmpty()) {
             return Collections.emptyList();
         }
 
-        if (processInstanceId == null) {
+        if (executedNodeIds == null) {
             return incomingFlows;
         }
 
         for (SequenceFlow flow : incomingFlows) {
-            long count = historyService.createHistoricActivityInstanceQuery()
-                    .processInstanceId(processInstanceId)
-                    .activityId(flow.getSourceRef())
-                    .finished()
-                    .count();
-            if (count > 0) {
+            if (executedNodeIds.contains(flow.getSourceRef())) {
                 return Collections.singletonList(flow);
             }
         }
@@ -554,26 +551,15 @@ public class DefaultNodeFinder implements NodeFinder {
         // 1. BPMN 回溯收集所有上游 UserTask
         Set<String> visited = new HashSet<>();
         Set<String> allUpstreamUserTasks = new LinkedHashSet<>();
-        traceBackward(bpmnModel, currentElement, processInstanceId, visited, allUpstreamUserTasks,
+        traceBackward(bpmnModel, currentElement, null, visited, allUpstreamUserTasks,
                 BackwardTraversalStrategy.COLLECT_ALL_UPSTREAM);
 
         if (allUpstreamUserTasks.isEmpty()) {
             return Collections.emptyList();
         }
 
-        // 2. 查询历史数据确认节点确实执行过
-        List<HistoricActivityInstance> historicInstances = historyService
-                .createHistoricActivityInstanceQuery()
-                .processInstanceId(processInstanceId)
-                .finished()
-                .orderByHistoricActivityInstanceEndTime().desc()
-                .list();
-        Set<String> executedNodeIds = new HashSet<>();
-        for (HistoricActivityInstance instance : historicInstances) {
-            if (instance.getActivityId() != null) {
-                executedNodeIds.add(instance.getActivityId());
-            }
-        }
+        // 2. 批量预取已结束活动集合，确认上游节点确实执行过（与 findPreviousNodes 共用范式）
+        Set<String> executedNodeIds = executedActivityIds(processInstanceId);
 
         // 3. 保留有历史记录的 nodeId
         List<String> result = new ArrayList<>();
@@ -584,6 +570,28 @@ public class DefaultNodeFinder implements NodeFinder {
         }
 
         return result;
+    }
+
+    /**
+     * 查询流程实例中所有已结束活动的 ID 集合。
+     *
+     * <p>采用批量 list() + 内存集合判定：一次引擎往返取得全集，后续多次
+     * 成员判断零往返。替代逐候选 count() 的 N+1 次查询——审批流单实例历史
+     * 活动量级小（通常几十行），全量物化成本可忽略（C15 统一范式）。</p>
+     */
+    private Set<String> executedActivityIds(String processInstanceId) {
+        List<HistoricActivityInstance> historicInstances = historyService
+                .createHistoricActivityInstanceQuery()
+                .processInstanceId(processInstanceId)
+                .finished()
+                .list();
+        Set<String> executedNodeIds = new HashSet<>();
+        for (HistoricActivityInstance instance : historicInstances) {
+            if (instance.getActivityId() != null) {
+                executedNodeIds.add(instance.getActivityId());
+            }
+        }
+        return executedNodeIds;
     }
 
     @Override

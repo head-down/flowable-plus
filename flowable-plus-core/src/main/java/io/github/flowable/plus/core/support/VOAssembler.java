@@ -20,7 +20,9 @@ import java.util.Map;
  *
  * <p>内建流程信息补全缓存（ProcessDefinition + HistoricProcessInstance），
  * 单次批量操作内复用缓存，消除重复引擎 I/O。
- * 调用方无需关心缓存生命周期——每次方法调用自动创建新的缓存上下文。</p>
+ * {@code toTodoVOs} 每次调用自动创建新的缓存上下文，调用方无需关心缓存生命周期；
+ * {@code toDoneVOs} 遵循两阶段查询设计（ADR-0012）——HistoricProcessInstance
+ * 由调用方预先批量获取并传入，方法内仅缓存 ProcessDefinition。</p>
  *
  * @author flowable-plus
  */
@@ -64,37 +66,6 @@ public class VOAssembler {
                     .startUserId(info.startUserId)
                     .createTime(task.getCreateTime())
                     .assignee(task.getAssignee())
-                    .build());
-        }
-        return vos;
-    }
-
-    /**
-     * 将 HistoricTaskInstance 列表转换为 DoneTaskVO 列表，补充流程定义和发起人信息。
-     */
-    public List<DoneTaskVO> toDoneVOs(List<HistoricTaskInstance> historicTasks) {
-        if (historicTasks.isEmpty()) {
-            return Collections.emptyList();
-        }
-
-        EnrichContext ctx = new EnrichContext();
-
-        List<DoneTaskVO> vos = new ArrayList<>(historicTasks.size());
-        for (HistoricTaskInstance hti : historicTasks) {
-            EnrichedInfo info = ctx.enrich(hti.getProcessDefinitionId(), hti.getProcessInstanceId());
-
-            vos.add(DoneTaskVO.builder()
-                    .taskId(hti.getId())
-                    .taskName(hti.getName())
-                    .processInstanceId(hti.getProcessInstanceId())
-                    .processDefinitionKey(info.processDefinitionKey)
-                    .processDefinitionName(info.processDefinitionName)
-                    .businessKey(info.businessKey)
-                    .startUserId(info.startUserId)
-                    .createTime(hti.getCreateTime())
-                    .endTime(hti.getEndTime())
-                    .assignee(hti.getAssignee())
-                    .deleteReason(hti.getDeleteReason())
                     .build());
         }
         return vos;
