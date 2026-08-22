@@ -112,9 +112,10 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-ex")).thenReturn(model);
 
-        // count() 查询：resolveExclusiveGateway 按 incomingFlows 顺序逐条查询
-        // f4a(taskA) 先 → count=1, f4b(taskB) 后 → count=0
-        stubCountQueries("pi-001", 1L, 0L);
+        // 批量预取已结束活动集合：仅 taskA 执行过 → resolveExclusiveGateway
+        // 按 incomingFlows 顺序内存早退，f4a(taskA) 命中即返回
+        stubHistoricActivityInstances("pi-001",
+                java.util.Collections.singletonList(createMockInstance("taskA", null, null)));
 
         List<String> result = nodeFinder.findPreviousNodes("proc-ex", "task2", "pi-001");
 
@@ -1483,8 +1484,9 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-um")).thenReturn(model);
 
-        // filterByHistory 按 result 列表顺序查询：chairman=1，其余=0
-        stubCountQueries("pi-um", 1L, 0L, 0L, 0L);
+        // 批量预取已结束活动集合：仅 chairman 执行过 → filterByHistory 内存过滤保留 chairman
+        stubHistoricActivityInstances("pi-um",
+                java.util.Collections.singletonList(createMockInstance("chairman", null, null)));
 
         List<String> result = nodeFinder.findPreviousNodes("proc-um", "handler", "pi-um");
 
@@ -1513,22 +1515,13 @@ public class NodeFinderTest {
         BpmnModel model = builder.build();
         when(repositoryService.getBpmnModel("proc-gw-miss")).thenReturn(model);
 
-        // resolveExclusiveGateway: taskA=0, taskB=0 → 返回全量入边
-        // filterByHistory: taskA=0, taskB=0 → 空列表 → NoPreviousNodeException
-        stubCountQueries("pi-miss", 0L, 0L, 0L, 0L);
+        // 批量预取已结束活动集合为空：
+        // resolveExclusiveGateway 无匹配 → 返回全量入边 → filterByHistory 内存过滤 → 空 → 异常
+        stubHistoricActivityInstances("pi-miss", java.util.Collections.emptyList());
 
         assertThatThrownBy(() -> nodeFinder.findPreviousNodes("proc-gw-miss", "task2", "pi-miss"))
                 .isInstanceOf(NoPreviousNodeException.class)
                 .hasMessageContaining("task2 无上一审批节点");
-    }
-
-    private void stubCountQueries(String processInstanceId, Long... counts) {
-        HistoricActivityInstanceQuery query = Mockito.mock(HistoricActivityInstanceQuery.class);
-        when(historyService.createHistoricActivityInstanceQuery()).thenReturn(query);
-        when(query.processInstanceId(processInstanceId)).thenReturn(query);
-        when(query.finished()).thenReturn(query);
-        when(query.activityId(anyString())).thenReturn(query);
-        when(query.count()).thenReturn(counts[0], java.util.Arrays.copyOfRange(counts, 1, counts.length));
     }
 
     private void stubHistoricActivityInstances(String processInstanceId,
@@ -1541,8 +1534,6 @@ public class NodeFinderTest {
             when(query.processInstanceId(anyString())).thenReturn(query);
         }
         when(query.finished()).thenReturn(query);
-        when(query.orderByHistoricActivityInstanceEndTime()).thenReturn(query);
-        when(query.desc()).thenReturn(query);
         when(query.list()).thenReturn(instances != null ? instances : Collections.emptyList());
     }
 
