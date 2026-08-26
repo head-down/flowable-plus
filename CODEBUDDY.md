@@ -4,117 +4,47 @@
 
 ## 项目概览
 
-flowable-plus 是一个面向 Java 8 的 Flowable (6.8.0) 工作流引擎增强工具包，提供简化 API 和中式工作流特性。项目基于 Spring Boot 2.7.18，采用 Maven 多模块结构，当前处于早期骨架搭建阶段。
+flowable-plus 是面向 Java 8 的 Flowable (6.8.0) 工作流引擎增强工具包，提供简化 API 和中式工作流特性（发起、同意、驳回、撤回、撤销、会签）。基于 Spring Boot 2.7.18，Maven 多模块结构。
 
-**GroupId**: `io.github.flowable.plus`  
-**Version**: `1.0.0`
+**GroupId**: `io.github.flowable.plus` · **Version**: `1.0.0`
+
+领域词汇与语言规范见 `CONTEXT.md`。所有依赖版本一律以父 POM / BOM（`flowable-root`）为准，不要自行指定。
 
 ## 模块架构
 
 ```
 flowable-plus (父 POM, packaging=pom)
-├── flowable-plus-core                 -- 核心模块，带 spring-tx（注解级，非 DI 运行时）
+├── flowable-plus-core                 -- 核心模块
 ├── flowable-plus-spring-boot-starter  -- Spring Boot 自动配置粘合层
 └── flowable-plus-extension            -- 储备位模块（reserved slot），边界见 ADR-0029
 ```
 
-### 依赖关系
+- **flowable-plus-core** — 封装 Flowable 核心服务（RuntimeService、TaskService、HistoryService 等），通过 SPI 接口解耦运行时框架。依赖 spring-tx 仅用于 `@Transactional` 注解元数据声明（无 DI/AOP 运行时），在无 Spring AOP 的环境中无害忽略。包含 BPMN 模型缓存（`BpmnModelCache`）消除重复引擎 I/O。可在任意 Java 8+ 应用中使用。
+- **flowable-plus-spring-boot-starter** — 通过 `META-INF/spring.factories` 实现自动配置，配置属性前缀 `flowable.plus.*`，classpath 存在 `org.flowable.engine.ProcessEngine` 时条件激活。
+- **flowable-plus-extension** — 储备位模块，等待「依赖隔离」（必须引入 core 未引入的依赖）或「真正可选的领域能力」类功能入住；薄壳包装 core 已有功能属双轨，不入住。定位与判据见 ADR-0029。
 
-```
-flowable-plus-core
-├── flowable-engine (6.8.0)
-├── spring-tx (5.3.31, 注解级)
-└── hutool-all (5.8.28)
+## 构建与测试
 
-flowable-plus-spring-boot-starter
-├── flowable-plus-core
-├── spring-boot-starter (2.7.18)
-├── flowable-spring-boot-starter (6.8.0)
-└── spring-boot-configuration-processor (可选)
-
-flowable-plus-extension
-├── flowable-plus-core
-└── hutool-all (5.8.28)
-```
-
-### 各模块职责
-- **flowable-plus-core** — 封装 Flowable 核心服务（RuntimeService、TaskService、HistoryService 等），通过 SPI 接口解耦运行时框架。依赖 spring-tx 仅用于 `@Transactional` 注解元数据声明（无 DI/AOP 运行时），`@Transactional` 在无 Spring AOP 的环境中无害忽略。包含 BPMN 模型缓存（`BpmnModelCache`）以消除重复引擎 I/O。可在任意 Java 8+ 应用中使用。
-- **flowable-plus-spring-boot-starter** — 通过 `META-INF/spring.factories` 实现自动配置。配置属性前缀为 `flowable.plus.*`。当 classpath 上存在 `org.flowable.engine.ProcessEngine` 时条件激活。
-- **flowable-plus-extension** — 储备位模块，当前无功能内容。等待「依赖隔离」（必须引入 core 未引入的依赖）或「真正可选的领域能力」类功能入住；禁止薄壳包装 core 已有功能（双轨）。定位与判据见 ADR-0029。
-
-## 常用命令
-
-```bash
-# 完整构建（编译 + 打包所有模块）
-mvn clean package
-
-# 仅编译，跳过测试
-mvn clean compile -DskipTests
-
-# 运行所有测试（建议加 clean 避免 JDK 8 增量编译 NPE）
-mvn clean test
-
-# 运行单个测试类
-mvn clean test -pl flowable-plus-core -Dtest=MyTestClass
-
-# 安装到本地 Maven 仓库
-mvn clean install -DskipTests
-
-# 构建指定模块
-mvn clean package -pl flowable-plus-core
-
-# 生成源码 jar 包
-mvn clean package -Dmaven.source.skip=false
-```
-
-## 关键依赖
-
-| 依赖 | 版本 | 作用范围 |
-|---|---|---|
-| Java | 1.8 | 编译目标 |
-| Spring Boot | 2.7.18 | 通过 BOM 管理 |
-| Flowable | 6.8.0 | 通过 BOM 管理 (`flowable-root`) |
-| Lombok | 1.18.30 | 所有模块 |
-| Hutool | 5.8.28 | core、extension |
-| MapStruct | 1.5.5.Final | 通过父 BOM 可用 |
-
-## CI / CD
-
-**.github/workflows/ci.yml** 在 push/PR 到 `master` 时触发：
-
-- **矩阵**: ubuntu-latest + windows-latest, JDK 8 (Temurin), 数据库 H2 / MySQL 8.0 / PostgreSQL 14
-- **H2**: 同时在 ubuntu 和 windows 上运行（不需要 Docker）
-- **MySQL / PostgreSQL**: 通过 Testcontainers 拉起容器，仅在 ubuntu 上运行
-- **命令**: `mvn clean verify --batch-mode --no-transfer-progress -Dflowable.test.db=<db>`
-- **报告**: ubuntu 构建上传 surefire-reports/failsafe-reports，保留 7 天
-
-所有测试（~335 个，含 ~77 个集成测试）作为 PR 合并的必需门禁。若新增测试，CI 矩阵两端必须全部通过。
-
-## 注解处理
-
-项目使用 Lombok、MapStruct 和 Spring Boot Configuration Processor 作为注解处理器。父 POM 中的 `maven-compiler-plugin` 已通过 `annotationProcessorPaths` 统一配置。新增 MapStruct mapper 时无需额外配置 — 处理器已在父级配置好。
+- 一律 `mvn clean ...` —— JDK 8 增量编译会 NPE。
+- 定位单个测试：`mvn clean test -pl flowable-plus-core -Dtest=<类名>`。
+- 注解处理器（Lombok / MapStruct / Configuration Processor）已在父 POM 通过 `annotationProcessorPaths` 配置；新增 MapStruct mapper 无需任何额外配置。
+- CI 是 PR 合并的必需门禁：新增/改动测试必须在矩阵两端（ubuntu + windows，H2 / MySQL / PostgreSQL）全部通过。矩阵组合、运行命令与报告细节见 `.github/workflows/ci.yml`——改动测试或 CI 配置前先读它确认门禁范围。
 
 ## Spring Boot 自动配置
 
-starter 模块通过 `META-INF/spring.factories` 注册 `FlowablePlusAutoConfiguration`，其中：
+starter 模块通过 `META-INF/spring.factories` 注册 `FlowablePlusAutoConfiguration`：
 - `@ConditionalOnClass("org.flowable.engine.ProcessEngine")` — 仅在 Flowable 引擎存在时激活
-- `@ConditionalOnProperty(name = "flowable.plus.enabled")` — 通过 `flowable.plus.enabled` 属性控制开关，默认 `true`
+- `@ConditionalOnProperty(name = "flowable.plus.enabled")` — 开关，默认 `true`
 
 自动注册的 Bean：
 - `BpmnModelCache` — 基于 ConcurrentHashMap 的 BPMN 模型缓存，永不过期
 - `NodeFinder` — DefaultNodeFinder，注入 BpmnModelCache
 - `FlowablePlus` — 查询门面（仅读操作），注入 ProcessEngine、UserContext、NodeFinder、BpmnModelCache；写操作注入对应 `*Operations` 接口（见 ADR-0010 门面范围）
-- `UserContext` — 仅当 classpath 存在 Spring Security 时注册 SecurityContextUserContext；否则注册 SystemPropertyUserContext 兜底（从系统属性 `flowable.plus.user-id` 读取）
+- `UserContext` — classpath 存在 Spring Security 时注册 SecurityContextUserContext；否则 SystemPropertyUserContext 兜底（从系统属性 `flowable.plus.user-id` 读取）
 
-当前配置项为 `flowable.plus.enabled`（布尔值，默认 `true`）。
+## 已知边界
 
-## 当前状态
-
-**v1.0.0 GA 已发布。** CI 矩阵覆盖 H2 / MySQL 8.0 / PostgreSQL 14（见 ADR-0014），全量测试通过。
-
-Core 模块已实现审批核心操作（发起、同意、驳回、撤回、撤销、会签），含 BPMN 节点遍历、多实例检测和模型缓存。Starter 模块提供自动配置。Extension 模块为储备位（无功能内容，边界见 ADR-0029）。
-
-权限层级：已覆盖流程操作权限（assignee/发起人/上一节点审批人身份校验），数据权限待以回调扩展模式补充（见 `docs/planning/permission-integration-evaluation.md`）。
+- 权限：流程操作权限已覆盖（assignee/发起人/上一节点审批人身份校验）；数据权限待以回调扩展模式补充（见 `docs/planning/permission-integration-evaluation.md`）。
 
 ## Agent skills
 
@@ -132,50 +62,8 @@ Core 模块已实现审批核心操作（发起、同意、驳回、撤回、撤
 
 ### 实现流程规范
 
-- `/implement` 完成后必须执行 `/code-review` 双轴审查（Standards + Spec），审查通过后方可提交，不得跳过
+`/implement` 完成后必须执行 `/code-review` 双轴审查（Standards + Spec），审查通过后方可提交。
 
 ### 架构决策记录 (ADR)
 
-| 编号 | 标题 | 日期 |
-|------|------|------|
-| ADR-0001 | 使用自定义跳转逻辑实现中式审批流转 | 2026-07-03 |
-| ADR-0002 | 并行网关汇合节点驳回：直接拒绝 | 2026-07-03 |
-| ADR-0003 | 会签采用 Flowable 原生多实例 | 2026-07-03 |
-| ADR-0004 | 会签驳回计数否决模式 | 2026-07-03 |
-| ADR-0005 | BPMN 模型加载使用独立缓存模块 | 2026-07-03 |
-| ADR-0006 | 查询接口支持自定义过滤回调 | 2026-07-04 |
-| ADR-0007 | 流程查询权限采用回调扩展模式 | 2026-07-10 |
-| ADR-0008 | 自动提交采用 AutoApprovalRule SPI，异常快速失败 | 2026-07-03 |
-| ADR-0009 | 审批历史 Comment→Action 推断采用三级策略 | 2026-07-16 |
-| ADR-0010 | FlowablePlus 门面保持纯聚合角色 | 2026-07-17 |
-| ADR-0011 | DispatchableEvent 自分发替代 instanceof 链 | 2026-07-17 |
-| ADR-0012 | 已办查询基于流程实例维度的两阶段查询 | 2026-07-17 |
-| ADR-0013 | 已办查询精确分页引入 Native SQL | 2026-07-20 |
-| ADR-0014 | 多数据库 CI 矩阵作为 v1.0.0 GA 硬性准入条件 | 2026-07-21 |
-| ADR-0015 | 公开 API 准入标准：禁止裸透传 Flowable 原生方法 | 2026-07-30 |
-| ADR-0016 | 正向 EndEvent 终止检测作为独立 NodeFinder 方法 | 2026-07-29 |
-| ADR-0017 | 乐观锁冲突不采用通用 AOP 重试，仅在具体方法内精准重试 | 2026-07-15 |
-| ADR-0018 | 紧邻遍历使用 stopAtUserTask 参数复用现有遍历引擎 | 2026-07-25 |
-| ADR-0019 | 会签多轮次追踪采用 Task 局部变量 csRoundIndex | 2026-08-04 |
-| ADR-0020 | 审批历史会签轮次边界统一使用 csRoundIndex，不再依赖 miBody | 2026-08-06 |
-| ADR-0021 | 会签节点回退采用运行时检测与自动重定向 | 2026-08-06 |
-| ADR-0022 | 会签建模双模式规范与 AssigneeResolver SPI | 2026-08-06 |
-| ADR-0023 | 模式A加签/减签权限放宽为"会签发起人 OR 当前节点活跃审批人" | 2026-08-08 |
-| ADR-0024 | 加签查重 fast fail 与查重口径 | 2026-08-10 |
-| ADR-0025 | CommentType 业务/操作分组解耦审批意见提取与操作注释识别 | 2026-08-10 |
-| ADR-0026 | 会签节点 assignee 必须引用元素变量（建模约束体系） | 2026-08-10 |
-| ADR-0027 | 操作注释多值化（operationComments 列表字段） | 2026-08-10 |
-| ADR-0028 | 审批轨迹收敛为单一入口 getApprovalHistory（删除 getApprovalTrace） | 2026-08-10 |
-| ADR-0029 | flowable-plus-extension 定位为储备位（reserved slot） | 2026-08-11 |
-| ADR-0030 | 删除死接口 TaskQueryEnhancer，回调收敛为 Consumer 单一形态 | 2026-08-11 |
-| ADR-0031 | 节点预览 API 收窄为三入口（8 方法 → 3 入口） | 2026-08-11 |
-| ADR-0032 | 范围外功能判据：脱离业务数据即失去价值的功能归业务层 | 2026-08-11 |
-| ADR-0033 | ApproverResolver 支持运行上下文感知（ApproverContext） | 2026-08-12 |
-| ADR-0034 | 常规审批操作多实例拦截改运行时判定（伪单例放行） | 2026-08-12 |
-| ADR-0035 | 折返后发起人决策任务放行常规驳回/返回/跳转/撤回 | 2026-08-13 |
-| ADR-0036 | NodeFinder 正向遍历接口收窄为 TraversalMode 入口 | 2026-08-13 |
-| ADR-0037 | 否决审批操作样板提取执行模板（架构审查 C2） | 2026-08-13 |
-| ADR-0038 | 否决会签回退策略工厂拆分（架构审查 C5） | 2026-08-13 |
-| ADR-0039 | 否决 QueryOperations 重载收敛（架构审查 C6） | 2026-08-13 |
-| ADR-0040 | 会签节点计数口径收敛至 MultiInstanceDetector（架构审查 C7） | 2026-08-19 |
-| ADR-0041 | 会签回退重定向骨架共享 + 文案参数化（架构审查 C8） | 2026-08-19 |
+改动核心逻辑前先查索引确认已有决策（含会签、驳回、查询、权限等 41 项）：完整编号→标题→日期索引见 `docs/adr/README.md`。
