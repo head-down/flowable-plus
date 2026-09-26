@@ -12,11 +12,11 @@ import io.github.flowable.plus.core.enums.DecisionRationaleFactKey;
 import io.github.flowable.plus.core.enums.DecisionSubjectType;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 决策证据面的测试专用 fixture（**非测试类**，core 测试树共用）。
@@ -61,10 +61,9 @@ public final class DecisionEvidenceTestFixtures {
      * {@code outcome = SUGGESTION_PRODUCED} 的直提列。
      */
     public static DecisionEvidenceVO maximalDirectSubmission() {
-        final List<DecisionRationaleFact> facts = new ArrayList<>();
-        for (final DecisionRationaleFactKey key : DecisionRationaleFactKey.values()) {
-            facts.add(new DecisionRationaleFact(key, "value-" + key.name()));
-        }
+        final List<DecisionRationaleFact> facts = Arrays.stream(DecisionRationaleFactKey.values())
+                .map(key -> new DecisionRationaleFact(key, "value-" + key.name()))
+                .collect(Collectors.toList());
         return DecisionEvidenceVO.builder()
                 .outcome(DecisionOutcome.SUGGESTION_PRODUCED)
                 .schemaVersion(SCHEMA_VERSION)

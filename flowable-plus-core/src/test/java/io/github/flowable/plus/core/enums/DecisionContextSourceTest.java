@@ -1,12 +1,11 @@
 package io.github.flowable.plus.core.enums;
 
+import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Test;
 
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -29,6 +28,16 @@ public class DecisionContextSourceTest {
     private static final int TASK_METADATA_DROP_PRIORITY = 20;
     private static final int PROCESS_INSTANCE_METADATA_DROP_PRIORITY = 10;
 
+    /** 归一化时要剥掉的分隔符 */
+    private static final String UNDERSCORE = "_";
+    private static final String HYPHEN = "-";
+
+    /** 词形屈折的可选后缀 */
+    private static final String PLURAL_SUFFIX = "s";
+    private static final String PLURAL_SUFFIX_ES = "es";
+    private static final String PLURAL_SUFFIX_IES = "ies";
+    private static final String Y_SUFFIX = "y";
+
     @Test
     void membersAreExactlyFour() {
         assertThat(DecisionContextSource.values())
@@ -42,21 +51,19 @@ public class DecisionContextSourceTest {
 
     @Test
     void dropPrioritiesAreDistinctAndNonZero() {
-        final List<Integer> priorities = new ArrayList<>();
-        for (final DecisionContextSource source : DecisionContextSource.values()) {
-            assertThat(source.getDropPriority())
-                    .as("成员 %s 的 dropPriority 必须非零且为正", source)
-                    .isNotZero()
-                    .isPositive();
-            assertThat(source.getDropPriority() % DROP_PRIORITY_INTERVAL)
-                    .as("成员 %s 的 dropPriority 必须满足「留 10 间隔」", source)
-                    .isZero();
-            priorities.add(source.getDropPriority());
-        }
+        final List<Integer> priorities = Arrays.stream(DecisionContextSource.values())
+                .map(DecisionContextSource::getDropPriority)
+                .collect(Collectors.toList());
 
-        final Set<Integer> distinct = new HashSet<>(priorities);
-        assertThat(distinct)
+        assertThat(priorities)
+                .as("每个成员的 dropPriority 必须非零且为正")
+                .allMatch(priority -> priority != 0 && priority > 0);
+        assertThat(priorities)
+                .as("每个成员的 dropPriority 必须满足「留 10 间隔」")
+                .allMatch(priority -> priority % DROP_PRIORITY_INTERVAL == 0);
+        assertThat(priorities)
                 .as("四成员的 dropPriority 必须互异")
+                .doesNotHaveDuplicates()
                 .hasSize(MEMBER_COUNT);
 
         assertThat(DecisionContextSource.PROCESS_VARIABLES.getDropPriority())
@@ -71,32 +78,34 @@ public class DecisionContextSourceTest {
 
     @Test
     void membersHaveNoInflectionPairs() {
-        final List<DecisionContextSource> members = Arrays.asList(DecisionContextSource.values());
-        for (int i = 0; i < members.size(); i++) {
-            for (int j = i + 1; j < members.size(); j++) {
-                final String left = normalize(members.get(i).name());
-                final String right = normalize(members.get(j).name());
-                assertThat(left)
-                        .as("%s 与 %s 归一后不得同名", members.get(i), members.get(j))
-                        .isNotEqualTo(right);
-                assertThat(isInflectionPair(left, right))
-                        .as("%s 与 %s 不得构成单复数形近对", members.get(i), members.get(j))
-                        .isFalse();
-            }
-        }
+        final List<String> normalizedNames = Arrays.stream(DecisionContextSource.values())
+                .map(source -> normalize(source.name()))
+                .collect(Collectors.toList());
+
+        assertThat(normalizedNames)
+                .as("四成员归一后不得同名")
+                .doesNotHaveDuplicates();
+        assertThat(normalizedNames)
+                .as("四成员归一后不得构成单复数形近对")
+                .noneMatch(first -> normalizedNames.stream().anyMatch(second -> isInflectionPair(first, second)));
     }
 
+    /** 归一：去分隔符（`_` / `-`）并统一小写 */
     private static String normalize(final String name) {
-        return name.replace("_", "").replace("-", "").toLowerCase();
+        return StringUtils.lowerCase(StringUtils.remove(StringUtils.remove(name, UNDERSCORE), HYPHEN));
     }
 
-    /** 词形屈折三种：+s、+es、y→ies */
+    /** 词形屈折三种：`+s`、`+es`、`y→ies`（自反比较恒不成立，故两两自比不影响结果） */
     private static boolean isInflectionPair(final String left, final String right) {
-        return (left + "s").equals(right)
-                || (right + "s").equals(left)
-                || (left + "es").equals(right)
-                || (right + "es").equals(left)
-                || (left.endsWith("y") && (left.substring(0, left.length() - 1) + "ies").equals(right))
-                || (right.endsWith("y") && (right.substring(0, right.length() - 1) + "ies").equals(left));
+        final String pluralOfLeft = left + PLURAL_SUFFIX;
+        final String pluralOfRight = right + PLURAL_SUFFIX;
+        return StringUtils.equals(pluralOfLeft, right)
+                || StringUtils.equals(pluralOfRight, left)
+                || StringUtils.equals(left + PLURAL_SUFFIX_ES, right)
+                || StringUtils.equals(right + PLURAL_SUFFIX_ES, left)
+                || (StringUtils.endsWith(left, Y_SUFFIX)
+                        && StringUtils.equals(StringUtils.chop(left) + PLURAL_SUFFIX_IES, right))
+                || (StringUtils.endsWith(right, Y_SUFFIX)
+                        && StringUtils.equals(StringUtils.chop(right) + PLURAL_SUFFIX_IES, left));
     }
 }

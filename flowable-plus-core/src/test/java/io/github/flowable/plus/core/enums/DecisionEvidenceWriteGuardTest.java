@@ -2,9 +2,6 @@ package io.github.flowable.plus.core.enums;
 
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -19,17 +16,9 @@ public class DecisionEvidenceWriteGuardTest {
 
     @Test
     void writeGuardConstantIsNamedAndPositive() throws Exception {
-        final Field field = DecisionEvidenceWriteGuard.class.getDeclaredField("MAX_EVIDENCE_BYTES");
-
-        assertThat(Modifier.isPublic(field.getModifiers()))
-                .as("写入侧上界必须是公开具名常量")
-                .isTrue();
-        assertThat(Modifier.isStatic(field.getModifiers())).isTrue();
-        assertThat(Modifier.isFinal(field.getModifiers())).isTrue();
-        assertThat(field.getType())
-                .as("上界必须是整型常量（字节数）")
-                .isIn(int.class, long.class);
-        assertThat(field.getDeclaringClass()).isEqualTo(DecisionEvidenceWriteGuard.class);
+        ConstantFieldAssertions.assertPublicStaticFinalNumericConstant(
+                DecisionEvidenceWriteGuard.class.getDeclaredField("MAX_EVIDENCE_BYTES"),
+                DecisionEvidenceWriteGuard.class);
 
         assertThat(DecisionEvidenceWriteGuard.MAX_EVIDENCE_BYTES)
                 .as("单条证据行的最大允许尺寸必须为正")

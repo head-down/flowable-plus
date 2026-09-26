@@ -3,8 +3,6 @@ package io.github.flowable.plus.core.enums;
 import io.github.flowable.plus.core.vo.DecisionEvidenceTestFixtures;
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 import java.util.Arrays;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -27,18 +25,11 @@ public class DecisionEvidenceReadGuardTest {
 
     @Test
     void readGuardConstantsArePairedAndPositive() throws Exception {
-        final Field parseBytes = DecisionEvidenceReadGuard.class.getDeclaredField("MAX_PARSE_BYTES");
-        final Field nestingDepth = DecisionEvidenceReadGuard.class.getDeclaredField("MAX_NESTING_DEPTH");
-
-        for (final Field field : Arrays.asList(parseBytes, nestingDepth)) {
-            assertThat(Modifier.isPublic(field.getModifiers()))
-                    .as("%s 必须是公开具名常量", field.getName())
-                    .isTrue();
-            assertThat(Modifier.isStatic(field.getModifiers())).isTrue();
-            assertThat(Modifier.isFinal(field.getModifiers())).isTrue();
-            assertThat(field.getType()).isIn(int.class, long.class);
-            assertThat(field.getDeclaringClass()).isEqualTo(DecisionEvidenceReadGuard.class);
-        }
+        Arrays.asList(
+                        DecisionEvidenceReadGuard.class.getDeclaredField("MAX_PARSE_BYTES"),
+                        DecisionEvidenceReadGuard.class.getDeclaredField("MAX_NESTING_DEPTH"))
+                .forEach(field -> ConstantFieldAssertions
+                        .assertPublicStaticFinalNumericConstant(field, DecisionEvidenceReadGuard.class));
 
         assertThat(DecisionEvidenceReadGuard.MAX_PARSE_BYTES)
                 .as("解析大小上限必须为正")

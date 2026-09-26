@@ -8,8 +8,10 @@ import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
-import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -36,47 +38,37 @@ public class CommentTypeExhaustivenessTest {
     /** 证据组的构造来源（源码式单一来源扫描的靶字面量） */
     private static final String EVIDENCE_GROUP_CONSTRUCTION = "EnumSet.of(COMMENT_TYPE)";
 
+    /** {@code CommentTypeConverter} 必须为证据取值写的显式分支 */
+    private static final String DECISION_EVIDENCE_CASE = "case DECISION_EVIDENCE:";
+
     @Test
     void everyCommentTypeIsMappedOrInKnownUnmappedSet() {
-        final Set<CommentType> mapped = new LinkedHashSet<>();
-        final Set<CommentType> unmapped = new LinkedHashSet<>();
+        final Map<Boolean, List<CommentType>> partitionByMappable = Arrays.stream(CommentType.values())
+                .collect(Collectors.partitioningBy(CommentTypeExhaustivenessTest::isMappable));
 
-        for (final CommentType commentType : CommentType.values()) {
-            try {
-                assertThat(CommentTypeConverter.toApprovalAction(commentType))
-                        .as("映射结果不得为 null：%s", commentType)
-                        .isNotNull();
-                mapped.add(commentType);
-            } catch (IllegalArgumentException expected) {
-                assertThat(KNOWN_UNMAPPED)
-                        .as("取值 %s 落 default 抛出，但它不在已知不可映射集内", commentType)
-                        .contains(commentType);
-                unmapped.add(commentType);
-            }
-        }
+        final List<CommentType> mapped = partitionByMappable.get(Boolean.TRUE);
+        final List<CommentType> unmapped = partitionByMappable.get(Boolean.FALSE);
 
-        final Set<CommentType> covered = new LinkedHashSet<>(mapped);
-        covered.addAll(unmapped);
-        assertThat(covered)
+        assertThat(mapped)
+                .as("可映射集的映射结果不得为 null")
+                .allSatisfy(commentType -> assertThat(CommentTypeConverter.toApprovalAction(commentType)).isNotNull());
+        assertThat(unmapped)
+                .as("不可映射集必须恰为已登记的那三个取值（新增取值落 default 会在此打红）")
+                .containsExactlyInAnyOrderElementsOf(KNOWN_UNMAPPED);
+        assertThat(mapped.size() + unmapped.size())
                 .as("可映射集 ∪ 已知不可映射集必须穷举全部取值")
-                .containsExactlyInAnyOrder(CommentType.values());
-        assertThat(KNOWN_UNMAPPED)
-                .as("已知不可映射集必须全部可达（不得留下过时条目）")
-                .containsExactlyInAnyOrderElementsOf(unmapped);
+                .isEqualTo(CommentType.values().length);
     }
 
     @Test
     void decisionEvidenceHasExplicitCase() {
-        final SourceScanSupport.ScanResult result =
-                SourceScanSupport.scanMainSources("case DECISION_EVIDENCE:");
+        final List<SourceScanSupport.Hit> hits =
+                SourceScanSupport.scanMainSources(DECISION_EVIDENCE_CASE);
 
-        assertThat(result.getVisitedFiles())
-                .as("防空转：必须真的扫到源文件")
-                .isGreaterThanOrEqualTo(SourceScanSupport.MIN_SCANNED_SOURCE_FILES);
-        assertThat(result.getHitFileCount())
+        assertThat(hits)
                 .as("CommentTypeConverter 必须为 DECISION_EVIDENCE 配显式 case（否则落入 default）")
-                .isEqualTo(1);
-        assertThat(result.getSoleHitFile()).endsWith("CommentTypeConverter.java");
+                .hasSize(1);
+        assertThat(hits.get(0).getPath()).endsWith("CommentTypeConverter.java");
     }
 
     @Test
@@ -97,27 +89,22 @@ public class CommentTypeExhaustivenessTest {
                 .as("组与其成员共用一个真值来源")
                 .isSameAs(CommentType.DECISION_EVIDENCE);
 
-        final SourceScanSupport.ScanResult enumSetConstruction =
+        final List<SourceScanSupport.Hit> hits =
                 SourceScanSupport.scanMainSources(EVIDENCE_GROUP_CONSTRUCTION);
-        assertThat(enumSetConstruction.getVisitedFiles())
-                .isGreaterThanOrEqualTo(SourceScanSupport.MIN_SCANNED_SOURCE_FILES);
-        assertThat(enumSetConstruction.getHitFileCount())
+        assertThat(hits)
                 .as("证据组是显式 EnumSet，且构造来源唯一")
-                .isEqualTo(1);
-        assertThat(enumSetConstruction.getSoleHitFile()).endsWith("DecisionEvidenceComment.java");
+                .hasSize(1);
+        assertThat(hits.get(0).getPath()).endsWith("DecisionEvidenceComment.java");
     }
 
     @Test
     void businessGroupStaysImplicitComplement() {
         final Set<CommentType> operationGroup = operationCommentTypes();
 
-        final Set<CommentType> business = EnumSet.noneOf(CommentType.class);
-        for (final CommentType commentType : CommentType.values()) {
-            if (!operationGroup.contains(commentType)
-                    && !DecisionEvidenceComment.EVIDENCE_COMMENT_TYPES.contains(commentType)) {
-                business.add(commentType);
-            }
-        }
+        final Set<CommentType> business = Arrays.stream(CommentType.values())
+                .filter(commentType -> !operationGroup.contains(commentType))
+                .filter(commentType -> !DecisionEvidenceComment.EVIDENCE_COMMENT_TYPES.contains(commentType))
+                .collect(Collectors.toCollection(() -> EnumSet.noneOf(CommentType.class)));
 
         assertThat(business)
                 .as("业务意见组必须非空（隐式补集不得被挤空）")
@@ -130,10 +117,21 @@ public class CommentTypeExhaustivenessTest {
                 .as("业务意见组含既有意见类取值")
                 .contains(CommentType.AGREE, CommentType.REJECT, CommentType.RETURN);
 
-        for (final Field field : Arrays.asList(CommentType.class.getDeclaredFields())) {
-            assertThat(Set.class.isAssignableFrom(field.getType()))
-                    .as("CommentType 不得为业务意见组新增显式常量（保持隐式补集）：%s", field.getName())
-                    .isFalse();
+        Arrays.stream(CommentType.class.getDeclaredFields())
+                .forEach(field -> assertThat(Set.class.isAssignableFrom(field.getType()))
+                        .as("CommentType 不得为业务意见组新增显式常量（保持隐式补集）：%s", field.getName())
+                        .isFalse());
+    }
+
+    /**
+     * 「可映射」的判定只能靠<b>是否抛 {@code IllegalArgumentException}</b>（该映射面无公开谓词），
+     * 故用布尔分区函数把异常吃掉，而非在循环里写分支 —— 见「循环处理集合必须优先使用 Stream」规则的例外②。
+     */
+    private static boolean isMappable(final CommentType commentType) {
+        try {
+            return CommentTypeConverter.toApprovalAction(commentType) != null;
+        } catch (IllegalArgumentException notMappable) {
+            return false;
         }
     }
 

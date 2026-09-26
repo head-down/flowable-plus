@@ -8,10 +8,10 @@ import io.github.flowable.plus.core.enums.DecisionOutcome;
 import io.github.flowable.plus.core.enums.DecisionPolicyReason;
 import io.github.flowable.plus.core.enums.DecisionRationaleFactKey;
 import io.github.flowable.plus.core.enums.DecisionSubjectType;
+import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -19,6 +19,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -89,29 +90,11 @@ public class DecisionEvidenceVOContractTest {
                 .as("矩阵表覆盖字段集必须恒等于 VO 字段集（新增字段无处可藏）")
                 .containsExactlyInAnyOrderElementsOf(declaredFieldNames(DecisionEvidenceVO.class));
 
-        for (final Map.Entry<String, List<Cell>> entry : MATRIX.entrySet()) {
-            assertThat(entry.getValue())
-                    .as("字段 %s 必须在四个产出路径列上都有格（不得留「视情形」格）", entry.getKey())
-                    .hasSize(Column.values().length);
-        }
+        MATRIX.forEach((field, cells) -> assertThat(cells)
+                .as("字段 %s 必须在四个产出路径列上都有格（不得留「视情形」格）", field)
+                .hasSize(Column.values().length));
 
-        for (final Map.Entry<String, List<Cell>> entry : MATRIX.entrySet()) {
-            for (final Cell cell : entry.getValue()) {
-                if (cell.requirement == Requirement.REQUIRED || cell.requirement == Requirement.CONDITIONAL) {
-                    assertThat(cell.reason)
-                            .as("字段 %s 的必填格必须写明理由", entry.getKey())
-                            .isNotBlank();
-                    assertThat(ALLOWED_REASONS)
-                            .as("字段 %s 的必填理由只能引 outcome 分支 / 产出路径 / subjectType", entry.getKey())
-                            .contains(cell.reason);
-                }
-                final String reason = cell.reason == null ? "" : cell.reason;
-                for (final String forbidden : FORBIDDEN_REASON_PHRASES) {
-                    assertThat(reason).as("字段 %s 的理由不得引「因为会调模型」", entry.getKey())
-                            .doesNotContain(forbidden);
-                }
-            }
-        }
+        MATRIX.forEach((field, cells) -> cells.forEach(cell -> assertCellReasonWellFormed(field, cell)));
     }
 
     @Test
@@ -189,13 +172,10 @@ public class DecisionEvidenceVOContractTest {
                         DecisionFailureKind.INTERNAL_ERROR);
 
         // 「AI」只作为主体取值出现一次（取值字面量豁免面），其余域不得混入决策源取值。
-        for (final List<? extends Enum<?>> domain : nonSubjectDomains()) {
-            for (final Enum<?> value : domain) {
-                assertThat(value)
-                        .as("决策源取值 AI 只允许出现在 subjectType 域内")
-                        .isNotEqualTo(DecisionSubjectType.AI);
-            }
-        }
+        // 断言对象是**取值名**：跨枚举类型比较实例恒不相等，那样的写法永真、抓不到泄漏。
+        nonSubjectDomains().forEach(domain -> domain.forEach(value -> assertThat(value.name())
+                .as("决策源取值 AI 只允许出现在 subjectType 域内")
+                .isNotEqualTo(DecisionSubjectType.AI.name())));
     }
 
     // ======================== 矩阵定义 ========================
@@ -252,7 +232,7 @@ public class DecisionEvidenceVOContractTest {
                 mustBeNullExceptException(BY_OUTCOME), mustBeNullExceptException(BY_OUTCOME),
                 mustBeNull(), required(BY_OUTCOME));
         row(matrix, "policyReason",
-                mustBeNull(), mustBeNull(), mustBeNull(), required(BY_OUTCOME));
+                mustBeNull(), mustBeNull(), required(BY_OUTCOME), mustBeNull());
         return Collections.unmodifiableMap(matrix);
     }
 
@@ -283,22 +263,35 @@ public class DecisionEvidenceVOContractTest {
 
     // ======================== 辅助 ========================
 
-    private static Set<String> declaredFieldNames(final Class<?> owner) {
-        final Set<String> names = new LinkedHashSet<>();
-        for (final Field field : Arrays.asList(owner.getDeclaredFields())) {
-            names.add(field.getName());
+    /** 必填格必须有理由、理由只能取自白名单、且任何格的理由都不得引「因为会调模型」 */
+    private static void assertCellReasonWellFormed(final String field, final Cell cell) {
+        if (cell.requirement == Requirement.REQUIRED || cell.requirement == Requirement.CONDITIONAL) {
+            assertThat(cell.reason)
+                    .as("字段 %s 的必填格必须写明理由", field)
+                    .isNotBlank();
+            assertThat(ALLOWED_REASONS)
+                    .as("字段 %s 的必填理由只能引 outcome 分支 / 产出路径 / subjectType", field)
+                    .contains(cell.reason);
         }
-        return names;
+        FORBIDDEN_REASON_PHRASES.forEach(forbidden -> assertThat(StringUtils.defaultString(cell.reason))
+                .as("字段 %s 的理由不得引「因为会调模型」", field)
+                .doesNotContain(forbidden));
     }
 
+    private static Set<String> declaredFieldNames(final Class<?> owner) {
+        return Arrays.stream(owner.getDeclaredFields())
+                .map(Field::getName)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    /** 除 {@code subjectType} 外的全部取值域（「AI 只许出现在主体域」的扫描面） */
     private static List<List<? extends Enum<?>>> nonSubjectDomains() {
-        final List<List<? extends Enum<?>>> domains = new ArrayList<>();
-        domains.add(Arrays.asList(DecisionOutcome.values()));
-        domains.add(Arrays.asList(DecisionPolicyReason.values()));
-        domains.add(Arrays.asList(DecisionFailureKind.values()));
-        domains.add(Arrays.asList(DecisionChainStage.values()));
-        domains.add(Arrays.asList(DecisionCompleteness.values()));
-        domains.add(Arrays.asList(DecisionRationaleFactKey.values()));
-        return domains;
+        return Arrays.asList(
+                Arrays.asList(DecisionOutcome.values()),
+                Arrays.asList(DecisionPolicyReason.values()),
+                Arrays.asList(DecisionFailureKind.values()),
+                Arrays.asList(DecisionChainStage.values()),
+                Arrays.asList(DecisionCompleteness.values()),
+                Arrays.asList(DecisionRationaleFactKey.values()));
     }
 }

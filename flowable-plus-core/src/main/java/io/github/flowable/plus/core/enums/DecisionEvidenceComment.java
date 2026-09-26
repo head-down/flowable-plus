@@ -1,5 +1,7 @@
 package io.github.flowable.plus.core.enums;
 
+import org.apache.commons.lang3.StringUtils;
+
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Set;
@@ -64,7 +66,7 @@ public final class DecisionEvidenceComment {
      * @return 带标记前缀返回 true；null 或不带标记前缀返回 false
      */
     public static boolean hasMarker(final String fullMessage) {
-        return fullMessage != null && fullMessage.startsWith(MARKER_PREFIX);
+        return StringUtils.startsWith(fullMessage, MARKER_PREFIX);
     }
 
     /**
@@ -78,13 +80,9 @@ public final class DecisionEvidenceComment {
      * @return 标记之后的 JSON 原文；无标记或标记不完整时原样返回（含 null）
      */
     public static String stripMarker(final String fullMessage) {
-        if (!hasMarker(fullMessage)) {
+        if (!hasMarker(fullMessage) || !StringUtils.contains(fullMessage, MARKER_SUFFIX)) {
             return fullMessage;
         }
-        final int end = fullMessage.indexOf(MARKER_SUFFIX, MARKER_PREFIX.length());
-        if (end < 0) {
-            return fullMessage;
-        }
-        return fullMessage.substring(end + MARKER_SUFFIX.length());
+        return StringUtils.substringAfter(fullMessage, MARKER_SUFFIX);
     }
 }

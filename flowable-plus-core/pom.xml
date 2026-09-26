@@ -33,6 +33,12 @@
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
+        <!-- Apache Commons Lang（直接使用即显式声明：字符串/集合谓词；版本由父 BOM 管） -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+        </dependency>
+
         <!-- Hutool -->
         <dependency>
             <groupId>cn.hutool</groupId>

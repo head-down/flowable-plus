@@ -1,10 +1,11 @@
 package io.github.flowable.plus.core.enums;
 
 import io.github.flowable.plus.core.vo.DecisionEvidenceTestFixtures;
+import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -28,23 +29,19 @@ public class DecisionEvidenceMarkerTest {
 
     @Test
     void markerConstructedFromSingleSource() {
-        final SourceScanSupport.ScanResult result =
+        final List<SourceScanSupport.Hit> hits =
                 SourceScanSupport.scanMainSources(MARKER_LITERAL_PREFIX);
 
-        assertThat(result.getVisitedFiles())
-                .as("防空转：必须真的扫到源文件")
-                .isGreaterThanOrEqualTo(SourceScanSupport.MIN_SCANNED_SOURCE_FILES);
-        assertThat(result.getHitFileCount())
+        assertThat(hits)
                 .as("标记字面量只允许有一个声明处")
-                .isEqualTo(1);
-        assertThat(result.getSoleHitFile())
+                .hasSize(1);
+        assertThat(hits.stream().map(SourceScanSupport.Hit::getPath).distinct())
+                .as("命中文件数 == 1（单一命中点蕴含单一文件，此处对账可读性）")
+                .hasSize(1);
+        assertThat(hits.get(0).getPath())
                 .as("唯一的声明处必须是证据常量类")
                 .endsWith("DecisionEvidenceComment.java");
-        assertThat(result.getHitCount())
-                .as("命中处唯一（不得在别处另行拼写标记字面量，注释亦不得）")
-                .isEqualTo(1);
-
-        assertThat(result.getSoleHitLine())
+        assertThat(hits.get(0).getLine())
                 .as("命中处必须是 MARKER_PREFIX 的声明行")
                 .contains("MARKER_PREFIX")
                 .contains(MARKER_LITERAL_PREFIX);
@@ -55,10 +52,10 @@ public class DecisionEvidenceMarkerTest {
         final Field prefix = DecisionEvidenceComment.class.getDeclaredField("MARKER_PREFIX");
         final Field suffix = DecisionEvidenceComment.class.getDeclaredField("MARKER_SUFFIX");
 
-        assertThat(isPrivateStaticFinalString(prefix))
+        assertThat(ConstantFieldAssertions.isPrivateStaticFinalString(prefix))
                 .as("MARKER_PREFIX 必须私有（公开面只留 marker/hasMarker/stripMarker）")
                 .isTrue();
-        assertThat(isPrivateStaticFinalString(suffix))
+        assertThat(ConstantFieldAssertions.isPrivateStaticFinalString(suffix))
                 .as("MARKER_SUFFIX 必须私有")
                 .isTrue();
 
@@ -82,7 +79,8 @@ public class DecisionEvidenceMarkerTest {
     void stripMarkerRoundTripsWithJsonBody() throws Exception {
         final String jsonBody = DecisionEvidenceTestFixtures.toJson(
                 DecisionEvidenceTestFixtures.maximalDirectSubmission());
-        assertThat(jsonBody).startsWith("{").endsWith("}");
+        assertThat(StringUtils.startsWith(jsonBody, "{")).as("样本必须是 JSON 对象文本").isTrue();
+        assertThat(StringUtils.endsWith(jsonBody, "}")).as("样本必须是 JSON 对象文本").isTrue();
 
         final String fullMessage = DecisionEvidenceComment.marker() + jsonBody;
 
@@ -100,18 +98,10 @@ public class DecisionEvidenceMarkerTest {
         assertThat(DecisionEvidenceComment.hasMarker(null)).isFalse();
         assertThat(DecisionEvidenceComment.stripMarker(null)).isNull();
 
-        final String marker = DecisionEvidenceComment.marker();
-        final String truncated = marker.substring(0, marker.length() - 1);
+        final String truncated = StringUtils.chop(DecisionEvidenceComment.marker());
         assertThat(DecisionEvidenceComment.hasMarker(truncated)).isTrue();
         assertThat(DecisionEvidenceComment.stripMarker(truncated))
                 .as("标记不完整时原样返回（由读侧容错条款跳过该条投影，此处不抛异常）")
                 .isEqualTo(truncated);
-    }
-
-    private static boolean isPrivateStaticFinalString(final Field field) {
-        return Modifier.isPrivate(field.getModifiers())
-                && Modifier.isStatic(field.getModifiers())
-                && Modifier.isFinal(field.getModifiers())
-                && field.getType() == String.class;
     }
 }
