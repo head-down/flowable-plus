@@ -27,6 +27,12 @@
             <artifactId>spring-tx</artifactId>
         </dependency>
 
+        <!-- Jackson (直接使用即显式声明：证据载荷 JSON 的读写两侧；版本由父 BOM 管) -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
         <!-- Hutool -->
         <dependency>
             <groupId>cn.hutool</groupId>

@@ -2,6 +2,10 @@ package io.github.flowable.plus.core.enums;
 
 /**
  * 审批操作类型枚举，覆盖同意、驳回、退回、撤回、撤销、会签、加签、减签、委派、收回委派、转办、自动提交等全部操作类型。
+ *
+ * <p>读侧把本枚举分为三组：<b>业务意见组</b>（参与审批意见槽位竞争，保持<b>隐式补集</b>、无显式常量）、
+ * <b>操作注释组</b>（加签 / 减签 / 委派一类，不参与意见槽位竞争）、<b>证据组</b>（框架自产的只读证据行，
+ * 显式常量见 {@link DecisionEvidenceComment#EVIDENCE_COMMENT_TYPES}）。</p>
  */
 public enum CommentType {
 
@@ -45,6 +49,18 @@ public enum CommentType {
     AUTO_COMPLETE,
 
     /** 发起会签：伪单例审批人发起会签，自动完成自身子任务 */
-    INITIATE_COUNTERSIGN
+    INITIATE_COUNTERSIGN,
+
+    /**
+     * 决策证据：框架自产的只读证据行（ADR-0042 第 5 节）。
+     *
+     * <p><b>决策源中立</b>（不绑 AI，改名是破坏性变更）。它构成<b>第三个分组</b>「证据组」——
+     * 与业务意见组、操作注释组并列；证据组常量见 {@link DecisionEvidenceComment#EVIDENCE_COMMENT_TYPES}。</p>
+     *
+     * <p>读写两处不得遗漏：写入侧标记由 {@code DecisionEvidenceComment} 从本取值派生；
+     * 读侧 {@link CommentTypeConverter} 必须为本取值配<b>显式 {@code case}</b> —— 该 {@code switch} 带
+     * {@code default}，不加则<b>编译通过、运行时抛异常</b>。</p>
+     */
+    DECISION_EVIDENCE
 
 }
