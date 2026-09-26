@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
@@ -64,4 +65,31 @@ public class CountersignSubRecord {
      * 有显式值直接使用，无则默认 round = 0（原始审批人隐式轮次）。
      */
     private Integer roundIndex;
+
+    /**
+     * 决策证据组（ADR-0042 第 5 节）：**只读**、独立字段，不占人工意见槽位。
+     *
+     * <p><b>挂载层级</b>：会签节点上证据挂本字段；此时父 VO
+     * {@link ApprovalRecordVO#getDecisionEvidences()} **恒空**，同一条证据不重复挂两层。</p>
+     *
+     * <p><b>恒返回空集合</b>（软回退，与同 VO {@code operationComments} 的 {@code null} 惯例有意分歧）。
+     * 已知边界同 {@link ApprovalRecordVO#getDecisionEvidences()}。</p>
+     */
+    @Builder.Default
+    private List<DecisionEvidenceVO> decisionEvidences = new ArrayList<>();
+
+    /**
+     * 读侧派生判定：返回该条证据在同锚点内所重放的**原行**；本身是原行 ⇒ 返回 {@code null}。
+     *
+     * <p>语义与形态同 {@link ApprovalRecordVO#resolveReplayOf(DecisionEvidenceVO)}；本方法挂在
+     * **证据实际所在的层级**（会签节点）。</p>
+     *
+     * <p><b>骨架说明</b>：判序与 tie-break 属实现期产物，本骨架不实现。</p>
+     *
+     * @param evidence 待判定的证据行
+     * @return 该证据所重放的原行；本身是原行时返回 {@code null}
+     */
+    public DecisionEvidenceVO resolveReplayOf(DecisionEvidenceVO evidence) {
+        throw new UnsupportedOperationException("骨架：重放判序归实现期（见 #43）");
+    }
 }

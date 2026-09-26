@@ -3,6 +3,7 @@ package io.github.flowable.plus.core.support;
 import io.github.flowable.plus.core.enums.ApprovalAction;
 import io.github.flowable.plus.core.enums.CommentType;
 import io.github.flowable.plus.core.enums.CommentTypeConverter;
+import io.github.flowable.plus.core.enums.DecisionEvidenceComment;
 import org.flowable.engine.task.Comment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,6 +27,12 @@ import java.util.Set;
  * <p>ADR-0025 增强：CommentType 划分为<b>业务意见组</b>与<b>操作注释组</b>。
  * 业务意见组参与 {@code comment} 槽位竞争，操作注释组不参与（见 {@link #findFirstBusinessComment}）；
  * action 推断优先级为<b>业务意见 → 操作注释 → DeleteReason → null</b>（见 {@link #inferAction}）。</p>
+ *
+ * <p>ADR-0042 增强：新增并列的<b>第三个分组「证据组」</b>（唯一成员 {@code DECISION_EVIDENCE}）。
+ * 读侧三处推断的处置 = <b>一处实改 + 两处结构性已排除</b> —— {@link #findFirstBusinessComment} 第二遍
+ * 加证据组排除（否则证据行抢占 {@code comment} 槽位）；{@link #findFirstOperationComment} /
+ * {@link #findAllOperationComments} 经 {@link #collectOperationComments} 的<b>包含式</b>集合过滤，
+ * 证据行结构性已排除，代码不动、由守卫断言钉死。</p>
  *
  * <p>迁移自 {@code HistoryWorkflow.inferAction} 和 {@code findFirstBusinessComment}。</p>
  *
@@ -103,7 +110,8 @@ public class DefaultActionInferenceStrategy implements ActionInferenceStrategy {
                 return comment;
             }
         }
-        // 第二遍：匹配业务意见组 CommentType（ADR-0025：跳过操作注释组）
+        // 第二遍：匹配业务意见组 CommentType（ADR-0025：跳过操作注释组；ADR-0042：跳过证据组）
+        // 证据行的 TYPE_ 为 DECISION_EVIDENCE，若不排除会抢占 comment 槽位（ADR-0025 刚修过同类 bug）
         for (Comment comment : taskComments) {
             String typeStr = comment.getType();
             if (typeStr == null) {
@@ -111,7 +119,8 @@ public class DefaultActionInferenceStrategy implements ActionInferenceStrategy {
             }
             try {
                 CommentType ct = CommentType.valueOf(typeStr);
-                if (!OPERATION_COMMENT_TYPES.contains(ct)) {
+                if (!OPERATION_COMMENT_TYPES.contains(ct)
+                        && !DecisionEvidenceComment.EVIDENCE_COMMENT_TYPES.contains(ct)) {
                     return comment;
                 }
             } catch (IllegalArgumentException ignored) {

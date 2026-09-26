@@ -45,6 +45,18 @@ public enum CommentType {
     AUTO_COMPLETE,
 
     /** 发起会签：伪单例审批人发起会签，自动完成自身子任务 */
-    INITIATE_COUNTERSIGN
+    INITIATE_COUNTERSIGN,
+
+    /**
+     * 决策证据：框架自产的只读证据行（ADR-0042 第 5 节）。
+     *
+     * <p><b>决策源中立</b>（不绑 AI，改名是破坏性变更）。它构成<b>第三个分组</b>「证据组」——
+     * 与业务意见组、操作注释组并列；证据组常量见 {@link DecisionEvidenceComment#EVIDENCE_COMMENT_TYPES}。</p>
+     *
+     * <p>读写两处不得遗漏：写入侧标记由 {@code DecisionEvidenceComment} 从本取值派生；
+     * 读侧 {@link CommentTypeConverter} 必须为本取值配<b>显式 case</b> —— 该 {@code switch} 带
+     * {@code default}，不加则<b>编译通过、运行时抛异常</b>。</p>
+     */
+    DECISION_EVIDENCE
 
 }

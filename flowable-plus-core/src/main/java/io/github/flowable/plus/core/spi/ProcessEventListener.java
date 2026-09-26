@@ -4,6 +4,7 @@ import io.github.flowable.plus.core.event.ProcessEndedEvent;
 import io.github.flowable.plus.core.event.ProcessInvalidatedEvent;
 import io.github.flowable.plus.core.event.ProcessStartedEvent;
 import io.github.flowable.plus.core.event.TaskCompletedEvent;
+import io.github.flowable.plus.core.event.TaskCreatedEvent;
 import io.github.flowable.plus.core.event.TaskDelegatedEvent;
 import io.github.flowable.plus.core.event.TaskJumpedEvent;
 import io.github.flowable.plus.core.event.TaskRejectedEvent;
@@ -49,4 +50,14 @@ public interface ProcessEventListener {
     default void onProcessEnded(ProcessEndedEvent event) {}
 
     default void onTaskJumped(TaskJumpedEvent event) {}
+
+    /**
+     * 任务新建事件回调：一个新待办就绪。拉管线的到点信号（ADR-0042 第 2 节定案 8）。
+     *
+     * <p><b>默认空实现</b> —— 无订阅者时事件仍被发射，但无副作用。
+     * 实现方在回调内<b>只做纯读门控 + 入队</b>（零引擎命令、零网络、零状态写入）。</p>
+     *
+     * @param event 任务新建事件
+     */
+    default void onTaskCreated(TaskCreatedEvent event) {}
 }

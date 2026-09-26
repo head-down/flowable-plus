@@ -9,7 +9,7 @@ package io.github.flowable.plus.core.enums;
  *       COUNTER_SIGN_REJECT, ADD_SIGN, DELETE_SIGN, TRANSFER, INITIATE_COUNTERSIGN）</li>
  *   <li>RETURN → RETURN（退回操作展示为独立的退回类别）</li>
  *   <li>AUTO_COMPLETE → AGREE（自动提交等同于同意）</li>
- *   <li>DELEGATE / RESOLVE_DELEGATE → 抛出 IllegalArgumentException</li>
+ *   <li>DELEGATE / RESOLVE_DELEGATE / DECISION_EVIDENCE → 抛出 IllegalArgumentException</li>
  * </ul>
  */
 public final class CommentTypeConverter {
@@ -57,6 +57,7 @@ public final class CommentTypeConverter {
                 return ApprovalAction.INITIATE_COUNTERSIGN;
             case DELEGATE:
             case RESOLVE_DELEGATE:
+            case DECISION_EVIDENCE:
             default:
                 throw new IllegalArgumentException(
                         "CommentType " + commentType + " 没有对应的 ApprovalAction 映射");

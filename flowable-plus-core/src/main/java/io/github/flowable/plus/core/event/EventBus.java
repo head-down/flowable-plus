@@ -46,6 +46,17 @@ public class EventBus {
 
     // ======================== 任务事件 ========================
 
+    /**
+     * 任务新建事件（一个新待办就绪）。
+     *
+     * <p>发射点 = 受控入口（{@code startProcess} 之后、以及每次审批操作使新待办就绪时）；
+     * 「新就绪」= 引擎调用前后活跃任务集之差，差集空则调用方<b>不发</b>。</p>
+     */
+    public void taskCreated(PlusTask task, Date createTime) {
+        publish(TaskCreatedEvent.of(task.getId(), task.getProcessInstanceId(),
+                task.getName(), task.getTaskDefinitionKey(), task.getAssignee(), createTime));
+    }
+
     /** 任务完成事件（assignee 为操作者） */
     public void taskCompleted(PlusTask task, String userId, String comment) {
         publish(TaskCompletedEvent.of(task.getId(), task.getProcessInstanceId(),

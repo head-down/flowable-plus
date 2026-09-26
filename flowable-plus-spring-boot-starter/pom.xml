@@ -21,6 +21,20 @@
             <artifactId>flowable-plus-core</artifactId>
         </dependency>
 
+        <!-- Extension (optional, decision integration mechanism) -->
+        <dependency>
+            <groupId>io.github.flowable.plus</groupId>
+            <artifactId>flowable-plus-extension</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Micrometer (optional, for decision metrics) -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+            <optional>true</optional>
+        </dependency>
+
         <!-- Spring Boot Starter -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
