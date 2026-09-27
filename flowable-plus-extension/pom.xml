@@ -33,6 +33,12 @@
             <artifactId>httpclient</artifactId>
         </dependency>
 
+        <!-- Jackson（决策载荷序列化：出域 clamp 的 UTF-8 字节计量口径；直接使用即显式声明，版本由父 BOM 管） -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
         <!-- Apache Commons Lang（字符串与集合谓词；直接使用即显式声明，版本由父 BOM 管） -->
         <dependency>
             <groupId>org.apache.commons</groupId>
