@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:flowable="http://flowable.org/bpmn"
+             xmlns:fp="http://flowable.plus/bpmn"
+             targetNamespace="http://flowable.plus/test/decision/matrix">
+
+  <!-- 三层关闭矩阵的装配侧 fixture：启用节点 / 显式禁用节点 / 未声明节点 -->
+  <process id="testDecisionMatrix" name="decision closure matrix" isExecutable="true">
+    <startEvent id="start"/>
+    <sequenceFlow id="f1" sourceRef="start" targetRef="taskOn"/>
+    <userTask id="taskOn" name="taskOn" flowable:assignee="approver"
+              fp:decisionEnabled="true"
+              fp:decisionTarget="testTarget"
+              fp:decisionPolicy="testPolicy"/>
+    <sequenceFlow id="f2" sourceRef="taskOn" targetRef="taskOff"/>
+    <userTask id="taskOff" name="taskOff" flowable:assignee="approver"
+              fp:decisionEnabled="false"/>
+    <sequenceFlow id="f3" sourceRef="taskOff" targetRef="taskPlain"/>
+    <userTask id="taskPlain" name="taskPlain" flowable:assignee="approver"/>
+    <sequenceFlow id="f4" sourceRef="taskPlain" targetRef="end"/>
+    <endEvent id="end"/>
+  </process>
+</definitions>
