@@ -669,6 +669,8 @@ class DecisionDisabledEquivalenceTest {
                 side.lifecycle.invalidateProcess(capture.processInstanceId, INVALIDATE_REASON);
                 capture.secondInvalidationException = "(no exception)";
             } catch (RuntimeException rejected) {
+                // 有意的宽捕获：此处是异常探针（面③），目的是捕获「再作废已结束实例」的异常类型
+                // 供两态对拍，不是吞异常 —— 类型取 simpleName 后即写入对拍清单。
                 capture.secondInvalidationException = rejected.getClass().getSimpleName();
             }
         } catch (RuntimeException broken) {
@@ -755,6 +757,7 @@ class DecisionDisabledEquivalenceTest {
             while (resultSet.next()) {
                 String id = resultSet.getString(1);
                 java.sql.Timestamp end = resultSet.getTimestamp(2);
+                // parseLong 的前提由本 fixture 保证：E20 的引擎未替换 IdGenerator，ID_ 恒为 DbIdGenerator 数值串
                 rows.add(new long[]{Long.parseLong(id), end == null ? -1L : end.getTime()});
             }
         }

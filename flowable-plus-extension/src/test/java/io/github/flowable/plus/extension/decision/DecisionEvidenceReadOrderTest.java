@@ -1,5 +1,6 @@
 package io.github.flowable.plus.extension.decision;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.flowable.plus.core.enums.DecisionEvidenceComment;
 import io.github.flowable.plus.core.enums.DecisionOutcome;
@@ -311,7 +312,7 @@ class DecisionEvidenceReadOrderTest {
     private static String toJson(DecisionEvidenceVO evidence) {
         try {
             return MAPPER.writeValueAsString(evidence);
-        } catch (Exception broken) {
+        } catch (JsonProcessingException broken) {
             throw new IllegalStateException("E12 fixture 的证据行必须可序列化", broken);
         }
     }
@@ -357,6 +358,7 @@ class DecisionEvidenceReadOrderTest {
 
     private static Long numericId(String id) {
         try {
+            // parseLong 的 NumberFormatException 是预期路径（fixture 断言 ID_ 可解析 / 不可解析两态）
             return Long.parseLong(id);
         } catch (NumberFormatException nonNumeric) {
             return null;
