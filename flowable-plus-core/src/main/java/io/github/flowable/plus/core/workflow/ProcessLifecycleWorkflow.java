@@ -46,6 +46,7 @@ public class ProcessLifecycleWorkflow implements ProcessLifecycleOperations {
     private final NodeFinder nodeFinder;
     private final List<AutoApprovalRule> autoApprovalRules;
     private final EventBus eventBus;
+    private final NewlyReadyTaskEmitter newlyReadyTaskEmitter;
 
     public ProcessLifecycleWorkflow(UserContext userContext, TaskService taskService,
                                      HistoryService historyService, RuntimeService runtimeService,
@@ -60,6 +61,7 @@ public class ProcessLifecycleWorkflow implements ProcessLifecycleOperations {
         this.nodeFinder = nodeFinder;
         this.autoApprovalRules = autoApprovalRules != null ? autoApprovalRules : Collections.emptyList();
         this.eventBus = eventBus;
+        this.newlyReadyTaskEmitter = new NewlyReadyTaskEmitter(taskService, eventBus);
     }
 
     @Override
@@ -82,6 +84,10 @@ public class ProcessLifecycleWorkflow implements ProcessLifecycleOperations {
             if (!autoApprovalRules.isEmpty()) {
                 autoCompleteFirstTasks(result.getProcessInstanceId(), userId, variables);
             }
+
+            // 新就绪 = 调用前后活跃任务集之差。实例此刻才存在，故「调用前」集恒为空。
+            newlyReadyTaskEmitter.emitNewlyReadyTasks(
+                    result.getProcessInstanceId(), Collections.emptySet());
 
             return result;
         } finally {

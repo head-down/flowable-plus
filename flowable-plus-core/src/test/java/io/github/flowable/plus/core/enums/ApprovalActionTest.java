@@ -4,6 +4,7 @@ import io.github.flowable.plus.core.vo.ApprovalRecordVO;
 import io.github.flowable.plus.core.vo.CountersignSubRecord;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.Date;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -218,14 +219,16 @@ public class ApprovalActionTest {
         Date start = new Date(1000);
         Date end = new Date(2000);
 
+        // 14 参（13 → 14：末位新增决策证据组，ADR-0042 第 5 节读侧硬清单第 8 项）
         ApprovalRecordVO record = new ApprovalRecordVO(
                 "task-001", "node-approval", "审批节点",
                 ApprovalAction.REJECT, "actor-id", "actor-name",
-                "不同意", null, null, start, end, 1000L, null
+                "不同意", null, null, start, end, 1000L, null, Collections.emptyList()
         );
 
         assertThat(record.getTaskId()).isEqualTo("task-001");
         assertThat(record.getAction()).isEqualTo(ApprovalAction.REJECT);
+        assertThat(record.getDecisionEvidences()).isEmpty();
     }
 
     // ======================== CountersignSubRecord Builder ========================
@@ -271,13 +274,15 @@ public class ApprovalActionTest {
         Date start = new Date(1000);
         Date end = new Date(2000);
 
+        // 14 参（13 → 14：末位新增决策证据组，ADR-0042 第 5 节读侧硬清单第 8 项）
         CountersignSubRecord record = new CountersignSubRecord(
                 "task-cs-001", "node-countersign", "部门会签",
                 ApprovalAction.COUNTER_SIGN_REJECT, "actor-id", "actor-name",
-                "有异议", null, null, start, end, 1000L, null
+                "有异议", null, null, start, end, 1000L, null, Collections.emptyList()
         );
 
         assertThat(record.getTaskId()).isEqualTo("task-cs-001");
         assertThat(record.getAction()).isEqualTo(ApprovalAction.COUNTER_SIGN_REJECT);
+        assertThat(record.getDecisionEvidences()).isEmpty();
     }
 }

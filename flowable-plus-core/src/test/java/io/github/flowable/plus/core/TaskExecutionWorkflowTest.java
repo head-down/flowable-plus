@@ -1196,6 +1196,10 @@ public class TaskExecutionWorkflowTest {
         when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
         when(taskQuery.taskId(task.getId())).thenReturn(taskQuery);
         when(taskQuery.singleResult()).thenReturn(mockTask);
+        // 受控入口按「活跃任务集之差」发射 TaskCreatedEvent，故同一查询桩需容一条空的活跃链
+        when(taskQuery.processInstanceId(anyString())).thenReturn(taskQuery);
+        when(taskQuery.active()).thenReturn(taskQuery);
+        when(taskQuery.list()).thenReturn(Collections.emptyList());
     }
 
     private void stubTaskExistsWithAssignee(PlusTask task) {

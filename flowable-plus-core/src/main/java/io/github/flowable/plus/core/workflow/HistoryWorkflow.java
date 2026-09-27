@@ -378,6 +378,7 @@ public class HistoryWorkflow {
                 .endTime(task.getEndTime())
                 .duration(calcDuration(task.getCreateTime(), task.getEndTime()))
                 .countersignRecords(null)
+                .decisionEvidences(DecisionEvidenceRowProjector.project(taskComments))
                 .build();
     }
 
@@ -501,6 +502,7 @@ public class HistoryWorkflow {
                 .duration(task != null
                         ? calcDuration(task.getCreateTime(), task.getEndTime())
                         : calcDuration(activity.getStartTime(), activity.getEndTime()))
+                .decisionEvidences(DecisionEvidenceRowProjector.project(taskComments))
                 .build();
     }
 
