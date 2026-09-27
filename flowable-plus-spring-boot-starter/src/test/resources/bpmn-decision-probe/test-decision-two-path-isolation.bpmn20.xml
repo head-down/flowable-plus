@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:flowable="http://flowable.org/bpmn"
+             xmlns:fp="http://flowable.plus/bpmn"
+             targetNamespace="http://flowable.plus/test/decision/twopath">
+
+  <!-- S5 两路径隔离探针：双节点、两边同挂。
+       老路径落点 firstApproval（AutoApprovalRule 在 startProcess 事务内自动提交）；
+       机制声明落点 declaredApproval（fp 四属性齐全，伪单例多实例 —— 模型级会签 + 单元素集合，
+       使 ComparableAction.MEMBERS 四值同时通过位点服务可用性准入，见探针票面披露）。
+       载体放 bpmn-decision-probe/（独立前缀：不在默认 auto-deploy 范围内、也不在 S4 开态的
+       bpmn-decision/ 前缀内），由各态上下文显式部署。 -->
+  <process id="testDecisionTwoPathIsolation" name="two path isolation probe" isExecutable="true">
+    <startEvent id="start"/>
+    <sequenceFlow id="f1" sourceRef="start" targetRef="firstApproval"/>
+    <userTask id="firstApproval" name="firstApproval" flowable:assignee="approver"/>
+    <sequenceFlow id="f2" sourceRef="firstApproval" targetRef="declaredApproval"/>
+    <userTask id="declaredApproval" name="declaredApproval" flowable:assignee="${declaredAssignee}"
+              fp:decisionEnabled="true"
+              fp:decisionDataSources="PROCESS_VARIABLES,TASK_VARIABLES"
+              fp:decisionTarget="probeTarget"
+              fp:decisionPolicy="probePolicy">
+      <multiInstanceLoopCharacteristics isSequential="false"
+                                        flowable:collection="declaredAssignees"
+                                        flowable:elementVariable="declaredAssignee"/>
+    </userTask>
+    <sequenceFlow id="f3" sourceRef="declaredApproval" targetRef="end"/>
+    <endEvent id="end"/>
+  </process>
+</definitions>
