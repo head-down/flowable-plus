@@ -4,7 +4,8 @@ package io.github.flowable.plus.extension.decision;
  * 建议提交的准入失败原因（ADR-0042 第 8 节 / 第 9 节第 9 条）。
  *
  * <p><b>闭集十三值</b>。准入校验<b>同步、按序、首个失败即抛</b>，故本枚举不承载「全部失败项」；
- * 抛出侧与异常载体的形态随位点服务落地。</p>
+ * 抛出侧 = {@link SuggestionAdmissionException}（单一 unchecked 异常，自带本原因与锚点上下文），
+ * 判定侧 = {@link DefaultSuggestionSubmissionService}。</p>
  *
  * <p><b>进错枚举的两类不在此列</b>：① 「锚点失效 / 实例已结束」是<b>写入期</b>失败（提交已发生、
  * 写入期落不下），走 {@link WriteDegradedCause}、<b>不占</b>本枚举；② 「全局关」不是失败
