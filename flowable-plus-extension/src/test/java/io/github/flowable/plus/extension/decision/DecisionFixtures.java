@@ -143,19 +143,39 @@ final class DecisionFixtures {
      * @return 建议提交
      */
     static SuggestionSubmission directSubmission(final List<DecisionContextSource> attested) {
+        return directSubmissionBuilder(DecisionSubjectType.SYSTEM).attestedDataSources(attested).build();
+    }
+
+    /**
+     * 直提桩（按主体类型）：v1 的可达性面 —— 拍面（拉管线）只产 {@link DecisionSubjectType#AI}，
+     * 故 {@code SYSTEM} / {@code USER} 两类主体**只在推面（直提）可达**，测试须各给一条最小直提桩。
+     *
+     * @param subjectType 主体类型（{@code SYSTEM} / {@code USER}）
+     * @return 建议提交
+     */
+    static SuggestionSubmission directSubmissionOf(final DecisionSubjectType subjectType) {
+        return directSubmissionBuilder(subjectType).attestedDataSources(allContextSources()).build();
+    }
+
+    /**
+     * 直提提交的构造器（SYSTEM / USER 两条桩共用的单一来源）。
+     *
+     * @param subjectType 主体类型
+     * @return 构造器（已填齐直提的必填面）
+     */
+    private static SuggestionSubmission.SuggestionSubmissionBuilder directSubmissionBuilder(
+            final DecisionSubjectType subjectType) {
         return SuggestionSubmission.builder()
                 .taskId(TASK_ID)
                 .idempotencyKey(IDEMPOTENCY_KEY)
-                .subjectType(DecisionSubjectType.SYSTEM)
+                .subjectType(subjectType)
                 .subjectId(SUBJECT_ID)
                 .subjectName(SUBJECT_NAME)
                 .suggestedAction(ApprovalAction.AGREE)
                 .actionSummary("外部服务建议同意")
                 .rawOutput(RAW_OUTPUT)
                 .rationaleFacts(facts(DecisionRationaleFactKey.BASIS_CODE))
-                .rationaleNarrative("依据：外部规则命中")
-                .attestedDataSources(attested)
-                .build();
+                .rationaleNarrative("依据：外部规则命中");
     }
 
     /**

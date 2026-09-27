@@ -140,11 +140,24 @@ final class DecisionClamp {
      * @return 序列化后的 UTF-8 字节数
      */
     private int byteSize(final DecisionPayload payload) {
+        return serialize(payload, objectMapper).length;
+    }
+
+    /**
+     * 载荷 → UTF-8 字节（<b>包内共用的唯一序列化实现</b>）：clamp 的计量口径、管线的 {@code inputSnapshot}
+     * 与 Provider 缝的请求体共用同一份形态，不在三处各写一遍 Jackson 调用。
+     *
+     * @param payload 载荷，不得为 null
+     * @param mapper  序列化器，不得为 null
+     * @return 序列化后的 UTF-8 字节
+     */
+    static byte[] serialize(final DecisionPayload payload, final ObjectMapper mapper) {
+        Objects.requireNonNull(payload, "待序列化载荷不得为 null");
+        Objects.requireNonNull(mapper, "载荷序列化器不得为 null");
         try {
-            // 直接取字节（不中转 String）：计量口径本就是 UTF-8 字节数
-            return objectMapper.writeValueAsBytes(payload).length;
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("决策载荷序列化失败：clamp 计量口径依赖它", e);
+            return mapper.writeValueAsBytes(payload);
+        } catch (JsonProcessingException broken) {
+            throw new IllegalStateException("决策载荷序列化失败：载荷只有四段定型外壳与裸 map，序列化不该失败", broken);
         }
     }
 
