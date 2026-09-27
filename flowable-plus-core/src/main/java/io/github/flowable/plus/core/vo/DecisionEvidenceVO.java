@@ -1,5 +1,6 @@
 package io.github.flowable.plus.core.vo;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import io.github.flowable.plus.core.enums.ApprovalAction;
 import io.github.flowable.plus.core.enums.DecisionChainStage;
 import io.github.flowable.plus.core.enums.DecisionCompleteness;
@@ -78,7 +79,15 @@ public class DecisionEvidenceVO {
     /** 文本兜底依据 */
     private String rationaleNarrative;
 
-    /** 直提自述位（三态：null = 位缺失 / [] = 显式空集 / 有值 = 申报了具体来源） */
+    /**
+     * 直提自述位（三态：null = 位缺失 / 空集合 = 显式空集 / 有值 = 申报了具体来源）。
+     *
+     * <p><b>序列化时 {@code null} 省略该键</b>（ADR-0042 第 5 节第 4 条形态定稿）—— 三态由此可区分：
+     * 键缺席 = 位缺失、{@code []} = 显式空集、有值 = 申报了具体来源。注解<b>只落本字段</b>：
+     * 矩阵里多处「必须 null」格依赖键仍在（或缺席亦语义等价可判），故不借全局「省略 null 键」
+     * 顺手牵动其它字段。</p>
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private List<DecisionContextSource> attestedDataSources;
 
     // ======================== 出处组（三者全 null ⇔ 直提） ========================
