@@ -83,12 +83,19 @@ public class ApprovalRecordVO {
      * 决策证据组的取值器。<b>恒返回空集合</b> —— 未挂载证据时返回空集合而非 {@code null}（软回退，
      * 见字段 javadoc 的「有意分歧」）；且恒为<b>不可修改</b>包装，调用方无法借它改写记录内部状态。
      *
+     * <p><b>未建序载体原样透传</b>：字段值为 {@link UnorderedDecisionEvidences}（锚点序未建立，
+     * 读侧投影器已保证其不可修改）时不做二次包装 —— 二次包装会掩盖其类型身份，使判定面
+     * {@code resolveReplayOf} 无法识别「整锚点不判」。</p>
+     *
      * @return 本记录的决策证据组，永不为 {@code null}
      */
     public List<DecisionEvidenceVO> getDecisionEvidences() {
-        return decisionEvidences != null
-                ? Collections.unmodifiableList(decisionEvidences)
-                : Collections.emptyList();
+        if (decisionEvidences == null) {
+            return Collections.emptyList();
+        }
+        return decisionEvidences instanceof UnorderedDecisionEvidences
+                ? decisionEvidences
+                : Collections.unmodifiableList(decisionEvidences);
     }
 
     /**

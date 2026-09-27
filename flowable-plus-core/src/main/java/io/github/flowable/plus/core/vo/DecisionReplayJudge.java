@@ -23,11 +23,18 @@ final class DecisionReplayJudge {
      *
      * @param anchorEvidences 该锚点（同一条记录）的证据组，按「最早在前」排列
      * @param evidence        待判定的证据行
-     * @return 该证据所重放的原行；本身是原行、身份为空、或锚点内无同键原行时返回 {@code null}
+     * @return 该证据所重放的原行；本身是原行、身份为空、锚点序未建立（{@link UnorderedDecisionEvidences}
+     *         —— 整锚点不判，ADR-0042 第 9 节第 7 条「拒绝标注」）、或锚点内无同键原行时返回 {@code null}
      */
     static DecisionEvidenceVO resolveReplayOf(List<DecisionEvidenceVO> anchorEvidences,
                                               DecisionEvidenceVO evidence) {
         if (evidence == null || evidence.getIdempotencyKey() == null) {
+            return null;
+        }
+        if (anchorEvidences instanceof UnorderedDecisionEvidences) {
+            // 锚点序未建立（读侧无法给出可信的「最早在前」次序）⇒ 整锚点不判原 / 重放。
+            // 证据 VO 不携带时序元数据，判定面无法从列表内容识别次序可信度 —— 「未建序」由列表的
+            // 运行时类型承载（UnorderedDecisionEvidences），这是「拒绝标注」唯一可机械达判定面的通道。
             return null;
         }
         DecisionEvidenceVO original = anchorEvidences.stream()

@@ -9,7 +9,7 @@ import io.github.flowable.plus.core.enums.DecisionEvidenceComment;
 import io.github.flowable.plus.core.enums.DecisionEvidenceReadGuard;
 import io.github.flowable.plus.core.enums.DecisionOutcome;
 import io.github.flowable.plus.core.vo.DecisionEvidenceVO;
-import org.apache.commons.lang3.math.NumberUtils;
+import io.github.flowable.plus.core.vo.UnorderedDecisionEvidences;
 import org.flowable.engine.task.Comment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,9 +44,12 @@ import java.util.stream.Collectors;
  * {@link io.github.flowable.plus.core.vo.ApprovalRecordVO#resolveReplayOf} 认定的「最早 = 原」
  * 所指的次序。同毫秒并列时按数值 {@code ID_} 升序兜底（引擎 {@code getProcessInstanceComments}
  * 实为 {@code TIME_ desc} 且无次级排序键，见 {@code docs/known-drifts.md} 的 D4）。
- * <b>残余边界（如实登记）</b>：该兜底依赖引擎默认 {@code DbIdGenerator}；应用替换了
- * {@code IdGenerator} 时 {@code ID_} 非数值，本类只落一条 {@code WARN} 并不建立同毫秒次序
- * —— 「整锚点不判原 / 重放」的<b>载体</b>归读侧顺序的真引擎票（{@code E12}）裁定，本类不私设字段。</p>
+ * <b>不可判 ⇒ 整锚点不判（ADR-0042 第 9 节第 7 条）</b>：任一 {@code ID_} 非数值（应用替换了
+ * {@code IdGenerator}）时，本类<b>不建立任何次序</b>（含跨毫秒的 {@code TIME_} 重排——判定依赖的
+ * 「最早在前」契约整体不可信）、证据行<b>照常投影</b>（不可判 ≠ 损坏、≠ 抑制），并以
+ * {@link UnorderedDecisionEvidences} 交出——「拒绝标注」的机械承载位：判定面识别该类型即整锚点
+ * 返回 {@code null}。同时落一条 {@code WARN}（「落日志与指标」中 core 侧可承载的一半；指标面无
+ * 本机制信号，见探索工作区落点文件的 E12 登记块）。</p>
  */
 final class DecisionEvidenceRowProjector {
 
@@ -74,18 +77,42 @@ final class DecisionEvidenceRowProjector {
      * 把一条任务（锚点）下的全部评论投影为决策证据组。
      *
      * @param taskComments 该任务的评论（任意序，本方法自行重排）
-     * @return 证据组，按「最早在前」排列；无证据行或全部不可投影时返回空集合（永不为 null）
+     * @return 证据组，按「最早在前」排列；锚点不可判时以 {@link UnorderedDecisionEvidences} 交出
+     *         （内容完整、序未建立）；无证据行或全部不可投影时返回空集合（永不为 null）
      */
     static List<DecisionEvidenceVO> project(List<Comment> taskComments) {
         List<Comment> evidenceRows = evidenceRows(taskComments);
         if (evidenceRows.isEmpty()) {
             return new ArrayList<>();
         }
+        if (!anchorOrderDecidable(evidenceRows)) {
+            // 不可判 ⇒ 整锚点不建序、不判原 / 重放；证据行照常投影（不可判 ≠ 损坏、≠ 抑制）
+            log.warn("证据行 ID_ 非数值，该锚点不建立次序、整锚点不判原 / 重放（拒绝标注）：行数={}",
+                    evidenceRows.size());
+            return projectUnordered(evidenceRows);
+        }
         orderAnchorAscending(evidenceRows);
         return evidenceRows.stream()
                 .map(DecisionEvidenceRowProjector::readEvidence)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 锚点次序是否可判：全部 {@code ID_} 可解析为数值 ⇒ 可判（{@code TIME_} 升序 + 同毫秒数值
+     * {@code ID_} 兜底构成确定的全序）；任一不可解析 ⇒ 整锚点不可判（ADR-0042 第 9 节第 7 条）。
+     */
+    private static boolean anchorOrderDecidable(List<Comment> rows) {
+        return rows.stream().allMatch(row -> numericId(row.getId()) != null);
+    }
+
+    /** 未建序投影：不重排（保持引擎原样次序），逐行还原、跳过不可投影行。 */
+    private static List<DecisionEvidenceVO> projectUnordered(List<Comment> evidenceRows) {
+        return evidenceRows.stream()
+                .map(DecisionEvidenceRowProjector::readEvidence)
+                .filter(Objects::nonNull)
+                .collect(Collectors.collectingAndThen(Collectors.toList(),
+                        UnorderedDecisionEvidences::of));
     }
 
     /**
@@ -104,12 +131,9 @@ final class DecisionEvidenceRowProjector {
 
     /**
      * 锚点内按 {@code TIME_} 升序重排；同毫秒按数值 {@code ID_} 升序兜底。
-     * 任一 {@code ID_} 非数值时不建立同毫秒次序（{@code List#sort} 稳定，保持入参序）并落一条 WARN。
+     * 仅在锚点次序可判（全部 {@code ID_} 数值化）时调用。
      */
     private static void orderAnchorAscending(List<Comment> rows) {
-        if (!rows.stream().allMatch(row -> numericId(row.getId()) != null)) {
-            log.warn("证据行 ID_ 非数值，该锚点不建立同毫秒次序（重放判定权归读侧顺序票）：行数={}", rows.size());
-        }
         rows.sort(Comparator
                 .comparing(Comment::getTime, Comparator.nullsLast(Comparator.naturalOrder()))
                 .thenComparing(DecisionEvidenceRowProjector::sameMillisecondOrder));
@@ -127,12 +151,21 @@ final class DecisionEvidenceRowProjector {
     /**
      * 取 {@code ID_} 的数值形态；不可解析（应用替换了 {@code IdGenerator}）时返回 {@code null}。
      *
-     * <p>用 {@code NumberUtils.createLong} 而非 JDK {@code parseXxx}：前者解析失败<b>返回 {@code null}</b>
-     * 而不抛 {@code NumberFormatException} —— 正是本处需要的「不可解析 ⇒ 不建立次序」语义，
-     * 且无需在调用点声明异常预期。</p>
+     * <p><b>实现期订正（2026-09-27，验证收口票的真引擎测试披露）</b>：原实现调
+     * {@code NumberUtils.createLong} 并在注释里声称「解析失败返回 {@code null}」—— 该说法有误，
+     * {@code createLong} 失败时<b>抛 {@code NumberFormatException}</b>，恰好击穿「不可解析 ⇒ 不建立
+     * 次序」的判据（默认 {@code DbIdGenerator} 下 ID_ 恒数值，缺陷从未显形）。改为显式 try / catch：
+     * 失败返回 {@code null}，判据本身不变。</p>
      */
     private static Long numericId(String id) {
-        return NumberUtils.createLong(id);
+        if (id == null) {
+            return null;
+        }
+        try {
+            return Long.parseLong(id);
+        } catch (NumberFormatException unparseableId) {
+            return null;
+        }
     }
 
     /**

@@ -1,5 +1,6 @@
 package io.github.flowable.plus.extension.decision;
 
+import org.flowable.common.engine.impl.cfg.IdGenerator;
 import org.flowable.engine.ProcessEngine;
 import org.flowable.engine.ProcessEngineConfiguration;
 import org.flowable.engine.impl.cfg.ProcessEngineConfigurationImpl;
@@ -8,6 +9,9 @@ import org.flowable.validation.ProcessValidatorFactory;
 import org.flowable.validation.ProcessValidatorImpl;
 import org.flowable.validation.validator.Validator;
 import org.flowable.validation.validator.ValidatorSet;
+
+import java.util.UUID;
+import java.util.function.Supplier;
 
 /**
  * extension 的真实引擎测试基座（<b>测试专用类型，非测试类</b>）。
@@ -57,6 +61,82 @@ final class ExtensionTestEngine {
             configuration.setProcessValidator(withAdditionalValidatorSet(additionalValidator));
         }
         return configuration.buildProcessEngine();
+    }
+
+    /**
+     * 构建<b>独立内存库</b>的引擎（库名每次随机；同一 JVM 内多台引擎互不见对方的表）。
+     *
+     * <p>供需要<b>同时</b>持有两台以上引擎的落点使用（无感等价对拍：关态 / 参照态 / 开态各一台）。
+     * 其余形态与 {@link #build(Validator)} 完全一致；两台引擎共享一个固定 H2 库名会让彼此的部署、
+     * 实例与作业互相污染，「同一份 BPMN + 同一段操作序列」就比错了对象。</p>
+     *
+     * @param additionalValidator 附加校验器；<b>null 合法</b>，含义 = 不装任何附加校验器（参照态）
+     * @return 进程引擎；调用方负责在使用完毕后关闭
+     */
+    static ProcessEngine buildIsolated(final Validator additionalValidator) {
+        return buildIsolated(additionalValidator, null);
+    }
+
+    /**
+     * 构建独立内存库的引擎，并把引擎的 {@code IdGenerator} 替换为给定供给源。
+     *
+     * <p>供「{@code ID_} 不可解析」的降级路径使用（ADR-0042 第 9 节第 7 条预设的应用侧替换场景）。
+     * 入参取 {@code Supplier<String>} 而非引擎内建的 {@code IdGenerator} 类型 —— 后者住引擎的非公开包，
+     * 击穿实验的承载文件不 import 非公开包（准入条件 ① 的受限扫描面）；适配在本基座内完成（本类是
+     * 测试基座、非击穿实验落点）。</p>
+     *
+     * @param additionalValidator 附加校验器；<b>null 合法</b>
+     * @param idSupplier          标识供给源；<b>null 合法</b>，含义 = 保留引擎默认（{@code DbIdGenerator}）
+     * @return 进程引擎；调用方负责在使用完毕后关闭
+     */
+    static ProcessEngine buildIsolated(final Validator additionalValidator, final Supplier<String> idSupplier) {
+        return buildIsolated(additionalValidator, idSupplier, "ext-" + UUID.randomUUID());
+    }
+
+    /**
+     * 构建独立内存库的引擎，库名由调用方指定（同一次装配内需要对库直连取证时用确定地址取回同一库）。
+     *
+     * @param additionalValidator 附加校验器；<b>null 合法</b>
+     * @param idSupplier           标识供给源；<b>null 合法</b>
+     * @param dbName               内存库名（调用方保证互异）
+     * @return 进程引擎；调用方负责在使用完毕后关闭
+     */
+    static ProcessEngine buildIsolated(final Validator additionalValidator, final Supplier<String> idSupplier,
+                                       final String dbName) {
+        final String isolatedUrl = isolatedJdbcUrl(dbName);
+        final ProcessEngineConfigurationImpl configuration = (ProcessEngineConfigurationImpl) ProcessEngineConfiguration
+                .createStandaloneInMemProcessEngineConfiguration()
+                .setJdbcUrl(isolatedUrl)
+                .setJdbcDriver(org.h2.Driver.class.getName())
+                .setDatabaseSchemaUpdate(ProcessEngineConfiguration.DB_SCHEMA_UPDATE_TRUE);
+        if (additionalValidator != null) {
+            configuration.setProcessValidator(withAdditionalValidatorSet(additionalValidator));
+        }
+        if (idSupplier != null) {
+            configuration.setIdGenerator(idSupplier::get);
+        }
+        return configuration.buildProcessEngine();
+    }
+
+    /**
+     * 指定名的独立内存库 JDBC 地址（与 {@link #buildIsolated(Validator, Supplier, String)} 的库名规则一致，
+     * 供同一装配内对库直连取证复用同一连接串）。
+     *
+     * @param dbName 内存库名
+     * @return JDBC URL
+     */
+    static String isolatedJdbcUrl(String dbName) {
+        return "jdbc:h2:mem:flowable-plus-" + dbName + ";DB_CLOSE_DELAY=-1";
+    }
+
+    /**
+     * 本基座固定 H2 库的 JDBC 地址（供需要对引擎数据库直连取证 —— 例如构造「同一毫秒写入」的
+     * 行状态 —— 的落点复用同一连接串；引擎自身无「改写历史行时间」的公开位点，行状态属 fixture 构造）。
+     *
+     * @return 固定 JDBC URL
+     */
+    static String jdbcUrl() {
+        return JDBC_URL;
     }
 
     /**
