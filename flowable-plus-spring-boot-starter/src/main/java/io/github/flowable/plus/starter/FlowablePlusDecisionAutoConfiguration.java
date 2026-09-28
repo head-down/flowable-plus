@@ -28,6 +28,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -76,6 +77,12 @@ public class FlowablePlusDecisionAutoConfiguration {
     /** 专属池空闲线程存活秒数（主仓事件执行器同款量级；非配置项，属装配面既有形态） */
     private static final long EXECUTOR_KEEP_ALIVE_SECONDS = 60L;
 
+    /**
+     * 专属池的 Bean 名（本类内<b>定义面与取用面的单一来源</b>）：{@code @Bean} 名与限定符各写一次字面量
+     * 即两处真相，常量把「池是哪一个」钉在一处。
+     */
+    private static final String DECISION_EXECUTOR_BEAN_NAME = "decisionExecutor";
+
     // ======================== 注册表（收集去重 + 重复 key fail-fast） ========================
 
     /**
@@ -112,8 +119,12 @@ public class FlowablePlusDecisionAutoConfiguration {
      *
      * <p><b>不复用事件执行器</b>：事件执行器的 {@code CallerRunsPolicy} 会使回调可能落在流程事务内，
      * 而拉管线整段必须在流程事务之外。</p>
+     *
+     * <p><b>显式 Bean 名</b>（{@link #DECISION_EXECUTOR_BEAN_NAME}）：池是机制<b>内部件</b>、不开替换点，
+     * 取用面按名 / 按限定符认它，不按通用 JDK 类型认（见
+     * {@link #decisionTaskCreatedListener} 的限定符说明）。</p>
      */
-    @Bean(destroyMethod = "shutdown")
+    @Bean(name = DECISION_EXECUTOR_BEAN_NAME, destroyMethod = "shutdown")
     public ThreadPoolExecutor decisionExecutor(final FlowablePlusDecisionProperties properties) {
         final int coreSize = clampToLimit("executor.core-size", properties.getExecutor().getCoreSize(),
                 DecisionGuardrails.EXECUTOR_CORE_SIZE);
@@ -228,11 +239,24 @@ public class FlowablePlusDecisionAutoConfiguration {
                 clampToLimit("backoff.max", properties.getBackoff().getMax(), DecisionGuardrails.BACKOFF_MAX_MS));
     }
 
-    /** 到点信号订阅（懒初始化适配器：首次到点事件时预热索引并构建真身 —— 见适配器 javadoc）。 */
+    /**
+     * 到点信号订阅（懒初始化适配器：首次到点事件时预热索引并构建真身 —— 见适配器 javadoc）。
+     *
+     * <p><b>专属池按限定符取用</b>（issue #102）：{@code ThreadPoolExecutor} 是<b>通用 JDK 类型</b>，
+     * 而适配器在首次到点事件上以 {@code ObjectProvider#getIfAvailable()} 取池 —— 该入口的语义是
+     * 「唯一候选」，应用自带任意一个 {@code ThreadPoolExecutor} Bean（带定时线程池的 Spring Boot
+     * 工程极常见）即抛 {@code NoUniqueBeanDefinitionException}，被适配器的宽捕获接成一条 WARN、
+     * 拉面静默整体 fail-closed。池是机制内部件，故只认自己的 Bean 名、不认类型。</p>
+     *
+     * <p><b>{@code @Qualifier} 与 {@code @Bean} 名是一对承重的引用</b>：它按 Spring 的「Bean 名即默认
+     * 限定符」口径命中 {@link #DECISION_EXECUTOR_BEAN_NAME}，二者是消除歧义的<b>同一个决定</b> ——
+     * 任一侧单独改名或移除，歧义即回归（各自单看都仍能装配成功，故障只在运行期露头）。</p>
+     */
     @Bean
     public DecisionTaskCreatedListenerAdapter decisionTaskCreatedListener(
             final ObjectProvider<FlowablePlusDecisionProperties> propertiesProvider,
             final ObjectProvider<EventBus> eventBusProvider,
+            @Qualifier(DECISION_EXECUTOR_BEAN_NAME)
             final ObjectProvider<ThreadPoolExecutor> executorProvider,
             final ObjectProvider<DecisionPipeline> pipelineProvider,
             final ObjectProvider<DecisionDeclaredNodeIndex> indexProvider,
