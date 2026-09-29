@@ -33,8 +33,9 @@ final class DecisionReplayJudge {
         }
         if (anchorEvidences instanceof UnorderedDecisionEvidences) {
             // 锚点序未建立（读侧无法给出可信的「最早在前」次序）⇒ 整锚点不判原 / 重放。
-            // 证据 VO 不携带时序元数据，判定面无法从列表内容识别次序可信度 —— 「未建序」由列表的
-            // 运行时类型承载（UnorderedDecisionEvidences），这是「拒绝标注」唯一可机械达判定面的通道。
+            // 证据 VO 不携带序号元数据（ID_ 可解析性），其读侧专属的记录时间也不是判序输入 ——
+            // 「未建序」由列表的运行时类型承载（UnorderedDecisionEvidences），这是「拒绝标注」
+            // 唯一可机械达判定面的通道。
             return null;
         }
         DecisionEvidenceVO original = anchorEvidences.stream()

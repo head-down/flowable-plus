@@ -15,6 +15,7 @@ import io.github.flowable.plus.core.vo.ApprovalRecordVO;
 import io.github.flowable.plus.core.vo.CountersignSubRecord;
 import io.github.flowable.plus.core.vo.DecisionEvidenceVO;
 import io.github.flowable.plus.core.vo.DecisionEvidenceTestFixtures;
+import io.github.flowable.plus.core.vo.UnorderedDecisionEvidences;
 import io.github.flowable.plus.core.workflow.HistoryWorkflow;
 import org.apache.commons.lang3.StringUtils;
 import org.flowable.bpmn.model.BpmnModel;
@@ -56,6 +57,8 @@ import static org.mockito.Mockito.when;
  * {@code #distinctKeysAreNeverJudgedAsReplay()} 钉住读侧派生判定；{@code #corruptedRowSkipsProjectionOnly()}
  * 与 {@code #unknownSecondaryEnumDegradesToNullOnly()} 钉住字段级容错；{@code #countersignRowsAttachToSubRecordOnly()}
  * 钉住挂载层级；{@code #decisionEvidencesDefaultsToEmptyCollection()} 钉住软回退；
+ * {@code #eachEvidenceCarriesItsOwnCommentRowTime()} 与 {@code #unorderedAnchorStillCarriesRowTime()}
+ * 钉住读侧专属时间字段（逐行带出，且「序不可判」≠「时间缺失」）；
  * {@code #overLimitRowSkipsProjectionButKeepsHistoryRow()} 钉住 G6；{@code #guardAppliedBeforeParsing()}
  * 以受限源码扫描钉住 G7（护栏先于任何 JSON 解析）。</p>
  */
@@ -64,6 +67,10 @@ public class HistoryWorkflowEvidenceReadTest {
     private static final String INSTANCE_ID = "pi-evidence-001";
     private static final String PROCESS_DEF_ID = "leave:1:abc123";
     private static final String START_USER_ID = "initiator";
+
+    /** 最小可投影的产出态证据载荷（判别式合法即投影，其余字段留空） */
+    private static final String MINIMAL_PRODUCED_EVIDENCE_JSON =
+            "{\"outcome\":\"SUGGESTION_PRODUCED\",\"schemaVersion\":1,\"idempotencyKey\":\"idem-1\"}";
 
     private HistoryService mockHistoryService;
     private TaskService mockTaskService;
@@ -221,6 +228,47 @@ public class HistoryWorkflowEvidenceReadTest {
         DecisionEvidenceVO evidence = result.get(1).getDecisionEvidences().get(0);
         assertThat(evidence.getSchemaVersion()).isEqualTo(999);
         assertThat(evidence.getActionSummary()).isEqualTo("同意");
+    }
+
+    // ======================== 读侧专属字段：由评论行 TIME_ 逐行填充 ========================
+
+    @Test
+    void eachEvidenceCarriesItsOwnCommentRowTime() {
+        Comment earlier = comment("ht-1", CommentType.DECISION_EVIDENCE.name(),
+                DecisionEvidenceComment.marker() + MINIMAL_PRODUCED_EVIDENCE_JSON, 2000, "1");
+        Comment later = comment("ht-1", CommentType.DECISION_EVIDENCE.name(),
+                DecisionEvidenceComment.marker() + MINIMAL_PRODUCED_EVIDENCE_JSON, 4000, "2");
+
+        // 引擎原样序 = TIME_ 降序（D4）：读侧须自行重排，且每行带出自己的那一份时间
+        stubNormalFlow(singleTaskActivities(), singleHistoricTask(), Arrays.asList(later, earlier));
+        stubSingleNodeModel();
+
+        List<DecisionEvidenceVO> evidences = historyWorkflow.getApprovalHistory(INSTANCE_ID)
+                .get(1).getDecisionEvidences();
+
+        // 两行载荷逐字相同（同一幂等键、同一 JSON）⇒ 时间只可能来自各自那一条评论行
+        assertThat(evidences).hasSize(2);
+        assertThat(evidences.get(0).getRecordedTime()).isEqualTo(new Date(2000));
+        assertThat(evidences.get(1).getRecordedTime()).isEqualTo(new Date(4000));
+    }
+
+    @Test
+    void unorderedAnchorStillCarriesRowTime() {
+        Comment first = comment("ht-1", CommentType.DECISION_EVIDENCE.name(),
+                DecisionEvidenceComment.marker() + MINIMAL_PRODUCED_EVIDENCE_JSON, 2000, "gen-1");
+        Comment second = comment("ht-1", CommentType.DECISION_EVIDENCE.name(),
+                DecisionEvidenceComment.marker() + MINIMAL_PRODUCED_EVIDENCE_JSON, 4000, "gen-2");
+
+        stubNormalFlow(singleTaskActivities(), singleHistoricTask(), Arrays.asList(first, second));
+        stubSingleNodeModel();
+
+        List<DecisionEvidenceVO> evidences = historyWorkflow.getApprovalHistory(INSTANCE_ID)
+                .get(1).getDecisionEvidences();
+
+        // ID_ 非数值 ⇒ 不建序（拿到什么序就是什么序）；但「序不可判」≠「时间缺失」：时间照常逐行带出
+        assertThat(evidences).isInstanceOf(UnorderedDecisionEvidences.class);
+        assertThat(evidences).extracting(DecisionEvidenceVO::getRecordedTime)
+                .containsExactlyInAnyOrder(new Date(2000), new Date(4000));
     }
 
     // ======================== 挂载层级 ========================

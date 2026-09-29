@@ -27,7 +27,11 @@ import java.util.stream.Collectors;
  * 里的证据行（{@code TYPE_ = DECISION_EVIDENCE}）还原为 {@link DecisionEvidenceVO}。
  *
  * <p><b>链路</b>：按 {@code TYPE_} 挑行 → {@link DecisionEvidenceComment#stripMarker} 剥标记 →
- * 解析护栏 → Jackson 反序列化 → 按 {@code TIME_} 升序（同毫秒按数值 {@code ID_} 升序）重排。</p>
+ * 解析护栏 → Jackson 反序列化 → 挂<b>本行</b> {@code TIME_}（{@link DecisionEvidenceVO#getRecordedTime()}，
+ * 读侧专属字段：载荷里没有该键）→ 按 {@code TIME_} 升序（同毫秒按数值 {@code ID_} 升序）重排。</p>
+ *
+ * <p><b>时间与「序不可判」是两件事</b>：建序路径与未建序路径（{@link UnorderedDecisionEvidences}）
+ * 的每一条投影都带出该行时间 —— 锚点序不可判<b>不等于</b>时间缺失，两者不可混为一谈。</p>
  *
  * <p><b>容错是字段级的</b>（ADR-0042 第 5 节容错条款）：<b>判别式</b>（{@code outcome}）不可解析、
  * 或载荷损坏（有标记但 JSON 不可解析）⇒ <b>只跳过该条证据投影</b>，调用方的审批轨迹行不受影响；
@@ -195,7 +199,10 @@ final class DecisionEvidenceRowProjector {
                 log.warn("证据行判别式不可解析，跳过该条证据投影");
                 return null;
             }
-            return EVIDENCE_MAPPER.treeToValue(root, DecisionEvidenceVO.class);
+            final DecisionEvidenceVO evidence = EVIDENCE_MAPPER.treeToValue(root, DecisionEvidenceVO.class);
+            // 时间不进 JSON（ADR-0042 第 5 节）：载荷里没有该键，由本行 TIME_ 逐行填充（读侧专属字段）
+            evidence.setRecordedTime(row.getTime());
+            return evidence;
         } catch (IOException | RuntimeException broken) {
             // 宽捕的违规原因（规范要求注明）：证据载荷来自外部、属不可信输入，「载荷损坏 ⇒ 只跳过该条
             // 证据投影、审批轨迹行不消失」是 ADR-0042 第 5 节的硬性容错条款，故解析期的任何异常

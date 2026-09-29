@@ -43,10 +43,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 见 {@code docs/known-drifts.md} 的 <b>D4</b>（2026-09-25 源码核实）。本类 {@code #doesNotAssumeEngineAscendingOrder}
  * 与 {@code #readsReSortToTimeAscendingWithinAnchor} 用真引擎把这一漂移钉成可判事实。</p>
  *
- * <p><b>「不可判 ⇒ 整锚点不判」的载体（实现期裁定，已登记）</b>：证据 VO 不携带时序 / 序号元数据，
- * 重放判定面无法从列表内容识别次序可信度；「未建序」由列表的运行时类型
- * {@link UnorderedDecisionEvidences} 承载 —— 读侧投影器在锚点不可判时以它交出（内容完整、
- * 照记不抑制），判定面对它一律拒绝标注。本类的后三条断言把该载体钉成可判事实。</p>
+ * <p><b>「不可判 ⇒ 整锚点不判」的载体（实现期裁定，已登记；2026-09-29 措辞收窄）</b>：<b>「该锚点
+ * 是否建序」只由列表的运行时类型 {@link UnorderedDecisionEvidences} 承载</b>（读侧投影器在锚点不可判时
+ * 以它交出：内容完整、照记不抑制），判定面对它一律拒绝标注。原表述「证据 VO 不携带时序 / 序号元数据」
+ * 随读侧专属字段 {@code recordedTime} 的落地收窄为：证据 VO 不携带<b>序号元数据</b>（{@code ID_} 可解析性），
+ * 且该记录时间<b>不是判序输入</b> —— 同毫秒并列本无客观先后，判定面不得据它反推次序是否已建立。
+ * 本类的后三条断言把该载体钉成可判事实。</p>
  *
  * <p><b>fixture 构造的边界（如实披露）</b>：证据行经引擎公开位点
  * {@code TaskService#addComment(taskId, processInstanceId, type, message)} 写入（与框架写入器同一调用形态）；
@@ -114,6 +116,9 @@ class DecisionEvidenceReadOrderTest {
         // 读侧重排后：B（TIME_ 最早）在前 —— 「最早 = 原」由重排后的列表序建立
         assertThat(record.resolveReplayOf(evidences.get(0))).isNull();
         assertThat(record.resolveReplayOf(evidences.get(1))).isEqualTo(evidences.get(0));
+        // 各行带出的记录时间 = 各自评论行的 TIME_（载荷里没有时间 ⇒ 只能来自行本身）
+        assertThat(evidences.get(0).getRecordedTime()).isEqualTo(new Date(1_000L));
+        assertThat(evidences.get(1).getRecordedTime()).isEqualTo(new Date(2_000L));
     }
 
     @Test

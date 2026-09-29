@@ -14,10 +14,11 @@ import java.util.List;
  * 唯一差异是<b>列表序未被读侧建立</b>这一事实。</p>
  *
  * <p><b>谁消费它</b>：{@code DecisionReplayJudge}（重放判定面）。重放按<b>列表序</b>判定（最早 = 原行），
- * 而证据 VO 不携带任何时序 / 序号元数据，判定面无法从列表内容识别「次序是否可信」—— 故「未建序」
- * 必须由列表自身的类型承载：判定面对本类型<b>一律拒绝标注</b>（返回 {@code null}），兑现
- * 「{@code ID_} 不可解析 ⇒ 该锚点整体不判原 / 重放（拒绝标注）」。这一事实<b>不是字段、不是 JSON 键</b>
- * （它住列表的运行时类型，不占任何读侧硬清单槽位），{@code resolveReplayOf} 的方法形态不变。</p>
+ * 而「列表序是否可信」<b>不由元素内容判定</b> —— 证据 VO 不携带序号元数据（{@code ID_} 可解析性），
+ * 其读侧专属的记录时间也不是判序输入（同毫秒并列本无客观先后）—— 故「未建序」必须由列表自身的类型
+ * 承载：判定面对本类型<b>一律拒绝标注</b>（返回 {@code null}），兑现「{@code ID_} 不可解析 ⇒ 该锚点
+ * 整体不判原 / 重放（拒绝标注）」。这一事实<b>不是字段、不是 JSON 键</b>（它住列表的运行时类型，
+ * 不占任何读侧硬清单槽位），{@code resolveReplayOf} 的方法形态不变。</p>
  *
  * <p><b>不可修改</b>：本类型构造即深拷贝入参，且不开放任何变更操作（{@code AbstractList} 缺省拒改）；
  * {@code ApprovalRecordVO#getDecisionEvidences()} / {@code CountersignSubRecord#getDecisionEvidences()}

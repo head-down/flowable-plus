@@ -59,6 +59,9 @@ public final class DecisionEvidenceTestFixtures {
     /**
      * 最深合法证据行样本：每个字段都带得住的取值或显式 {@code null}，且整条样本满足
      * {@code outcome = SUGGESTION_PRODUCED} 的直提列。
+     *
+     * <p>读侧专属字段 {@code recordedTime} 在本样本里<b>恒 {@code null}</b> —— 它由读侧从评论行
+     * {@code TIME_} 列填充，写侧不产出（故序列化时省略该键）。</p>
      */
     public static DecisionEvidenceVO maximalDirectSubmission() {
         final List<DecisionRationaleFact> facts = Arrays.stream(DecisionRationaleFactKey.values())

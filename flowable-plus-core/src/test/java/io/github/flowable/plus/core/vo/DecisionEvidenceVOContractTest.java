@@ -27,9 +27,14 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@link DecisionEvidenceVO} 的契约面守卫（ADR-0042 第 5 节）。
  *
  * <p>三件事：<b>必填 / 可空矩阵写死</b>（矩阵表覆盖字段集 == VO 字段集，逐格给出必填理由）；
- * <b>JSON 字段名与 VO 字段名同源</b>；<b>证据面闭集穷举</b>（决策源中立性 ②：取值域不绑 AI）。</p>
+ * <b>JSON 字段名与写侧字段名同源</b>（读侧专属字段不进载荷）；<b>证据面闭集穷举</b>
+ * （决策源中立性 ②：取值域不绑 AI）。</p>
  *
  * <p>必填理由只能引 {@code outcome} 分支、产出路径或 {@code subjectType}，不得引「因为会调模型」。</p>
+ *
+ * <p><b>读侧专属字段的错标会被两守卫交叉抓住</b>：矩阵里标 {@link Requirement#READ_SIDE_ONLY} 的字段
+ * 会被 {@code #jsonKeysEqualWriteSideFieldNames()} 要求<b>不出现</b>在载荷 JSON 里 —— 若把某个真写侧字段
+ * 错标为读侧专属，写入器仍会把它落进载荷 ⇒ 载荷多出一个未列入写侧字段集的键，该断言即红。</p>
  */
 public class DecisionEvidenceVOContractTest {
 
@@ -50,7 +55,16 @@ public class DecisionEvidenceVOContractTest {
         /** 该列必须为 null */
         MUST_BE_NULL,
         /** 该列必须为 null，唯一例外为 INBOUND_PROCESSING_FAILED */
-        MUST_BE_NULL_EXCEPT_EXCEPTION
+        MUST_BE_NULL_EXCEPT_EXCEPTION,
+        /**
+         * <b>读侧专属</b>：该字段不是证据载荷的一部分 —— 写入侧四列皆恒不填、JSON 载荷不含该键，
+         * 由读侧从评论行（{@code ACT_HI_COMMENT}）的对应列逐行填充。
+         *
+         * <p>判据（不满足其一即应另立种类或进产出路径矩阵）：① 它的取值来自<b>评论行</b>而非提交方；
+         * ② 它与产出路径（A / B / C / D）<b>结构上无关</b>。目前只有 {@code recordedTime} 一格。</p>
+         */
+        READ_SIDE_ONLY,
+        ;
     }
 
     private static final class Cell {
@@ -98,7 +112,7 @@ public class DecisionEvidenceVOContractTest {
     }
 
     @Test
-    void jsonKeysEqualFieldNames() throws Exception {
+    void jsonKeysEqualWriteSideFieldNames() throws Exception {
         final String json = DecisionEvidenceTestFixtures.toJson(
                 DecisionEvidenceTestFixtures.maximalDirectSubmission());
         final JsonNode node = DecisionEvidenceTestFixtures.parse(json);
@@ -107,8 +121,8 @@ public class DecisionEvidenceVOContractTest {
         node.fieldNames().forEachRemaining(jsonKeys::add);
 
         assertThat(jsonKeys)
-                .as("JSON 字段名与 VO 字段名同源（不得借注解改名或漏键）")
-                .containsExactlyInAnyOrderElementsOf(declaredFieldNames(DecisionEvidenceVO.class));
+                .as("JSON 字段名与写侧 VO 字段名同源（不得借注解改名或漏键）；时间一类读侧专属字段不进载荷")
+                .containsExactlyInAnyOrderElementsOf(writeSideFieldNames());
     }
 
     @Test
@@ -233,6 +247,8 @@ public class DecisionEvidenceVOContractTest {
                 mustBeNull(), required(BY_OUTCOME));
         row(matrix, "policyReason",
                 mustBeNull(), mustBeNull(), required(BY_OUTCOME), mustBeNull());
+        row(matrix, "recordedTime",
+                readSideOnly(), readSideOnly(), readSideOnly(), readSideOnly());
         return Collections.unmodifiableMap(matrix);
     }
 
@@ -261,6 +277,10 @@ public class DecisionEvidenceVOContractTest {
         return new Cell(Requirement.MUST_BE_NULL_EXCEPT_EXCEPTION, reason);
     }
 
+    private static Cell readSideOnly() {
+        return new Cell(Requirement.READ_SIDE_ONLY, null);
+    }
+
     // ======================== 辅助 ========================
 
     /** 必填格必须有理由、理由只能取自白名单、且任何格的理由都不得引「因为会调模型」 */
@@ -281,6 +301,19 @@ public class DecisionEvidenceVOContractTest {
     private static Set<String> declaredFieldNames(final Class<?> owner) {
         return Arrays.stream(owner.getDeclaredFields())
                 .map(Field::getName)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    /**
+     * 写侧字段集 = 矩阵中非 {@link Requirement#READ_SIDE_ONLY} 的字段 —— JSON 载荷键集的<b>唯一</b>对照面。
+     *
+     * <p>取自矩阵而非另一份清单：读侧专属字段的判定与载荷键集的对照面同源，两处不会各写一遍。</p>
+     */
+    private static Set<String> writeSideFieldNames() {
+        return MATRIX.entrySet().stream()
+                .filter(entry -> entry.getValue().stream()
+                        .noneMatch(cell -> cell.requirement == Requirement.READ_SIDE_ONLY))
+                .map(Map.Entry::getKey)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
