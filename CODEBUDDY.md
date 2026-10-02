@@ -16,12 +16,12 @@ flowable-plus 是面向 Java 8 的 Flowable (6.8.0) 工作流引擎增强工具�
 flowable-plus (父 POM, packaging=pom)
 ├── flowable-plus-core                 -- 核心模块
 ├── flowable-plus-spring-boot-starter  -- Spring Boot 自动配置粘合层
-└── flowable-plus-extension            -- 储备位模块（reserved slot），边界见 ADR-0029
+└── flowable-plus-extension            -- 可选领域能力（AI 决策接入，默认关闭，见 ADR-0042）
 ```
 
 - **flowable-plus-core** — 封装 Flowable 核心服务（RuntimeService、TaskService、HistoryService 等），通过 SPI 接口解耦运行时框架。依赖 spring-tx 仅用于 `@Transactional` 注解元数据声明（无 DI/AOP 运行时），在无 Spring AOP 的环境中无害忽略。包含 BPMN 模型缓存（`BpmnModelCache`）消除重复引擎 I/O。可在任意 Java 8+ 应用中使用。
 - **flowable-plus-spring-boot-starter** — 通过 `META-INF/spring.factories` 实现自动配置，配置属性前缀 `flowable.plus.*`，classpath 存在 `org.flowable.engine.ProcessEngine` 时条件激活。
-- **flowable-plus-extension** — 储备位模块，等待「依赖隔离」（必须引入 core 未引入的依赖）或「真正可选的领域能力」类功能入住；薄壳包装 core 已有功能属双轨，不入住。定位与判据见 ADR-0029。
+- **flowable-plus-extension** — 可选领域能力：**AI 决策接入**（决策与执行分离的建议通道，配置前缀 `flowable.plus.decision.*`，**默认关闭**，边界见 ADR-0042）。原「储备位（reserved slot）」定位与入住判据见 ADR-0029。
 
 ## 构建与测试
 
@@ -66,4 +66,4 @@ starter 模块通过 `META-INF/spring.factories` 注册 `FlowablePlusAutoConfigu
 
 ### 架构决策记录 (ADR)
 
-改动核心逻辑前先查索引确认已有决策（含会签、驳回、查询、权限等 41 项）：完整编号→标题→日期索引见 `docs/adr/README.md`。
+改动核心逻辑前先查索引确认已有决策（含会签、驳回、查询、权限等 42 项）：完整编号→标题→日期索引见 `docs/adr/README.md`。

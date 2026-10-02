@@ -30,6 +30,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 任务执行工作流模块，封装常规审批任务的推进、驳回、撤回、跳转、转办和认领逻辑。
@@ -51,6 +52,7 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
     private final EventBus eventBus;
     private final ProcessEndDetector processEndDetector;
     private final CountersignRollbackStrategy countersignRollbackStrategy;
+    private final NewlyReadyTaskEmitter newlyReadyTaskEmitter;
 
     public TaskExecutionWorkflow(UserContext userContext, TaskService taskService,
                                   HistoryService historyService, RuntimeService runtimeService,
@@ -69,6 +71,7 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
         this.eventBus = eventBus;
         this.processEndDetector = processEndDetector;
         this.countersignRollbackStrategy = countersignRollbackStrategy;
+        this.newlyReadyTaskEmitter = new NewlyReadyTaskEmitter(taskService, eventBus);
     }
 
     @Override
@@ -84,7 +87,9 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
             taskService.addComment(taskId, task.getProcessInstanceId(), CommentType.AGREE.name(), comment);
         }
 
+        Set<String> activeBefore = newlyReadyTaskEmitter.snapshotActiveTaskIds(task.getProcessInstanceId());
         taskService.complete(taskId, variables);
+        newlyReadyTaskEmitter.emitNewlyReadyTasks(task.getProcessInstanceId(), activeBefore);
 
         eventBus.taskCompleted(task, userId, comment);
         processEndDetector.checkAndPublish(task.getProcessInstanceId());
@@ -147,10 +152,13 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
             taskService.addComment(task.getId(), task.getProcessInstanceId(),
                     CommentType.REJECT.name(), reason);
         }
+        Set<String> activeBefore = newlyReadyTaskEmitter.snapshotActiveTaskIds(task.getProcessInstanceId());
         runtimeService.createChangeActivityStateBuilder()
                 .processInstanceId(task.getProcessInstanceId())
                 .moveActivityIdTo(task.getTaskDefinitionKey(), initiatorNode)
                 .changeState();
+        // 驳回至发起人独立于 executeRollback 链，故此处自取快照与发射
+        newlyReadyTaskEmitter.emitNewlyReadyTasks(task.getProcessInstanceId(), activeBefore);
 
         eventBus.taskRejected(task, reason);
     }
@@ -388,8 +396,10 @@ public class TaskExecutionWorkflow implements TaskExecutionOperations {
         }
 
         ChangeActivityStateBuilder builder = runtimeService.createChangeActivityStateBuilder();
+        Set<String> activeBefore = newlyReadyTaskEmitter.snapshotActiveTaskIds(task.getProcessInstanceId());
         builder.processInstanceId(task.getProcessInstanceId())
                 .moveActivityIdTo(task.getTaskDefinitionKey(), resolvedTargetId)
                 .changeState();
+        newlyReadyTaskEmitter.emitNewlyReadyTasks(task.getProcessInstanceId(), activeBefore);
     }
 }

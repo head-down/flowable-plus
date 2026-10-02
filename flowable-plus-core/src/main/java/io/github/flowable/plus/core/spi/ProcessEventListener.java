@@ -4,6 +4,7 @@ import io.github.flowable.plus.core.event.ProcessEndedEvent;
 import io.github.flowable.plus.core.event.ProcessInvalidatedEvent;
 import io.github.flowable.plus.core.event.ProcessStartedEvent;
 import io.github.flowable.plus.core.event.TaskCompletedEvent;
+import io.github.flowable.plus.core.event.TaskCreatedEvent;
 import io.github.flowable.plus.core.event.TaskDelegatedEvent;
 import io.github.flowable.plus.core.event.TaskJumpedEvent;
 import io.github.flowable.plus.core.event.TaskRejectedEvent;
@@ -49,4 +50,17 @@ public interface ProcessEventListener {
     default void onProcessEnded(ProcessEndedEvent event) {}
 
     default void onTaskJumped(TaskJumpedEvent event) {}
+
+    /**
+     * 任务新建事件回调：一个新待办就绪。
+     *
+     * <p><b>默认空实现</b> —— 无订阅者时事件仍被发射，但无副作用（ADR-0042 第 11 节第 4 条
+     * 残留账本第 ① 行：既无状态变异，也不向外发射本机制语义上的事件）。</p>
+     *
+     * <p>覆盖契约（只在受控入口发射、不覆盖引擎驱动创建与改派类）写在
+     * {@link TaskCreatedEvent} 的类型 javadoc 与 ADR-0042 第 2 节定案 9。</p>
+     *
+     * @param event 任务新建事件
+     */
+    default void onTaskCreated(TaskCreatedEvent event) {}
 }

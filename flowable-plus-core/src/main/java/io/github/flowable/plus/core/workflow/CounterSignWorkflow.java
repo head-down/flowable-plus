@@ -49,6 +49,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
     private final EventBus eventBus;
     private final ProcessEndDetector processEndDetector;
     private final CountersignRoundResolver countersignRoundResolver;
+    private final NewlyReadyTaskEmitter newlyReadyTaskEmitter;
 
     public CounterSignWorkflow(UserContext userContext, TaskService taskService,
                         HistoryService historyService, RuntimeService runtimeService,
@@ -67,6 +68,7 @@ public class CounterSignWorkflow implements CounterSignOperations {
         this.eventBus = eventBus;
         this.processEndDetector = processEndDetector;
         this.countersignRoundResolver = countersignRoundResolver;
+        this.newlyReadyTaskEmitter = new NewlyReadyTaskEmitter(taskService, eventBus);
     }
 
     @Override
@@ -92,7 +94,9 @@ public class CounterSignWorkflow implements CounterSignOperations {
 
         invokeCallbacks(cb -> cb.onVote(processInstanceId, taskId, userId, approved, comment));
 
+        Set<String> activeBefore = newlyReadyTaskEmitter.snapshotActiveTaskIds(processInstanceId);
         taskService.complete(taskId, variables);
+        newlyReadyTaskEmitter.emitNewlyReadyTasks(processInstanceId, activeBefore);
 
         if (approved) {
             eventBus.taskCompleted(task, userId, comment);
@@ -162,7 +166,9 @@ public class CounterSignWorkflow implements CounterSignOperations {
         validateNotVotedInRound(newAssignees, processInstanceId, activityId, roundIndex);
 
         // 通过全部查重后才执行副作用：写入 initiator / 批量加签 / 打标
+        Set<String> activeBefore = newlyReadyTaskEmitter.snapshotActiveTaskIds(processInstanceId);
         performAddCounterSigner(task, newAssignees, roundIndex);
+        newlyReadyTaskEmitter.emitNewlyReadyTasks(processInstanceId, activeBefore);
 
         StringBuilder commentMsg = new StringBuilder("加签审批人: ")
                 .append(String.join(", ", newAssignees));

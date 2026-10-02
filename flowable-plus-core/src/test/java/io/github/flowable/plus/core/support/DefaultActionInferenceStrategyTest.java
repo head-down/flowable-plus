@@ -227,6 +227,57 @@ public class DefaultActionInferenceStrategyTest {
         assertThat(strategy.findFirstOperationComment(comments)).isNull();
     }
 
+    // ======================== ADR-0042：证据组的读侧推断排除 ========================
+
+    /**
+     * 实改点：{@code findFirstBusinessComment} 第二遍是<b>排除式</b>判据，证据行若不显式排除会抢占
+     * {@code comment} 槽位（ADR-0042 第 5 节读侧硬清单第 3–5 行）。
+     */
+    @Test
+    public void evidenceRowsShouldNotOccupyBusinessCommentSlot() {
+        Date evidenceTime = new Date(3000);
+        Date businessTime = new Date(2000);
+        Comment evidence = createComment(CommentType.DECISION_EVIDENCE.name(),
+                "[SYSTEM:DECISION_EVIDENCE]{\"outcome\":\"SUGGESTION_PRODUCED\"}", evidenceTime);
+        Comment agree = createComment(CommentType.AGREE.name(), "同意", businessTime);
+
+        // 证据行（时间更新）+ 业务意见并存 ⇒ comment 槽位仍取业务意见
+        Comment withBusiness = strategy.findFirstBusinessComment(Arrays.asList(evidence, agree));
+        assertThat(withBusiness.getType()).isEqualTo(CommentType.AGREE.name());
+        assertThat(withBusiness.getFullMessage()).isEqualTo("同意");
+
+        // 只有证据行 ⇒ comment 槽位为空，证据行不参与槽位竞争
+        assertThat(strategy.findFirstBusinessComment(Collections.singletonList(evidence))).isNull();
+
+        // 证据行也不参与 action 推断（无业务意见、无操作注释、无 deleteReason ⇒ action 为 null）
+        assertThat(strategy.inferAction("t1", null, Collections.singletonList(evidence))).isNull();
+    }
+
+    /**
+     * 两处结构性已排除：{@code findFirstOperationComment} / {@code findAllOperationComments} 经
+     * {@code collectOperationComments} 的<b>包含式</b>集合过滤，证据行天然不在集合内 ——
+     * 代码不动，由本断言钉死。
+     */
+    @Test
+    public void operationCommentInclusiveFilterStructurallyExcludesEvidence() {
+        Date evidenceTime = new Date(3000);
+        Date addSignTime = new Date(2000);
+        Comment evidence = createComment(CommentType.DECISION_EVIDENCE.name(),
+                "[SYSTEM:DECISION_EVIDENCE]{\"outcome\":\"SUGGESTION_PRODUCED\"}", evidenceTime);
+        Comment addSign = createComment(CommentType.ADD_SIGN.name(), "加签审批人: userC", addSignTime);
+
+        // 包含式过滤：证据行不进操作注释集合
+        assertThat(strategy.findFirstOperationComment(Arrays.asList(evidence, addSign)).getType())
+                .isEqualTo(CommentType.ADD_SIGN.name());
+        assertThat(strategy.findAllOperationComments(Arrays.asList(evidence, addSign)))
+                .extracting(Comment::getType)
+                .containsExactly(CommentType.ADD_SIGN.name());
+
+        // 只有证据行 ⇒ 操作注释面空，且不会落成空指针
+        assertThat(strategy.findFirstOperationComment(Collections.singletonList(evidence))).isNull();
+        assertThat(strategy.findAllOperationComments(Collections.singletonList(evidence))).isEmpty();
+    }
+
     private static Comment createComment(String type, String fullMessage, Date time) {
         Comment comment = mock(Comment.class);
         when(comment.getType()).thenReturn(type);

@@ -77,7 +77,11 @@ List<HistoricProcessInstance> processes = nativeQuery.listPage(offset, pageSize)
 
 ### 参数绑定方式
 
-Flowable 的 Native Query 模板 `${sql}` 在 MyBatis 层做文本替换，SQL 内部不能再使用 `#{param}`（会导致 MyBatis 二次解析失败）。`${param}` 同样是文本替换，存在注入风险。
+Flowable 的 Native Query 模板 `${sql}` 在 MyBatis 层做文本替换。替换后的整段文本**仍会被 MyBatis 二次解析**——SQL 内部写 `#{param}` 会被正常换成 `?` 并登记参数映射，配合引擎公开接口 `NativeQuery.parameter(String name, Object value)`（值从引擎组装的参数表中取）即可走真正的参数绑定；若只写 `#{param}` 而不给 `parameter(...)`，不会报错，而是静默绑定 NULL、查出 0 行。`${param}` 则是纯文本替换，存在注入风险。
+
+**参数绑定方式的正确口径**：结构（表名 / 列名 / ORDER BY 方向）没有绑定通路，只能 `${}` 文本替换 + 调用方白名单；值有绑定通路（`#{}` + `parameter()`）。
+
+**订正记录（2026-09-17）**：本节原文曾写"SQL 内部不能再使用 `#{param}`（会导致 MyBatis 二次解析失败）"——该机制理由**不成立**（结论"不拿 Native SQL 的 `${}` 口子传业务值、由 Java 层守门"仍成立，但理由是"结构只能文本替换、值绑定需显式喂参，而拼串更直观"，不是"二次解析失败"）。实测依据：mybatis 3.5.10 `DynamicSqlSource.getBoundSql` 对 `${sql}` 替换后的文本仍调用 `SqlSourceBuilder.parse`；Flowable 6.8.0 + H2 真引擎下 `.sql("… = #{name}").parameter("name", v)` 绑定成功、注入串被当值挡下、缺值则静默返回 0 行。
 
 **最终选择**：Java 层完成参数值转义后直接拼入 SQL 字符串，通过 `sql()` 传入完整 SQL。
 

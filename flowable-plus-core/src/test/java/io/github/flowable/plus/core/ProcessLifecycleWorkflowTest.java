@@ -593,6 +593,13 @@ public class ProcessLifecycleWorkflowTest {
         when(mockRuntimeService.startProcessInstanceByKey(eq("leave"), eq("biz-001"), any()))
                 .thenReturn(mockPi);
 
+        // 受控入口按「活跃任务集之差」发射 TaskCreatedEvent，此处该实例尚无活跃任务
+        TaskQuery taskQuery = mock(TaskQuery.class);
+        when(mockTaskService.createTaskQuery()).thenReturn(taskQuery);
+        when(taskQuery.processInstanceId("pi-001")).thenReturn(taskQuery);
+        when(taskQuery.active()).thenReturn(taskQuery);
+        when(taskQuery.list()).thenReturn(Collections.emptyList());
+
         wf.startProcess("leave", "biz-001", null);
 
         verify(mockEp).publish(any(io.github.flowable.plus.core.event.ProcessStartedEvent.class));

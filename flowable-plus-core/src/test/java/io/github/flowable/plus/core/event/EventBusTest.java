@@ -39,6 +39,7 @@ class EventBusTest {
         PlusTask task = createTask();
 
         eventBus.publish(ProcessStartedEvent.of("leave", "biz-1", "pi-1", "userA", new Date()));
+        eventBus.taskCreated(task, CREATE_TIME);
         eventBus.taskCompleted(task, "userA", "同意");
         eventBus.taskRejected(task, "不同意");
         eventBus.taskWithdrawn(task, "userB", "撤回");
@@ -70,6 +71,24 @@ class EventBusTest {
         eventBus.publish(event);
 
         verify(mockEp).publish(event);
+    }
+
+    @Test
+    void taskCreatedShouldMapFieldsAndPassThroughCreateTime() {
+        EventPublisher mockEp = mock(EventPublisher.class);
+        EventBus eventBus = new EventBus(mockEp);
+
+        eventBus.taskCreated(createTask(), CREATE_TIME);
+
+        ArgumentCaptor<TaskCreatedEvent> captor = ArgumentCaptor.forClass(TaskCreatedEvent.class);
+        verify(mockEp).publish(captor.capture());
+        TaskCreatedEvent event = captor.getValue();
+        assertThat(event.getTaskId()).isEqualTo("task-001");
+        assertThat(event.getProcessInstanceId()).isEqualTo("pi-001");
+        assertThat(event.getTaskName()).isEqualTo("审批");
+        assertThat(event.getNodeId()).isEqualTo("node1");
+        assertThat(event.getAssignee()).isEqualTo("userA");
+        assertThat(event.getEventTime()).isSameAs(CREATE_TIME);
     }
 
     @Test

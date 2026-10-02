@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.github.flowable.plus</groupId>
         <artifactId>flowable-plus</artifactId>
-        <version>1.0.0</version>
+        <version>1.1.0</version>
     </parent>
 
     <artifactId>flowable-plus-spring-boot-starter</artifactId>
@@ -51,6 +51,20 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-actuator</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- AI 决策接入（optional：不向下游传染，移除后零决策 Bean、不伤 core） -->
+        <dependency>
+            <groupId>io.github.flowable.plus</groupId>
+            <artifactId>flowable-plus-extension</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Micrometer（optional，版本父 BOM 管；有 Micrometer 才注册指标） -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
             <optional>true</optional>
         </dependency>
 
