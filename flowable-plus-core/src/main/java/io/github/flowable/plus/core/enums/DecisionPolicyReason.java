@@ -11,7 +11,7 @@ package io.github.flowable.plus.core.enums;
  * 这类 <b>Provider 缝本地短路</b>给出（其行出处组 / {@code modelId} / token 结构上必须为 null）。</p>
  *
  * <p>每个取值携带一句<b>可自诊的中文描述</b>（{@link #getDescription()}），作「按政策未产出」证据行的
- * 文本兜底依据，使审计面无需回查枚举名即可读懂。</p>
+ * 文本兜底依据<b>与类型化事实值</b>，使审计面无需回查枚举名即可读懂。</p>
  *
  * <p>「禁用」不在本枚举内：禁用 = 机制未激活，无记录可写。</p>
  */

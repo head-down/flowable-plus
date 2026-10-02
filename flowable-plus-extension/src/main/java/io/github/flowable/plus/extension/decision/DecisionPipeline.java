@@ -731,15 +731,16 @@ public final class DecisionPipeline {
     /**
      * 写一行「按政策未产出」的证据（C 列）。
      *
-     * <p>类型化依据按 {@code policyReason} 分支取键（单一来源 = {@link DecisionEvidenceWriter#policyFactKeyOf}）；
-     * 文本兜底依据由调用方给（本地短路时可带 Provider 自报的中文原因），缺省用该原因的
-     * {@link DecisionPolicyReason#getDescription() 可自诊中文描述}。</p>
+     * <p>类型化依据的键按 {@code policyReason} 分支取（单一来源 = {@link DecisionEvidenceWriter#policyFactKeyOf}）；
+     * 其值与该原因的文本兜底依据<b>同源</b> —— 皆取 {@link DecisionPolicyReason#getDescription() 可自诊中文描述}，
+     * 使下游界面无需回查枚举名即可读懂（类型化事实值不是机器码）。文本兜底依据另可由调用方给
+     * （本地短路时可带 Provider 自报的中文原因），缺省亦用该描述。</p>
      */
     private boolean writePolicyRow(final Task anchor,
                                    final DecisionPolicyReason reason,
                                    final String narrativeOverride) {
         final List<DecisionRationaleFact> facts = new ArrayList<>();
-        facts.add(new DecisionRationaleFact(DecisionEvidenceWriter.policyFactKeyOf(reason), reason.name()));
+        facts.add(new DecisionRationaleFact(DecisionEvidenceWriter.policyFactKeyOf(reason), reason.getDescription()));
         return writeRow(anchor, DecisionEvidenceDraft.builder()
                 .outcome(DecisionOutcome.NO_SUGGESTION_BY_POLICY)
                 .policyReason(reason)
@@ -910,13 +911,13 @@ public final class DecisionPipeline {
         return new String(DecisionClamp.serialize(payload, PAYLOAD_MAPPER), StandardCharsets.UTF_8);
     }
 
-    /** {@code MODEL_DECLINED} 行的类型化依据（响应未给依据时由框架按规则记录「模型主动不产出」）。 */
+    /** {@code MODEL_DECLINED} 行的类型化依据（响应未给依据时由框架按规则记录，值取可自诊中文描述）。 */
     private static List<DecisionRationaleFact> declinedFacts(final DecisionProviderResponse response) {
         if (response.getRationaleFacts() != null) {
             return response.getRationaleFacts();
         }
         return Collections.singletonList(new DecisionRationaleFact(DecisionRationaleFactKey.POLICY_RULE,
-                DecisionPolicyReason.MODEL_DECLINED.name()));
+                DecisionPolicyReason.MODEL_DECLINED.getDescription()));
     }
 
     /** {@code MODEL_DECLINED} 行的文本兜底依据（C 列必填；响应未给时由框架按规则记录）。 */

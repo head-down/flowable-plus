@@ -215,6 +215,7 @@ class DecisionPipelineTest {
         assertThat(DecisionFixtures.enumValue(row.get("policyReason"), DecisionPolicyReason.class))
                 .as("空装配与策略拒绝必须独立承载")
                 .isEqualTo(DecisionPolicyReason.NO_SOURCE_DECLARED);
+        assertPolicyFactValueIsDescription(row, DecisionPolicyReason.NO_SOURCE_DECLARED);
         assertThat(row.get("inputSnapshot").isNull() && row.get("rawOutput").isNull())
                 .as("C 列的载荷字段由矩阵钉死为 null")
                 .isTrue();
@@ -272,6 +273,7 @@ class DecisionPipelineTest {
                 io.github.flowable.plus.core.enums.DecisionRationaleFactKey.class))
                 .as("缺上下文 ⇒ 依据取 MISSING_INPUT")
                 .isEqualTo(io.github.flowable.plus.core.enums.DecisionRationaleFactKey.MISSING_INPUT);
+        assertPolicyFactValueIsDescription(row, DecisionPolicyReason.CONTEXT_UNAVAILABLE);
         assertThat(row.get("rationaleNarrative").asText())
                 .as("未自报时用该原因的可自诊中文描述")
                 .isEqualTo("按政策未产出：" + DecisionPolicyReason.CONTEXT_UNAVAILABLE.getDescription());
@@ -290,6 +292,7 @@ class DecisionPipelineTest {
                 io.github.flowable.plus.core.enums.DecisionRationaleFactKey.class))
                 .as("凭据不可用 ⇒ 依据取 POLICY_RULE")
                 .isEqualTo(io.github.flowable.plus.core.enums.DecisionRationaleFactKey.POLICY_RULE);
+        assertPolicyFactValueIsDescription(row, DecisionPolicyReason.CREDENTIAL_UNAVAILABLE);
         assertThat(row.get("rationaleNarrative").asText())
                 .as("Provider 自报的中文原因被采用")
                 .isEqualTo("AI 服务未配置，本次未调用模型");
@@ -558,7 +561,7 @@ class DecisionPipelineTest {
 
     @Test
     @DisplayName("观测归因/链路随「是否已发起主链路出站调用」而填：已出站带 modelId/chainStage；未出站恒空")
-    void observationAttributionFollowsOutboundDispatch() {
+    void observationAttributionFollowsOutboundDispatch() throws IOException {
         final BaseElement nodeElement = declaring("TASK_METADATA", POLICY_KEY, TARGET_KEY, "true");
 
         // ① 产出成功（已出站）：modelId 与 chainStage 取响应值（与证据面同值）
@@ -573,6 +576,8 @@ class DecisionPipelineTest {
         assertThat(singleObservation().getOutcome()).isEqualTo(DecisionOutcome.NO_SUGGESTION_BY_POLICY);
         assertThat(singleObservation().getModelId()).isEqualTo(DecisionFixtures.MODEL_ID);
         assertThat(singleObservation().getChainStage()).isEqualTo(DecisionChainStage.PRIMARY);
+        final JsonNode declinedRow = DecisionFixtures.evidenceJson(capturedRows(taskService).get(0));
+        assertPolicyFactValueIsDescription(declinedRow, DecisionPolicyReason.MODEL_DECLINED);
         nextScenario();
 
         // ③ 出站失败（已发起主链路出站调用）：modelId 不可得留空，chainStage = PRIMARY
@@ -752,6 +757,13 @@ class DecisionPipelineTest {
     private DecisionObservation singleObservation() {
         assertThat(observations).as("本段应当恰好发一条观测").hasSize(1);
         return observations.get(0);
+    }
+
+    /** 断言「按政策未产出」行的类型化事实值取该原因的可自诊中文描述（非枚举机器码）。 */
+    private static void assertPolicyFactValueIsDescription(final JsonNode row, final DecisionPolicyReason reason) {
+        assertThat(row.get("rationaleFacts").get(0).get("value").asText())
+                .as("类型化事实值取可自诊中文，不写枚举机器码")
+                .isEqualTo(reason.getDescription());
     }
 
     /** 本段落下的证据行（整行文本）。 */
