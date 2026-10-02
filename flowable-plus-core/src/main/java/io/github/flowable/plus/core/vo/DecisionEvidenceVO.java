@@ -15,6 +15,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 
@@ -172,4 +173,26 @@ public class DecisionEvidenceVO {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private Date recordedTime;
+
+    // ======================== 只读承诺：集合属性不直出内部状态 ========================
+
+    /**
+     * 类型化依据 —— 返回<b>不可修改视图</b>，调用方无法借返回集合改写内部状态（个人规范 java-b）。
+     *
+     * <p>D 直提列该字段为 {@code null}，故返回是 <b>null-safe 的</b>：{@code null} 原样返回、
+     * 不包装成空集合 —— 矩阵中 {@code null} 本身有语义（「不适用」），包装会把它读成「空」。</p>
+     */
+    public List<DecisionRationaleFact> getRationaleFacts() {
+        return rationaleFacts == null ? null : Collections.unmodifiableList(rationaleFacts);
+    }
+
+    /**
+     * 直提自述位 —— 返回<b>不可修改视图</b>（个人规范 java-b）。
+     *
+     * <p><b>三态可判性不受影响</b>：{@code null}（位缺失）/ 空集合（显式空集）/ 有值 —— 包装只堵住
+     * 「调用方改写内部状态」这一条路，不改三态的区分；序列化仍按字段级 {@code NON_NULL} 省略 {@code null}。</p>
+     */
+    public List<DecisionContextSource> getAttestedDataSources() {
+        return attestedDataSources == null ? null : Collections.unmodifiableList(attestedDataSources);
+    }
 }
