@@ -10,7 +10,7 @@
 
 ## 状态
 
-**Stable — v1.0.0 GA 已发布，核心功能已完备。**
+**Stable — v1.1.0 已发布，核心功能已完备。**
 
 变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -55,14 +55,14 @@ CI 矩阵覆盖 H2 / MySQL 8.0 / PostgreSQL 14 三种数据库，全量测试通
 flowable-plus (父 POM, packaging=pom)
 ├── flowable-plus-core                  核心模块（API 封装层，不启动 Spring DI 容器，可在任意 Java 8+ 应用中使用）
 ├── flowable-plus-spring-boot-starter   Spring Boot 自动配置粘合层
-└── flowable-plus-extension             储备位模块（reserved slot，当前无功能内容）
+└── flowable-plus-extension             可选领域能力（AI 决策接入，默认关闭，见 ADR-0042）
 ```
 
 | 模块 | 职责 |
 |------|------|
 | `flowable-plus-core` | 封装 Flowable 核心服务，定义所有 API 接口、SPI 扩展点、VO 和事件对象。可在任意 Java 8+ 应用中使用 |
 | `flowable-plus-spring-boot-starter` | `FlowablePlusAutoConfiguration` 自动注册 Bean，配置前缀 `flowable.plus.*`。条件激活：`ProcessEngine` 存在 + `flowable.plus.enabled=true`（默认） |
-| `flowable-plus-extension` | 储备位模块，当前无功能内容，等待「依赖隔离」或「真正可选的领域能力」入住（边界见 ADR-0029） |
+| `flowable-plus-extension` | 可选领域能力：**AI 决策接入**（建议通道，`flowable.plus.decision.*`，**默认关闭**，边界见 ADR-0042）。对 extension 依赖**不导入**的接入方，行为与关闭态等价 |
 
 ## API 接口一览
 
@@ -109,6 +109,17 @@ v1.0.0 `NodeFinder` 正向遍历三方法已收敛为单一 `TraversalMode` 入�
 | `findNextUserTasks(defId, nodeId, instanceId, vars)` | `findDownstreamUserTasks(defId, nodeId, TraversalMode.FULL, vars)`（**instanceId 已删除**——原实现本就忽略该参数） |
 | `findAdjacentUserTasks(defId, nodeId, vars)` | `findDownstreamUserTasks(defId, nodeId, TraversalMode.ADJACENT, vars)` |
 
+### ApprovalRecordVO / CountersignSubRecord 构造器
+
+v1.1.0 为审批记录引入**决策证据**承载位（见 [ADR-0042](docs/adr/0042-ai-decision-integration.md)），`ApprovalRecordVO` 与 `CountersignSubRecord` 的全参构造器各**增至 14 参** —— 末位新增 `List<DecisionEvidenceVO> decisionEvidences`（无决策证据时为 `null`）。直接以**全参构造器**构造这两个类型的下游需按以下映射适配：
+
+| 旧构造器（已删除） | 新构造器 |
+|--------------------|----------|
+| `new ApprovalRecordVO(taskId, …, countersignRecords)`（13 参） | `new ApprovalRecordVO(taskId, …, countersignRecords, decisionEvidences)`（14 参，末位新增） |
+| `new CountersignSubRecord(taskId, …, roundIndex)`（13 参） | `new CountersignSubRecord(taskId, …, roundIndex, decisionEvidences)`（14 参，末位新增） |
+
+用 `builder()` 构造不受影响（新增字段默认 `null`）；不消费决策证据的调用方传 `null` 即可。
+
 ## SPI 扩展点
 
 | SPI | 用途 |
@@ -145,7 +156,7 @@ mvn clean test
 <dependency>
     <groupId>io.github.flowable.plus</groupId>
     <artifactId>flowable-plus-spring-boot-starter</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
 </dependency>
 ```
 
@@ -177,7 +188,8 @@ List<ApprovalRecordVO> history = flowablePlus.getApprovalHistory("proc-001");
 | Spring Boot | 2.7.18 | 通过 BOM 管理 |
 | Flowable | 6.8.0 | 通过 BOM 管理 |
 | Lombok | 1.18.30 | 所有模块 |
-| Hutool | 5.8.28 | core、extension |
+| Hutool | 5.8.28 | core |
+| Apache HttpClient | 4.5.14 | extension（AI 决策出站调用） |
 
 ## 架构决策记录 (ADR)
 
@@ -222,6 +234,9 @@ List<ApprovalRecordVO> history = flowablePlus.getApprovalHistory("proc-001");
 | ADR-0037 | 否决审批操作样板提取执行模板（架构审查 C2） |
 | ADR-0038 | 否决会签回退策略工厂拆分（架构审查 C5） |
 | ADR-0039 | 否决 QueryOperations 重载收敛（架构审查 C6） |
+| ADR-0040 | 会签节点计数口径收敛至 MultiInstanceDetector（架构审查 C7） |
+| ADR-0041 | 会签回退重定向骨架共享 + 文案参数化（架构审查 C8） |
+| ADR-0042 | AI 决策接入 —— 决策与执行分离的建议通道 |
 
 详见 `docs/adr/` 目录。
 

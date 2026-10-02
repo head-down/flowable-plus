@@ -39,8 +39,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p><b>排序依据是引擎实测事实、不是注释</b>：{@code HistoryWorkflow} 源码注释记「按时间升序」，
  * 引擎实为 {@code TIME_ desc} 且<b>无次级排序键</b>（6.8.0 内排序全在 MyBatis SQL；{@code ACT_HI_COMMENT}
- * 无 SEQ / 自增列；{@code ID_} 由 {@code DbIdGenerator} 生成、数值序全局单调但字典序不可排序）——
- * 见 {@code docs/known-drifts.md} 的 <b>D4</b>（2026-09-25 源码核实）。本类 {@code #doesNotAssumeEngineAscendingOrder}
+ * 无 SEQ / 自增列；{@code ID_} 由 {@code DbIdGenerator} 生成、数值序全局单调但字典序不可排序）—— 以上为
+ * 2026-09-25 源码核实。本类 {@code #doesNotAssumeEngineAscendingOrder}
  * 与 {@code #readsReSortToTimeAscendingWithinAnchor} 用真引擎把这一漂移钉成可判事实。</p>
  *
  * <p><b>「不可判 ⇒ 整锚点不判」的载体（实现期裁定，已登记；2026-09-29 措辞收窄）</b>：<b>「该锚点

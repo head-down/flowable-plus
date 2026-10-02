@@ -47,7 +47,7 @@ import java.util.stream.Collectors;
  * <p><b>重放判序</b>：本类只负责把行排成「锚点内 {@code TIME_} 升序」—— 即
  * {@link io.github.flowable.plus.core.vo.ApprovalRecordVO#resolveReplayOf} 认定的「最早 = 原」
  * 所指的次序。同毫秒并列时按数值 {@code ID_} 升序兜底（引擎 {@code getProcessInstanceComments}
- * 实为 {@code TIME_ desc} 且无次级排序键，见 {@code docs/known-drifts.md} 的 D4）。
+ * 实为 {@code TIME_ desc} 且无次级排序键）。
  * <b>不可判 ⇒ 整锚点不判（ADR-0042 第 9 节第 7 条）</b>：任一 {@code ID_} 非数值（应用替换了
  * {@code IdGenerator}）时，本类<b>不建立任何次序</b>（含跨毫秒的 {@code TIME_} 重排——判定依赖的
  * 「最早在前」契约整体不可信）、证据行<b>照常投影</b>（不可判 ≠ 损坏、≠ 抑制），并以
