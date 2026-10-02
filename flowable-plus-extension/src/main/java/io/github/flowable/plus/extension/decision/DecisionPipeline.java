@@ -783,7 +783,14 @@ public final class DecisionPipeline {
         }
     }
 
-    /** 最后防御的替代行：{@code SUGGESTION_FAILED} / {@code INTERNAL_ERROR}（零新增枚举值）。 */
+    /**
+     * 最后防御的替代行：{@code SUGGESTION_FAILED} / {@code INTERNAL_ERROR}（零新增枚举值）。
+     *
+     * <p><b>归因 / 链路</b>：替代行不新增事实，其出处组直接承继被拒草稿（{@code provider} /
+     * {@code chainStage} / {@code degraded} 取自 {@code refused}），观测随之取<b>同一来源</b> ——
+     * 被拒草稿来自已出站的结局（产出 / 模型主动不产出 / 入站加工失败 / 出站失败）时
+     * {@code chainStage} 非空，来自未出站的结局时为空。故替代证据行与观测行在这两个字段上恒同值。</p>
+     */
     private boolean writeMinimalInternalErrorRow(final Task anchor, final DecisionEvidenceDraft refused) {
         final DecisionEvidenceDraft minimal = DecisionEvidenceDraft.builder()
                 .outcome(DecisionOutcome.SUGGESTION_FAILED)
@@ -798,8 +805,9 @@ public final class DecisionPipeline {
             final String rowText = writer.row(writer.materialize(minimal));
             taskService.addComment(anchor.getId(), anchor.getProcessInstanceId(),
                     DecisionEvidenceComment.COMMENT_TYPE.name(), rowText);
+            // 链路阶段承继被拒草稿（与上面的替代证据行同值）；失败列 modelId 恒留空
             emit(anchor, DecisionOutcome.SUGGESTION_FAILED, DecisionFailureKind.INTERNAL_ERROR, null,
-                    null, null, null, null, null, null, null);
+                    null, refused.getChainStage(), null, null, null, null, null);
         } catch (RuntimeException writeFailure) {
             emit(anchor, null, null, null, null, null, null, null, null,
                     classifyDegradation(anchor.getProcessInstanceId()), null);

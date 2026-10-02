@@ -602,6 +602,36 @@ class DecisionPipelineTest {
         assertThat(singleObservation().getChainStage()).isNull();
     }
 
+    @Test
+    @DisplayName("草稿被写入器拒绝 ⇒ 最小化 INTERNAL_ERROR 替代行：观测链路阶段与被拒草稿同值")
+    void refusedDraftFallsToMinimalRowThatKeepsChainStage() throws IOException {
+        // MODEL_DECLINED 走过一次出站调用 ⇒ 矩阵要求 modelId 必填；该响应不给 modelId ⇒ 写入器拒绝此草稿，
+        // 触发最小化替代行（最后防御）。被拒草稿已出站 ⇒ 替代行与观测均带 chainStage。
+        when(provider.send(any())).thenReturn(DecisionProviderResponse.builder()
+                .declined(Boolean.TRUE)
+                .provider(TARGET_KEY)
+                .chainStage(DecisionChainStage.PRIMARY)
+                .degraded(Boolean.FALSE)
+                .build());
+
+        pipeline.pull(TASK_ID, PROCESS_INSTANCE_ID, declaring("TASK_METADATA", POLICY_KEY, TARGET_KEY, "true"));
+
+        assertThat(singleObservation().getOutcome()).isEqualTo(DecisionOutcome.SUGGESTION_FAILED);
+        assertThat(singleObservation().getFailureKind()).isEqualTo(DecisionFailureKind.INTERNAL_ERROR);
+        assertThat(singleObservation().getChainStage())
+                .as("已出站草稿被拒 ⇒ 替代行与观测均带链路阶段（不因改落 INTERNAL_ERROR 而丢）")
+                .isEqualTo(DecisionChainStage.PRIMARY);
+        assertThat(singleObservation().getModelId()).as("失败列 modelId 恒留空").isNull();
+
+        final JsonNode row = DecisionFixtures.evidenceJson(capturedRows(taskService).get(0));
+        assertThat(DecisionFixtures.enumValue(row.get("failureKind"), DecisionFailureKind.class))
+                .as("改落最小化 INTERNAL_ERROR 行")
+                .isEqualTo(DecisionFailureKind.INTERNAL_ERROR);
+        assertThat(DecisionFixtures.enumValue(row.get("chainStage"), DecisionChainStage.class))
+                .as("替代证据行与观测行在链路阶段上同值")
+                .isEqualTo(DecisionChainStage.PRIMARY);
+    }
+
     // ======================== 驱动辅助 ========================
 
     /** 构造管线（数值可调，供重试面用自定值）。 */
