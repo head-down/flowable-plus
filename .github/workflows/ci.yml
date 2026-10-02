@@ -1,13 +1,8 @@
 name: CI
 
 on:
-  # 过渡触发器（2026-09-26 加）：本机制的实现批次在工作分支上推进，不等转正 PR 才验证。
-  # 矩阵轴与 job 体零改动；转正那一片须把 push 触发恢复为仅 master，
-  # 以恢复「工作流文件 diff 为空」的可验收性质（登记见实现形态文件的模块与构建节）。
   push:
-    branches:
-      - master
-      - 'feat/ai-decision-*'
+    branches: [master]
   pull_request:
     branches: [master]
 
