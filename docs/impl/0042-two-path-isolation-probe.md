@@ -74,7 +74,7 @@ new SpringApplicationBuilder(BpmnQueryIntegrationTestApplication.class)
 
 - 落点 = **S5**，**一个类**：`DecisionTwoPathIsolationIntegrationTest`（starter，`io.github.flowable.plus.starter`）。
 - **不采用**「三顶层类」形态：顶层类的执行顺序**只能**由模块级 `junit-platform.properties` 的 `junit.jupiter.testclass.order.default` + `@Order` 强制（`@TestClassOrder` 只能排 `@Nested` 子类；`ClassOrderer` 标 `@API(EXPERIMENTAL, since = "5.8")`，一手核实 JUnit 5.8.2 源码），且单类运行会因基线缺席而红。
-- **不采用**「单顶层类 + 三 `@Nested`」形态：`@Nested` 自有 `@SpringBootTest(properties=…)` 在默认 `INHERIT` 下产出独立上下文一节，**只有源码面结论、无运行时先例**（探索工作区零 `@Nested` 用例）⇒ 前置条件未满足。
+- **不采用**「单顶层类 + 三 `@Nested`」形态：`@Nested` 自有 `@SpringBootTest(properties=…)` 在默认 `INHERIT` 下产出独立上下文一节，**只有源码面结论、无运行时先例**（既有测试面零 `@Nested` 用例）⇒ 前置条件未满足。
 
 ---
 
@@ -286,7 +286,7 @@ Snapshot = ( 活跃任务集 { taskId → nodeId }，
 
 ## §11 已知限制与如实披露
 
-1. **程序化 boot 是模块内首例** —— 主仓 / 探索工作区测试面均**无先例**；其自身可靠性无既有先例可援。三库矩阵下每类多起两个 Spring 上下文，成本如实登记。
+1. **程序化 boot 是模块内首例** —— 既有测试面均**无先例**；其自身可靠性无既有先例可援。三库矩阵下每类多起两个 Spring 上下文，成本如实登记。
 2. **数据源属性的承接** —— `AbstractIntegrationTest#configureDataSource` 只服务 TestContext 管理的上下文；程序化上下文须复制 `spring.datasource.*`（读被注入的 `Environment`）。三库矩阵下同一逻辑，但该逻辑本身**无先例**。
 3. **面⑤ 的保真度待实测** —— 机制写证据行走 `TaskService#addComment`；须实测确认它**不**触发框架 `ProcessEventListener` 的任何回调。若实测触发，则面⑤ 的对拍面须显式写进「机制带来的既有回调」并另立说明 —— **按 `…equivalence-harness.md` 的先例如实登记，不静默掩掉**。
 4. **三态共用一个库** —— 见 §2.2；对拍面已按 pid / bk 作用域设计。**不得**称「三态数据隔离」。
@@ -315,4 +315,4 @@ Snapshot = ( 活跃任务集 { taskId → nodeId }，
 
 ## §12 复现免责声明
 
-本文件是**内部形态与判据的记录**，不是可执行的测试套件。文中的三态构造、fixture 结构、冻结判定式与归一化规则为**骨架**：断言体、常量取值与 BPMN 的 XML 属实现期产物。任何据此复现的尝试，须自行搭建被测工程 —— 探索工作区**不留构建根**，也不对未实现阶段的复现结果作承诺。
+本文件是**内部形态与判据的记录**，不是可执行的测试套件。文中的三态构造、fixture 结构、冻结判定式与归一化规则为**骨架**：断言体、常量取值与 BPMN 的 XML 属实现期产物。任何据此复现的尝试，须自行搭建被测工程 —— 本文档**不随附可运行工程**，也不对未实现阶段的复现结果作承诺。
