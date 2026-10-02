@@ -78,6 +78,9 @@ public final class DecisionPipeline {
     /** 退避抖动的区间下界比例（取计算值的一半起算；保证有效且不退化为 0） */
     private static final int JITTER_LOWER_BOUND = 2;
 
+    /** 「按政策未产出」证据行的文本兜底前缀（本类两处共用的单一来源）。 */
+    private static final String POLICY_NARRATIVE_PREFIX = "按政策未产出：";
+
     /**
      * 出域载荷序列化器（{@code inputSnapshot} = 「模型实际看到的」那串的计量口径）。
      *
@@ -305,6 +308,11 @@ public final class DecisionPipeline {
                     : null;
             finalizeFailure(anchor, response.getFailureKind(), true, targetKey, dropped, inputSnapshot,
                     failureRawOutput, startedNanos);
+            return;
+        }
+        if (response.getPolicyReason() != null) {
+            // 本地短路（未发起出站调用）⇒ 按政策未产出、不计错误、无出处痕迹
+            finalizeLocalShortCircuit(anchor, response, dropped, startedNanos);
             return;
         }
         if (Boolean.TRUE.equals(response.getDeclined())) {
@@ -552,15 +560,40 @@ public final class DecisionPipeline {
 
     // ======================== 未产出两列的物质化 ========================
 
-    /** 「按政策未产出」列（C 列）的收口：落行 + 观测。 */
+    /** 「按政策未产出」列（C 列）的收口：落行 + 观测（框架侧原因，无 Provider 自报叙述）。 */
     private void finalizePolicy(final Task anchor,
                                 final DecisionPolicyReason reason,
                                 final List<DecisionContextSource> dropped,
                                 final long startedNanos) {
-        if (writePolicyRow(anchor, reason)) {
-            emit(anchor, DecisionOutcome.NO_SUGGESTION_BY_POLICY, null, reason, null, null,
-                    latencyMs(startedNanos), null, null, null, dropped);
+        if (writePolicyRow(anchor, reason, null)) {
+            emitPolicy(anchor, reason, dropped, startedNanos);
         }
+    }
+
+    /**
+     * 本地短路（未出站）的 C 列收口：Provider 缝在<b>未发起出站调用</b>时按政策不产出
+     * （载荷缺上下文 / 凭据不可用）。
+     *
+     * <p>与 {@link #finalizeDeclined} 恰好相反：本路径的出处组与 {@code modelId} 结构上全空
+     * （未发生出站调用），<b>不计错误</b>；证据 VO 本就无 token 字段（token 只在观测面，本路径不产生）。</p>
+     */
+    private void finalizeLocalShortCircuit(final Task anchor,
+                                           final DecisionProviderResponse response,
+                                           final List<DecisionContextSource> dropped,
+                                           final long startedNanos) {
+        final DecisionPolicyReason reason = response.getPolicyReason();
+        if (writePolicyRow(anchor, reason, response.getRationaleNarrative())) {
+            emitPolicy(anchor, reason, dropped, startedNanos);
+        }
+    }
+
+    /** C 列观测的单一构造点（token 恒不适用：未出站调用即无 usage）。 */
+    private void emitPolicy(final Task anchor,
+                            final DecisionPolicyReason reason,
+                            final List<DecisionContextSource> dropped,
+                            final long startedNanos) {
+        emit(anchor, DecisionOutcome.NO_SUGGESTION_BY_POLICY, null, reason, null, null,
+                latencyMs(startedNanos), null, null, null, dropped);
     }
 
     /** 模型主动不产出（C 列，走过一次出站调用 ⇒ 出处组与 {@code modelId} 必填）。 */
@@ -590,13 +623,14 @@ public final class DecisionPipeline {
     /**
      * 失败列（D 列）的收口：落行 + 观测，或（行落不下时）走写入期降级槽位。
      *
-     * <p><b>出处组</b>：拉面失败行必带 {@code provider}（ADR-0042 第 8 节第 4 条 (iv) 的双射），
-     * 故 target key 可解析时整组填入（{@code chainStage = PRIMARY}、{@code degraded = false} ——
-     * 框架自有出站调用的链路阶段与降级位）；否则整组为 null。</p>
+     * <p><b>出处组 ⇔ 确已出站</b>（ADR-0042 第 8 节第 4 条 (iv)）：出处组与 {@code modelId} / token 一样，
+     * 是「本次确已发起主链路出站调用」的外部痕迹 —— 已出站时整组填入（{@code provider} = 目标 key、
+     * {@code chainStage = PRIMARY}、{@code degraded = false}）；<b>从未出站</b>的失败（装配失败 / 策略拒绝 /
+     * clamp 拒绝 / 目标不可解析 / 未归口兜底）整组为 null，不制造未发生调用的痕迹。</p>
      *
      * @param targetKey          决策目标 key；不可解析时为 null
-     * @param outboundDispatched 本次失败是否发生在框架<b>确已发起主链路出站调用</b>之后（决定观测的
-     *                           {@code chainStage}：已出站 ⇒ {@code PRIMARY}，从未出站 ⇒ {@code null}）
+     * @param outboundDispatched 本次失败是否发生在框架<b>确已发起主链路出站调用</b>之后（同时决定证据面
+     *                           出处组与观测的 {@code chainStage}：已出站 ⇒ 填值，从未出站 ⇒ 留空）
      * @param inputSnapshot      出域方向实际载荷（模型实际看到的串）；未发生出站调用时为 null
      * @param inboundRawOutput   入站方向原文（仅「响应不可解析」时可得）
      */
@@ -608,7 +642,7 @@ public final class DecisionPipeline {
                                  final String inputSnapshot,
                                  final String inboundRawOutput,
                                  final long startedNanos) {
-        final boolean provenanceKnown = StringUtils.isNotEmpty(targetKey);
+        final boolean provenanceKnown = outboundDispatched && StringUtils.isNotEmpty(targetKey);
         final DecisionEvidenceDraft draft = DecisionEvidenceDraft.builder()
                 .outcome(DecisionOutcome.SUGGESTION_FAILED)
                 .failureKind(failureKind)
@@ -628,7 +662,7 @@ public final class DecisionPipeline {
         }
         if (writeRow(anchor, draft)) {
             // 观测的链路阶段只认「确已出站」这一事实（不按失败名称粗分类）：已出站 ⇒ PRIMARY、失败响应
-            // 无 modelId 可取 ⇒ 留空；从未出站的失败 ⇒ chainStage 亦留空（与证据面的出处组规则有意不同）。
+            // 无 modelId 可取 ⇒ 留空；从未出站的失败 ⇒ chainStage 亦留空 —— 与证据面的出处组同一判据。
             final DecisionChainStage observationChainStage =
                     outboundDispatched ? DecisionChainStage.PRIMARY : null;
             emit(anchor, DecisionOutcome.SUGGESTION_FAILED, failureKind, null, null, observationChainStage,
@@ -697,22 +731,24 @@ public final class DecisionPipeline {
     /**
      * 写一行「按政策未产出」的证据（C 列）。
      *
-     * <p>类型化依据按 {@code policyReason} 分支必填：{@code NO_SOURCE_DECLARED} ⇒ ≥1 条
-     * {@code MISSING_INPUT}（声明面没有可核输入）；其余四值 ⇒ ≥1 条 {@code POLICY_RULE}（依据是护栏规则）。</p>
+     * <p>类型化依据按 {@code policyReason} 分支取键（单一来源 = {@link DecisionEvidenceWriter#policyFactKeyOf}）；
+     * 文本兜底依据由调用方给（本地短路时可带 Provider 自报的中文原因），缺省用该原因的
+     * {@link DecisionPolicyReason#getDescription() 可自诊中文描述}。</p>
      */
-    private boolean writePolicyRow(final Task anchor, final DecisionPolicyReason reason) {
-        final DecisionRationaleFactKey factKey = reason == DecisionPolicyReason.NO_SOURCE_DECLARED
-                ? DecisionRationaleFactKey.MISSING_INPUT
-                : DecisionRationaleFactKey.POLICY_RULE;
+    private boolean writePolicyRow(final Task anchor,
+                                   final DecisionPolicyReason reason,
+                                   final String narrativeOverride) {
         final List<DecisionRationaleFact> facts = new ArrayList<>();
-        facts.add(new DecisionRationaleFact(factKey, reason.name()));
+        facts.add(new DecisionRationaleFact(DecisionEvidenceWriter.policyFactKeyOf(reason), reason.name()));
         return writeRow(anchor, DecisionEvidenceDraft.builder()
                 .outcome(DecisionOutcome.NO_SUGGESTION_BY_POLICY)
                 .policyReason(reason)
                 .idempotencyKey(anchor.getId())
                 .subjectType(DecisionSubjectType.AI)
                 .rationaleFacts(facts)
-                .rationaleNarrative("按政策未产出：" + reason.name())
+                .rationaleNarrative(StringUtils.isNotBlank(narrativeOverride)
+                        ? narrativeOverride
+                        : POLICY_NARRATIVE_PREFIX + reason.getDescription())
                 .build());
     }
 
@@ -879,7 +915,7 @@ public final class DecisionPipeline {
     private static String declinedNarrative(final DecisionProviderResponse response) {
         return StringUtils.isNotBlank(response.getRationaleNarrative())
                 ? response.getRationaleNarrative()
-                : "按政策未产出：" + DecisionPolicyReason.MODEL_DECLINED.name();
+                : POLICY_NARRATIVE_PREFIX + DecisionPolicyReason.MODEL_DECLINED.getDescription();
     }
 
     /** 集合的不可修改副本（构造期收口：装配面后续改动不影响已建管线）。 */

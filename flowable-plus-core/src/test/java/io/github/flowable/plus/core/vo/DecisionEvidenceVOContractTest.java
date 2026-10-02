@@ -135,6 +135,8 @@ public class DecisionEvidenceVOContractTest {
                 DecisionPolicyReason.NO_SOURCE_DECLARED,
                 DecisionPolicyReason.POLICY_REJECTED,
                 DecisionPolicyReason.MODEL_DECLINED,
+                DecisionPolicyReason.CONTEXT_UNAVAILABLE,
+                DecisionPolicyReason.CREDENTIAL_UNAVAILABLE,
                 DecisionPolicyReason.SUSPENDED,
                 DecisionPolicyReason.OVERLOADED);
         assertThat(DecisionFailureKind.values()).containsExactly(
@@ -178,6 +180,7 @@ public class DecisionEvidenceVOContractTest {
         assertThat(DecisionPolicyReason.values())
                 .as("政策原因域必须容纳不经出站调用的那些原因")
                 .contains(DecisionPolicyReason.NO_SOURCE_DECLARED, DecisionPolicyReason.POLICY_REJECTED,
+                        DecisionPolicyReason.CONTEXT_UNAVAILABLE, DecisionPolicyReason.CREDENTIAL_UNAVAILABLE,
                         DecisionPolicyReason.SUSPENDED, DecisionPolicyReason.OVERLOADED);
         assertThat(DecisionFailureKind.values())
                 .as("失败类别域必须容纳非出站类失败")

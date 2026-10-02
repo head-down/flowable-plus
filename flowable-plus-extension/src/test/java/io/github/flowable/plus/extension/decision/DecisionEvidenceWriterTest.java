@@ -346,7 +346,7 @@ class DecisionEvidenceWriterTest {
                 .map(writer::materialize)
                 .collect(Collectors.toList());
 
-        assertThat(policyRows).as("按政策未产出的五值逐值可物质化").hasSize(5);
+        assertThat(policyRows).as("按政策未产出的七值逐值可物质化").hasSize(7);
         assertThat(failureRows).as("失败列的六值逐值可物质化（第七值属产出态例外）").hasSize(6);
         assertThat(policyRows).allSatisfy(row -> {
             assertThat(row.getOutcome())
@@ -421,7 +421,7 @@ class DecisionEvidenceWriterTest {
                 .hasSize(7);
         assertThat(EnumSet.allOf(DecisionPolicyReason.class))
                 .as("超限处置零新增枚举值")
-                .hasSize(5);
+                .hasSize(7);
         assertThat(EnumSet.allOf(DecisionOutcome.class))
                 .as("超限处置零新增枚举值（未产出仍是上位词、不入枚举）")
                 .hasSize(3);

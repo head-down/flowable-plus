@@ -110,10 +110,10 @@ class DecisionEvidenceSubmissionTest {
                 .as("重复到达不新增列")
                 .isEqualTo(PathColumn.A_VIA_OUTBOUND);
 
-        // C 列内部的二分不改列：MODEL_DECLINED 与其余四值同属 C 列
+        // C 列内部的二分不改列：MODEL_DECLINED 与其余六值同属 C 列
         EnumSet.allOf(DecisionPolicyReason.class).forEach(reason -> assertThat(
                 columnOf(writer.materialize(DecisionFixtures.policyDraft(reason))))
-                .as("outcome 分支：policyReason 的五值同属按政策未产出列")
+                .as("outcome 分支：policyReason 的七值同属按政策未产出列")
                 .isEqualTo(PathColumn.C_POLICY));
 
         // D 列内部的六值亦不改列（第七值 INBOUND_PROCESSING_FAILED 是产出态的唯一例外值，
@@ -147,9 +147,15 @@ class DecisionEvidenceSubmissionTest {
         assertPolicyCells(samples.get(PathColumn.C_POLICY));
         assertFailureCells(samples.get(PathColumn.D_FAILURE));
 
-        // C 列内部二分的另一支（未发生出站调用）逐格对账
+        // C 列内部二分的另一支（未发生出站调用）逐格对账：空装配支与两个本地短路支
         assertPolicyWithoutOutboundCallCells(
                 writer.materialize(DecisionFixtures.policyDraft(DecisionPolicyReason.NO_SOURCE_DECLARED)));
+        assertLocalShortCircuitCells(
+                writer.materialize(DecisionFixtures.policyDraft(DecisionPolicyReason.CONTEXT_UNAVAILABLE)),
+                DecisionPolicyReason.CONTEXT_UNAVAILABLE, DecisionRationaleFactKey.MISSING_INPUT);
+        assertLocalShortCircuitCells(
+                writer.materialize(DecisionFixtures.policyDraft(DecisionPolicyReason.CREDENTIAL_UNAVAILABLE)),
+                DecisionPolicyReason.CREDENTIAL_UNAVAILABLE, DecisionRationaleFactKey.POLICY_RULE);
     }
 
     @Test
@@ -399,7 +405,7 @@ class DecisionEvidenceSubmissionTest {
                 .isNull();
     }
 
-    /** C 列（其余四值支）：结构上未发生出站调用 ⇒ 出处组与 {@code modelId} 必须 null。 */
+    /** C 列（其余六值支）：结构上未发生出站调用 ⇒ 出处组与 {@code modelId} 必须 null。 */
     private void assertPolicyWithoutOutboundCallCells(final DecisionEvidenceVO evidence) {
         assertThat(evidence.getPolicyReason())
                 .as("outcome 分支：按政策未产出列的 policyReason 必填")
@@ -421,6 +427,42 @@ class DecisionEvidenceSubmissionTest {
                 .anyMatch(fact -> fact.getKey() == DecisionRationaleFactKey.MISSING_INPUT);
         assertThat(evidence.getSuggestedAction())
                 .as("outcome 分支：按政策未产出列的建议动作必须 null")
+                .isNull();
+    }
+
+    /**
+     * C 列（Provider 缝本地短路支）：结构上<b>未发起出站调用</b> ⇒ 出处组 / {@code modelId} /
+     * 载荷字段必须 null；类型化依据按值表取 {@code MISSING_INPUT} / {@code POLICY_RULE}。
+     */
+    private void assertLocalShortCircuitCells(final DecisionEvidenceVO evidence,
+                                              final DecisionPolicyReason reason,
+                                              final DecisionRationaleFactKey expectedFactKey) {
+        assertThat(evidence.getPolicyReason())
+                .as("outcome 分支：本地短路支的 policyReason 必填")
+                .isEqualTo(reason);
+        assertThat(evidence.getProvider())
+                .as("outcome 分支：本地短路未发起出站调用，出处组必须 null")
+                .isNull();
+        assertThat(evidence.getChainStage())
+                .as("outcome 分支：本地短路未发起出站调用，出处组必须 null")
+                .isNull();
+        assertThat(evidence.getDegraded())
+                .as("outcome 分支：本地短路未发起出站调用，出处组必须 null")
+                .isNull();
+        assertThat(evidence.getModelId())
+                .as("outcome 分支：本地短路未发起出站调用，modelId 必须 null")
+                .isNull();
+        assertThat(evidence.getInputSnapshot())
+                .as("outcome 分支：按政策未产出列的 inputSnapshot 必须 null")
+                .isNull();
+        assertThat(evidence.getRawOutput())
+                .as("outcome 分支：按政策未产出列的 rawOutput 必须 null")
+                .isNull();
+        assertThat(evidence.getRationaleFacts())
+                .as("outcome 分支：类型化依据须至少含一条 " + expectedFactKey)
+                .anyMatch(fact -> fact.getKey() == expectedFactKey);
+        assertThat(evidence.getFailureKind())
+                .as("outcome 分支：按政策未产出是机制的结论，failureKind 必须 null")
                 .isNull();
     }
 

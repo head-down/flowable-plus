@@ -212,21 +212,20 @@ final class DecisionFixtures {
 
     /**
      * 按政策未产出草稿（C 列）：{@code MODEL_DECLINED} 给出处组与 {@code modelId}（走过一次出站调用），
-     * 其余四值全 {@code null}；类型化依据按分支取 {@code MISSING_INPUT} / {@code POLICY_RULE}。
+     * 其余六值全 {@code null}；类型化依据按分支取 {@code MISSING_INPUT} / {@code POLICY_RULE}
+     * （取键走写入器同一入口 {@link DecisionEvidenceWriter#policyFactKeyOf}，不在此另立第二份分支）。
      *
      * <p><b>两个方向的事实皆为 false</b>：矩阵对 C 列的 {@code inputSnapshot} 与 {@code rawOutput}
      * 两格写的是<b>必须 null</b>，故该列的载荷事实由矩阵钉死为「无载荷」（{@code MODEL_DECLINED}
      * 那次出站调用由出处组与 {@code modelId} 记录，不由载荷字段记录）。详见
      * {@code DecisionEvidenceWriterTest} 的类 javadoc 对该读法的披露。</p>
      *
-     * @param reason 政策原因（五值）
+     * @param reason 政策原因（七值）
      * @return 草稿
      */
     static DecisionEvidenceDraft policyDraft(final DecisionPolicyReason reason) {
         final boolean declined = reason == DecisionPolicyReason.MODEL_DECLINED;
-        final DecisionRationaleFactKey key = reason == DecisionPolicyReason.NO_SOURCE_DECLARED
-                ? DecisionRationaleFactKey.MISSING_INPUT
-                : DecisionRationaleFactKey.POLICY_RULE;
+        final DecisionRationaleFactKey key = DecisionEvidenceWriter.policyFactKeyOf(reason);
         return DecisionEvidenceDraft.builder()
                 .outcome(DecisionOutcome.NO_SUGGESTION_BY_POLICY)
                 .policyReason(reason)

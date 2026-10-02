@@ -251,14 +251,14 @@ final class DecisionEvidenceWriter {
         }
     }
 
-    /** C 列的格：建议面必须 null；`MODEL_DECLINED` ⇒ 出处组与 `modelId` 必填，其余四值 ⇒ 必须 null。 */
+    /** C 列的格：建议面必须 null；`MODEL_DECLINED` ⇒ 出处组与 `modelId` 必填，其余六值 ⇒ 必须 null。 */
     private static void requirePolicyCells(final DecisionEvidenceDraft draft) {
         if (draft.getSuggestedAction() != null || draft.getActionSummary() != null) {
             throw new IllegalArgumentException("outcome 分支：按政策未产出列的建议面必须为 null");
         }
         final DecisionPolicyReason policyReason = draft.getPolicyReason();
         if (policyReason == null) {
-            throw new IllegalArgumentException("outcome 分支：按政策未产出列的 policyReason 必填（五值）");
+            throw new IllegalArgumentException("outcome 分支：按政策未产出列的 policyReason 必填（七值）");
         }
         requireFactsPresent(draft, "outcome 分支：按政策未产出列的类型化依据必填");
         requireText(draft.getRationaleNarrative(), "outcome 分支：按政策未产出列的文本兜底依据必填");
@@ -277,7 +277,7 @@ final class DecisionEvidenceWriter {
             requireText(draft.getModelId(), "outcome 分支：MODEL_DECLINED 走过一次出站调用，modelId 必填");
         } else if (!isDirect(draft) || draft.getModelId() != null) {
             throw new IllegalArgumentException(
-                    "outcome 分支：除 MODEL_DECLINED 外的四值结构上未发生出站调用，出处组与 modelId 必须为 null");
+                    "outcome 分支：除 MODEL_DECLINED 外的六值结构上未发生出站调用，出处组与 modelId 必须为 null");
         }
     }
 
@@ -375,21 +375,33 @@ final class DecisionEvidenceWriter {
 
     /**
      * 依据面的内容义务（{@code outcome} 分支驱动）：直提列须 ≥1 条 {@code BASIS_CODE}（在
-     * {@link #requireProducedCells} 内强制）；C 列按 {@code policyReason} 分支 ——
-     * {@code NO_SOURCE_DECLARED} ⇒ ≥1 条 {@code MISSING_INPUT}，其余四值 ⇒ ≥1 条 {@code POLICY_RULE}。
+     * {@link #requireProducedCells} 内强制）；C 列按 {@code policyReason} 分支取键（见
+     * {@link #policyFactKeyOf}）。
      */
     private static void requireRationaleFacts(final DecisionEvidenceDraft draft, final Column column) {
         if (column != Column.POLICY) {
             return;
         }
-        final DecisionRationaleFactKey requiredKey =
-                draft.getPolicyReason() == DecisionPolicyReason.NO_SOURCE_DECLARED
-                        ? DecisionRationaleFactKey.MISSING_INPUT
-                        : DecisionRationaleFactKey.POLICY_RULE;
+        final DecisionRationaleFactKey requiredKey = policyFactKeyOf(draft.getPolicyReason());
         if (!containsFactKey(draft.getRationaleFacts(), requiredKey)) {
             throw new IllegalArgumentException(
                     "outcome 分支：按政策未产出列的类型化依据须至少含一条 " + requiredKey + "（现场值须可核）");
         }
+    }
+
+    /**
+     * 「按政策未产出」列的类型化依据键（按 {@code policyReason} 分支的<b>单一来源</b>，写侧与本类的
+     * 矩阵守卫共用）：缺少可核输入的两值（{@code NO_SOURCE_DECLARED} · {@code CONTEXT_UNAVAILABLE}）
+     * ⇒ {@code MISSING_INPUT}；其余值 ⇒ {@code POLICY_RULE}。
+     *
+     * @param reason 政策原因；调用方保证非 null（C 列的 policyReason 必填先行强制）
+     * @return 该原因对应的必要依据键
+     */
+    static DecisionRationaleFactKey policyFactKeyOf(final DecisionPolicyReason reason) {
+        return reason == DecisionPolicyReason.NO_SOURCE_DECLARED
+                || reason == DecisionPolicyReason.CONTEXT_UNAVAILABLE
+                ? DecisionRationaleFactKey.MISSING_INPUT
+                : DecisionRationaleFactKey.POLICY_RULE;
     }
 
     /**

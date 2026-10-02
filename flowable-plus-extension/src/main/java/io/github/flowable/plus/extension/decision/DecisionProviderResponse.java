@@ -3,6 +3,7 @@ package io.github.flowable.plus.extension.decision;
 import io.github.flowable.plus.core.enums.ApprovalAction;
 import io.github.flowable.plus.core.enums.DecisionChainStage;
 import io.github.flowable.plus.core.enums.DecisionFailureKind;
+import io.github.flowable.plus.core.enums.DecisionPolicyReason;
 import io.github.flowable.plus.core.vo.DecisionRationaleFact;
 import lombok.Builder;
 import lombok.Getter;
@@ -16,8 +17,9 @@ import java.util.List;
  * {@code modelId} / {@code suggestedAction} / {@code actionSummary} / {@code rationaleFacts} /
  * {@code rationaleNarrative}）—— 端到端可与证据面对齐。</p>
  *
- * <p><b>互斥性</b>：{@link #declined} 与 {@link #suggestedAction} <b>必居其一</b>；{@code declined} 是
- * 「模型主动不产出」的<b>显式位</b>，<b>不得由空字段反推</b>。皆缺或皆在 ⇒
+ * <p><b>三条「不产出」通道，必居其一</b>：{@link #declined}（模型主动不产出，<b>走过</b>一次出站调用）、
+ * {@link #policyReason}（<b>本地短路</b>，未发起出站调用）与 {@link #suggestedAction}（产出）。
+ * {@code declined} 是「模型主动不产出」的<b>显式位</b>，<b>不得由空字段反推</b>。皆缺或皆在 ⇒
  * {@link DecisionFailureKind#RESPONSE_UNPARSEABLE}。</p>
  *
  * <p><b>两个框架填字段</b>：{@link #provider} = 该次 {@code decisionTarget} 的 key（<b>不进响应体</b>，
@@ -26,6 +28,10 @@ import java.util.List;
  *
  * <p><b>失败通道</b>：{@link #failureKind} 非 null 即本次出站调用失败（HTTP 状态 → 失败类别的映射在
  * Provider 缝内完成），此时其余业务字段一律为空。</p>
+ *
+ * <p><b>本地短路通道</b>：{@link #policyReason} 非 null 即 Provider 缝<b>未发起出站调用</b>、按政策本地
+ * 不产出（如运行期载荷缺上下文、凭据未配置）。它落「按政策未产出」列、<b>不计错误</b>，且其行
+ * <b>结构上不得带出处组 / {@code modelId} / token</b>（与 {@code MODEL_DECLINED} 的必填恰好相反）。</p>
  *
  * <p><b>用量</b>：{@link #inputTokens} / {@link #outputTokens} 取自 provider 响应的 usage，
  * <b>缺失不猜</b>（保持 null，可见性出口 = 独立计数 {@code tokens.usage.missing}），也不设 {@code unknown}
@@ -38,6 +44,9 @@ public final class DecisionProviderResponse {
     /** 「模型主动不产出」的显式位；与 {@link #suggestedAction} 必居其一 */
     private final Boolean declined;
 
+    /** 本地短路的政策原因（未发起出站调用）；与 {@link #declined} / {@link #suggestedAction} 必居其一 */
+    private final DecisionPolicyReason policyReason;
+
     /** 建议动作（表态比较面子集取值） */
     private final ApprovalAction suggestedAction;
 
@@ -47,7 +56,7 @@ public final class DecisionProviderResponse {
     /** 类型化依据（产出时必填；键取闭集） */
     private final List<DecisionRationaleFact> rationaleFacts;
 
-    /** 文本兜底依据（产出时必填） */
+    /** 文本兜底依据（产出时必填；本地短路时可作可自诊的中文原因） */
     private final String rationaleNarrative;
 
     /** 模型标识（Provider 缝解析到即必填；直提列必须 null） */
@@ -82,5 +91,31 @@ public final class DecisionProviderResponse {
      */
     public static DecisionProviderResponse failed(final DecisionFailureKind failureKind) {
         return DecisionProviderResponse.builder().failureKind(failureKind).build();
+    }
+
+    /**
+     * 本地短路响应（<b>未发起出站调用</b>）：Provider 缝按政策本地决定不产出。
+     *
+     * <p>语义 = 「按政策未产出，但不是模型主动、且没有出站调用」。与 {@link #declined}
+     * （走过一次出站调用）结构上互斥，故其证据行不带出处组 / {@code modelId}。</p>
+     *
+     * <p><b>取值收窄</b>：只接受两个「本地短路」原因 —— {@link DecisionPolicyReason#CONTEXT_UNAVAILABLE}
+     * 与 {@link DecisionPolicyReason#CREDENTIAL_UNAVAILABLE}。框架侧的其它政策原因
+     * （{@code NO_SOURCE_DECLARED} / {@code POLICY_REJECTED} / {@code SUSPENDED} / {@code OVERLOADED}）
+     * 由框架自己算出，Provider 缝传入即误用（会伪造台账）；{@code MODEL_DECLINED} 走过出站调用，另走
+     * {@link #declined} 位。</p>
+     *
+     * @param policyReason 本地短路的政策原因（{@link DecisionPolicyReason#CONTEXT_UNAVAILABLE} /
+     *                     {@link DecisionPolicyReason#CREDENTIAL_UNAVAILABLE}），非 null
+     * @return 本地短路响应
+     * @throws IllegalArgumentException 传入的取值不属本地短路的两值
+     */
+    public static DecisionProviderResponse localShortCircuit(final DecisionPolicyReason policyReason) {
+        if (policyReason != DecisionPolicyReason.CONTEXT_UNAVAILABLE
+                && policyReason != DecisionPolicyReason.CREDENTIAL_UNAVAILABLE) {
+            throw new IllegalArgumentException("本地短路的政策原因只许为 CONTEXT_UNAVAILABLE / "
+                    + "CREDENTIAL_UNAVAILABLE（其余由框架侧算出或走过出站调用）：" + policyReason);
+        }
+        return DecisionProviderResponse.builder().policyReason(policyReason).build();
     }
 }

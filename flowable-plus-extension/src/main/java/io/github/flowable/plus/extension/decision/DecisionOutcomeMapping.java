@@ -11,7 +11,7 @@ import io.github.flowable.plus.core.enums.DecisionPolicyReason;
  * {@code policyReason} × {@code severity}，外加两个派生位（是否可重试 / 是否落证据行）。</p>
  *
  * <p><b>行集边界</b>：本表收「<b>产出观测</b>的全部结局行」共 {@link #ROW_COUNT} 行
- * （成功路径一行 + 决议 §13 表的编号 2–18 行，其中两处「同一格、两个产生点」按产生点分行，
+ * （成功路径一行 + 决议 §13 表的产出观测行 + <b>Provider 缝本地短路通道两行</b>，其中两处「同一格、两个产生点」按产生点分行，
  * 未物质化三情形按三处独立事实分行）。<b>不触发</b>的四类（未激活 / 节点未声明 / 事件面关闭 /
  * 无活锚点）<b>产出零观测</b> —— 它们不是「结局为零」，而是<b>无结局</b>，故不占本表行，
  * 也不新增第四叶子态。这一点是「观测条数 ≠ 证据行数」的另一面。</p>
@@ -35,7 +35,7 @@ public enum DecisionOutcomeMapping {
     INBOUND_PROCESSING_FAILED(DecisionOutcome.SUGGESTION_PRODUCED,
             DecisionFailureKind.INBOUND_PROCESSING_FAILED, null, DecisionSeverity.ERROR, false, true),
 
-    // ======================== 按政策未产出（5 行，均不计错误） ========================
+    // ======================== 按政策未产出（7 行，均不计错误） ========================
 
     /** 产生点：零 token / 空装配（建模漏配，声明面） */
     NO_SOURCE_DECLARED(DecisionOutcome.NO_SUGGESTION_BY_POLICY,
@@ -48,6 +48,14 @@ public enum DecisionOutcomeMapping {
     /** 产生点：生产者主动不产出（走过一次出站调用） */
     MODEL_DECLINED(DecisionOutcome.NO_SUGGESTION_BY_POLICY,
             null, DecisionPolicyReason.MODEL_DECLINED, DecisionSeverity.INFO, false, true),
+
+    /** 产生点：Provider 缝本地短路 —— 载荷不具备可用上下文（<b>未发起出站调用</b>） */
+    CONTEXT_UNAVAILABLE(DecisionOutcome.NO_SUGGESTION_BY_POLICY,
+            null, DecisionPolicyReason.CONTEXT_UNAVAILABLE, DecisionSeverity.INFO, false, true),
+
+    /** 产生点：Provider 缝本地短路 —— 凭据不可用（<b>未发起出站调用</b>） */
+    CREDENTIAL_UNAVAILABLE(DecisionOutcome.NO_SUGGESTION_BY_POLICY,
+            null, DecisionPolicyReason.CREDENTIAL_UNAVAILABLE, DecisionSeverity.INFO, false, true),
 
     /** 产生点：运行暂停（机制已激活、运行期被暂止） */
     SUSPENDED(DecisionOutcome.NO_SUGGESTION_BY_POLICY,
@@ -106,9 +114,9 @@ public enum DecisionOutcomeMapping {
     /**
      * 结局映射表的行数（<b>对账常量</b>）。
      *
-     * <p>取值独立于 {@link #values()} 的长度，供「表被改动」时机械对账打红；本表契约行数 = 18。</p>
+     * <p>取值独立于 {@link #values()} 的长度，供「表被改动」时机械对账打红；本表契约行数 = 20。</p>
      */
-    public static final int ROW_COUNT = 18;
+    public static final int ROW_COUNT = 20;
 
     /** 顶层结局（未物质化三行为 null） */
     private final DecisionOutcome outcome;

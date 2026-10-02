@@ -26,11 +26,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 public class DecisionOutcomeMappingTest {
 
-    /** 结局映射表行数（对账常量：与决议 §13 的产出观测行逐行相等） */
-    private static final int DECLARED_ROW_COUNT = 18;
+    /** 结局映射表行数（对账常量：与决议 §13 的产出观测行逐行相等，含 Provider 缝本地短路两行） */
+    private static final int DECLARED_ROW_COUNT = 20;
 
-    /** 「按政策未产出」的行数（五值闭集） */
-    private static final int DECLARED_POLICY_ROW_COUNT = 5;
+    /** 「按政策未产出」的行数（七值闭集） */
+    private static final int DECLARED_POLICY_ROW_COUNT = 7;
 
     /** 计入错误的行（失败八行 + 产出态的唯一例外值一行） */
     private static final List<DecisionOutcomeMapping> COUNTED_AS_ERROR = Arrays.asList(
@@ -44,12 +44,14 @@ public class DecisionOutcomeMappingTest {
             DecisionOutcomeMapping.RESPONSE_UNPARSEABLE,
             DecisionOutcomeMapping.SITE_ADMISSION_REJECTED);
 
-    /** 绝不入错误率的行（成功路径一行 + 按政策未产出五行 + 未物质化三行） */
+    /** 绝不入错误率的行（成功路径一行 + 按政策未产出七行 + 未物质化三行） */
     private static final List<DecisionOutcomeMapping> NEVER_COUNTED_AS_ERROR = Arrays.asList(
             DecisionOutcomeMapping.SUGGESTION_DELIVERED,
             DecisionOutcomeMapping.NO_SOURCE_DECLARED,
             DecisionOutcomeMapping.POLICY_REJECTED,
             DecisionOutcomeMapping.MODEL_DECLINED,
+            DecisionOutcomeMapping.CONTEXT_UNAVAILABLE,
+            DecisionOutcomeMapping.CREDENTIAL_UNAVAILABLE,
             DecisionOutcomeMapping.SUSPENDED,
             DecisionOutcomeMapping.OVERLOADED,
             DecisionOutcomeMapping.ANCHOR_LOST,
@@ -59,7 +61,7 @@ public class DecisionOutcomeMappingTest {
     @Test
     void everyMappingRowIsReachable() {
         assertThat(DecisionOutcomeMapping.ROW_COUNT)
-                .as("行数常量必须与决议表的产出观测行对数（恒定 18，不随表长推导）")
+                .as("行数常量必须与决议表的产出观测行对数（恒定 20，不随表长推导）")
                 .isEqualTo(DECLARED_ROW_COUNT);
         assertThat(DecisionOutcomeMapping.values())
                 .as("枚举常量数必须等于行数常量")
@@ -100,7 +102,7 @@ public class DecisionOutcomeMappingTest {
                 .as("失败类别七值必须逐值落行")
                 .contains(DecisionFailureKind.values());
         assertThat(policyReasonsOfRows())
-                .as("政策原因五值必须逐值落行")
+                .as("政策原因七值必须逐值落行")
                 .contains(DecisionPolicyReason.values());
 
         // 未物质化三情形：三字段皆 null、仍留可区分结局（产生点即行身份，恰三行）
@@ -145,7 +147,7 @@ public class DecisionOutcomeMappingTest {
         final List<DecisionOutcomeMapping> policyRows = rowsWithOutcome(DecisionOutcome.NO_SUGGESTION_BY_POLICY);
 
         assertThat(policyRows)
-                .as("「按政策未产出」五值各占一行")
+                .as("「按政策未产出」七值各占一行")
                 .hasSize(DECLARED_POLICY_ROW_COUNT);
         assertThat(policyRows)
                 .as("每一行都必须带政策原因")

@@ -9,6 +9,12 @@ package io.github.flowable.plus.extension.decision;
  * {@code OUTBOUND_CREDENTIAL_INVALID}；未取得响应 ⇒ {@code OUTBOUND_TIMEOUT}；其它非 2xx ⇒
  * {@code OUTBOUND_HTTP_ERROR}；解析违规 ⇒ {@code RESPONSE_UNPARSEABLE}）。</p>
  *
+ * <p><b>本地短路（未出站）</b>：方言可在<b>发起 Transport 调用之前</b>按政策本地决定不产出 ——
+ * 例如运行期载荷缺必需上下文、凭据未配置。此时返回
+ * {@link DecisionProviderResponse#localShortCircuit(io.github.flowable.plus.core.enums.DecisionPolicyReason)}，
+ * 语义 = 「按政策未产出，但不是模型主动、且没有出站调用」；该结果落「按政策未产出」列、<b>不计错误</b>，
+ * 且其行<b>不带出处组 / {@code modelId} / token</b>（与「模型主动不产出」的必填恰好相反）。</p>
+ *
  * <p><b>替换代价（写进契约）</b>：应用替换 Provider 缝后，框架只保留<b>超时 / 总预算 / 幂等键复用 /
  * 可观测</b>；HTTP 语义的 {@code failureKind} 随之失效（退化为应用自报或 {@code INTERNAL_ERROR}），
  * <b>同时失去框架侧凭据位点</b>。</p>
@@ -20,11 +26,11 @@ package io.github.flowable.plus.extension.decision;
 public interface DecisionProvider {
 
     /**
-     * 发起一次出站调用并解析响应。
+     * 发起一次出站调用并解析响应（亦可在发起前<b>本地短路</b>）。
      *
      * @param request 出站请求（决策目标 + 已过策略与 clamp 的载荷），不得为 null
-     * @return 响应；本次调用失败时返回带 {@code failureKind} 的失败响应（<b>不抛异常</b> ——
-     *         失败分类是契约面的一部分）
+     * @return 响应；本次调用失败时返回带 {@code failureKind} 的失败响应；本地短路时返回带
+     *         {@code policyReason} 的响应（两种情形均<b>不抛异常</b> —— 失败分类与短路原因是契约面的一部分）
      */
     DecisionProviderResponse send(DecisionProviderRequest request);
 }

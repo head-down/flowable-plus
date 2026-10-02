@@ -6,6 +6,7 @@ import io.github.flowable.plus.core.enums.ApprovalAction;
 import io.github.flowable.plus.core.enums.DecisionChainStage;
 import io.github.flowable.plus.core.enums.DecisionContextSource;
 import io.github.flowable.plus.core.enums.DecisionFailureKind;
+import io.github.flowable.plus.core.enums.DecisionPolicyReason;
 import io.github.flowable.plus.core.vo.DecisionEvidenceVO;
 import io.github.flowable.plus.core.vo.DecisionRationaleFact;
 import org.junit.jupiter.api.DisplayName;
@@ -21,6 +22,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * E15 —— 出站响应契约与请求体契约（{@code docs/impl/0042-verification-landings.md} §3.2 的 {@code E15}）。
@@ -47,7 +49,7 @@ class DecisionProviderContractTest {
     /** 响应契约里与证据 VO 同源的字段名（跨硬域同名的靶心） */
     private static final List<String> SHARED_FIELD_NAMES = Arrays.asList("suggestedAction", "actionSummary",
             "rationaleFacts", "rationaleNarrative", "modelId", "provider", "chainStage", "degraded", "rawOutput",
-            "failureKind");
+            "failureKind", "policyReason");
 
     /** 机制自有的缝字段（非证据面字段：显式不产出位 / 用量） */
     private static final List<String> SEAM_ONLY_FIELD_NAMES =
@@ -86,6 +88,24 @@ class DecisionProviderContractTest {
                 + "\"rationaleNarrative\":\"依据：中性位下仍可产出\",\"chainStage\":\"PRIMARY\"}");
         assertThat(produced.getFailureKind()).as("declined = false 是中性位，可与建议动作并见").isNull();
         assertThat(produced.getSuggestedAction()).isEqualTo(ApprovalAction.AGREE);
+    }
+
+    @Test
+    @DisplayName("本地短路工厂只收两个本地原因：框架侧原因与 MODEL_DECLINED 在构造期即拒绝")
+    void localShortCircuitFactoryRejectsNonLocalReasons() {
+        assertThat(DecisionProviderResponse.localShortCircuit(DecisionPolicyReason.CONTEXT_UNAVAILABLE)
+                .getPolicyReason()).isEqualTo(DecisionPolicyReason.CONTEXT_UNAVAILABLE);
+        assertThat(DecisionProviderResponse.localShortCircuit(DecisionPolicyReason.CREDENTIAL_UNAVAILABLE)
+                .getPolicyReason()).isEqualTo(DecisionPolicyReason.CREDENTIAL_UNAVAILABLE);
+
+        // 框架侧四值由框架自己算出、MODEL_DECLINED 走过出站调用 ⇒ 经本工厂传入即误用（会伪造台账）
+        for (final DecisionPolicyReason misuse : Arrays.asList(DecisionPolicyReason.NO_SOURCE_DECLARED,
+                DecisionPolicyReason.POLICY_REJECTED, DecisionPolicyReason.MODEL_DECLINED,
+                DecisionPolicyReason.SUSPENDED, DecisionPolicyReason.OVERLOADED)) {
+            assertThatThrownBy(() -> DecisionProviderResponse.localShortCircuit(misuse))
+                    .as("%s 不属本地短路两值 ⇒ 工厂拒绝（Provider 缝误用在构造期即炸）", misuse)
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
     }
 
     @Test

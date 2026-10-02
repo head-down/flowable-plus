@@ -240,6 +240,95 @@ class DecisionPipelineTest {
     }
 
     @Test
+    @DisplayName("Provider 缝本地短路：落按政策未产出 + 对应原因，不计错误、无出处痕迹")
+    void localShortCircuitFallsToPolicyColumnWithoutProvenance() throws IOException {
+        final BaseElement nodeElement = declaring("TASK_METADATA", POLICY_KEY, TARGET_KEY, "true");
+
+        // ① 载荷缺上下文：未发起出站调用 ⇒ 出处组 / modelId / token 全空，依据取 MISSING_INPUT
+        when(provider.send(any())).thenReturn(
+                DecisionProviderResponse.localShortCircuit(DecisionPolicyReason.CONTEXT_UNAVAILABLE));
+        pipeline.pull(TASK_ID, PROCESS_INSTANCE_ID, nodeElement);
+
+        assertThat(singleObservation().getOutcome()).isEqualTo(DecisionOutcome.NO_SUGGESTION_BY_POLICY);
+        assertThat(singleObservation().getPolicyReason()).isEqualTo(DecisionPolicyReason.CONTEXT_UNAVAILABLE);
+        assertThat(singleObservation().getFailureKind()).as("政策未产出是结论、不是异常").isNull();
+        assertThat(singleObservation().getModelId()).as("未出站 ⇒ 无归因").isNull();
+        assertThat(singleObservation().getChainStage()).as("未出站 ⇒ 无链路").isNull();
+        assertThat(singleObservation().getInputTokens()).as("未出站 ⇒ 无 token 用量").isNull();
+        assertThat(singleObservation().getOutputTokens()).isNull();
+
+        JsonNode row = DecisionFixtures.evidenceJson(capturedRows(taskService).get(0));
+        assertThat(DecisionFixtures.enumValue(row.get("outcome"), DecisionOutcome.class))
+                .isEqualTo(DecisionOutcome.NO_SUGGESTION_BY_POLICY);
+        assertThat(DecisionFixtures.enumValue(row.get("policyReason"), DecisionPolicyReason.class))
+                .isEqualTo(DecisionPolicyReason.CONTEXT_UNAVAILABLE);
+        assertThat(row.get("provider").isNull() && row.get("chainStage").isNull() && row.get("degraded").isNull())
+                .as("本地短路未发起出站调用 ⇒ 出处组整组为空（不制造未发生调用的痕迹）")
+                .isTrue();
+        assertThat(row.get("modelId").isNull()).as("本地短路无 modelId").isTrue();
+        assertThat(DecisionFixtures.enumValue(row.get("failureKind"), DecisionFailureKind.class))
+                .as("计错判据：按政策未产出绝不带失败类别").isNull();
+        assertThat(DecisionFixtures.enumValue(row.get("rationaleFacts").get(0).get("key"),
+                io.github.flowable.plus.core.enums.DecisionRationaleFactKey.class))
+                .as("缺上下文 ⇒ 依据取 MISSING_INPUT")
+                .isEqualTo(io.github.flowable.plus.core.enums.DecisionRationaleFactKey.MISSING_INPUT);
+        assertThat(row.get("rationaleNarrative").asText())
+                .as("未自报时用该原因的可自诊中文描述")
+                .isEqualTo("按政策未产出：" + DecisionPolicyReason.CONTEXT_UNAVAILABLE.getDescription());
+        nextScenario();
+
+        // ② 凭据不可用：依据取 POLICY_RULE；Provider 自报的中文原因被采用
+        when(provider.send(any())).thenReturn(DecisionProviderResponse.builder()
+                .policyReason(DecisionPolicyReason.CREDENTIAL_UNAVAILABLE)
+                .rationaleNarrative("AI 服务未配置，本次未调用模型")
+                .build());
+        pipeline.pull(TASK_ID, PROCESS_INSTANCE_ID, nodeElement);
+
+        assertThat(singleObservation().getPolicyReason()).isEqualTo(DecisionPolicyReason.CREDENTIAL_UNAVAILABLE);
+        row = DecisionFixtures.evidenceJson(capturedRows(taskService).get(0));
+        assertThat(DecisionFixtures.enumValue(row.get("rationaleFacts").get(0).get("key"),
+                io.github.flowable.plus.core.enums.DecisionRationaleFactKey.class))
+                .as("凭据不可用 ⇒ 依据取 POLICY_RULE")
+                .isEqualTo(io.github.flowable.plus.core.enums.DecisionRationaleFactKey.POLICY_RULE);
+        assertThat(row.get("rationaleNarrative").asText())
+                .as("Provider 自报的中文原因被采用")
+                .isEqualTo("AI 服务未配置，本次未调用模型");
+    }
+
+    @Test
+    @DisplayName("失败行出处组随「是否已发起主链路出站调用」而定：已出站整组填，未出站整组空")
+    void failureProvenanceFollowsOutboundDispatch() throws IOException {
+        final BaseElement nodeElement = declaring("TASK_METADATA", POLICY_KEY, TARGET_KEY, "true");
+
+        // ① 已出站失败（Provider 返回失败）⇒ 出处组整组填入
+        when(provider.send(any()))
+                .thenReturn(DecisionProviderResponse.failed(DecisionFailureKind.OUTBOUND_TIMEOUT));
+        pipeline.pull(TASK_ID, PROCESS_INSTANCE_ID, nodeElement);
+
+        final JsonNode outboundFailed = DecisionFixtures.evidenceJson(capturedRows(taskService).get(0));
+        assertThat(outboundFailed.get("provider").asText())
+                .as("已出站 ⇒ 出处组整组填入（provider = 目标 key）")
+                .isEqualTo(TARGET_KEY);
+        assertThat(DecisionFixtures.enumValue(outboundFailed.get("chainStage"), DecisionChainStage.class))
+                .as("已出站 ⇒ chainStage = PRIMARY")
+                .isEqualTo(DecisionChainStage.PRIMARY);
+        assertThat(outboundFailed.get("degraded").asBoolean()).isFalse();
+        nextScenario();
+
+        // ② 从未出站失败（装配异常）⇒ 出处组整组为空（与观测面同一判据）
+        when(runtimeService.getVariables(anyString())).thenThrow(new IllegalStateException("引擎读失败"));
+        pipeline.pull(TASK_ID, PROCESS_INSTANCE_ID, nodeElement);
+
+        final JsonNode preOutboundFailed = DecisionFixtures.evidenceJson(capturedRows(taskService).get(0));
+        assertThat(DecisionFixtures.enumValue(preOutboundFailed.get("failureKind"), DecisionFailureKind.class))
+                .isEqualTo(DecisionFailureKind.INTERNAL_ERROR);
+        assertThat(preOutboundFailed.get("provider").isNull() && preOutboundFailed.get("chainStage").isNull()
+                && preOutboundFailed.get("degraded").isNull())
+                .as("从未出站的失败不带出处组（不制造未发生调用的痕迹）")
+                .isTrue();
+    }
+
+    @Test
     @DisplayName("锚点不可见（含可见性等待超时）⇒ 不触发、无记录、不新增第四态")
     void anchorInvisibilityDoesNotTriggerAndLeavesNoRecord() {
         when(taskService.createTaskQuery().taskId(anyString()).singleResult()).thenReturn(null);

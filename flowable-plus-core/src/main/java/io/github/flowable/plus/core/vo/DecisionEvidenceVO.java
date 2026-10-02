@@ -141,7 +141,7 @@ public class DecisionEvidenceVO {
     /** 失败类别（计错判据 = failureKind != null；INBOUND_PROCESSING_FAILED 为唯一产出态例外值） */
     private DecisionFailureKind failureKind;
 
-    /** 按政策未产出的原因（五值；与 failureKind 互斥） */
+    /** 按政策未产出的原因（七值；与 failureKind 互斥） */
     private DecisionPolicyReason policyReason;
 
     // ======================== 读侧专属（由评论行填充，不进 JSON 载荷） ========================
