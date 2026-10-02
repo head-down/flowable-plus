@@ -61,6 +61,13 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class DecisionTwoPathProbeTestConfiguration {
 
+    /**
+     * 三态同款属性：关掉异步事件发布 —— 面⑤ 的「逐位置等值」要求既有回调的录制顺序确定，
+     * 而 {@code AsyncEventPublisher} 只把事件丢进线程池、顺序不是框架性质（故不进对拍面）。
+     * 注解与程序化 boot 共用本常量，避免「三态同款」这条不变量靠两处人工同步。
+     */
+    public static final String EVENT_ASYNC_OFF = "flowable.plus.event.async=false";
+
     @Bean
     ProbeAutoApprovalRule probeAutoApprovalRule() {
         return new ProbeAutoApprovalRule();

@@ -22,6 +22,7 @@ import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
 import org.flowable.engine.history.HistoricActivityInstance;
 import org.flowable.engine.history.HistoricProcessInstance;
+import org.flowable.engine.repository.ProcessDefinition;
 import org.flowable.engine.task.Comment;
 import org.flowable.task.api.Task;
 import org.flowable.variable.api.history.HistoricVariableInstance;
@@ -112,7 +113,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 归类守卫 {@link #equivalenceClassificationCoversEveryVoField()}，漂移的失败是响的。</p>
  */
 @SpringBootTest(classes = BpmnQueryIntegrationTestApplication.class,
-        properties = "spring.datasource.url=jdbc:h2:mem:decisionTwoPathIsolation;DB_CLOSE_DELAY=-1")
+        properties = {
+                "spring.datasource.url=jdbc:h2:mem:decisionTwoPathIsolation;DB_CLOSE_DELAY=-1",
+                DecisionTwoPathProbeTestConfiguration.EVENT_ASYNC_OFF})
 @Import({SharedTestConfiguration.class, DecisionTwoPathProbeTestConfiguration.class})
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class DecisionTwoPathIsolationIntegrationTest extends AbstractIntegrationTest {
@@ -250,10 +253,34 @@ class DecisionTwoPathIsolationIntegrationTest extends AbstractIntegrationTest {
 
     @AfterAll
     void closeProgrammaticContexts() {
+        // 清掉探针 fixture 的部署：三态在容器库矩阵（mysql / postgresql）下与其它测试类同库，
+        // 遗留的 fp: 声明会让后续在该库上启动、注册表不含 probeTarget / probePolicy 的上下文被
+        // 启动期一致性复核 fail-closed（一手：CI postgresql 轴 DecisionClosureMatrixIntegrationTest
+        // 11 个上下文全挂）。清理由任一态执行即幂等（三态共用同一个库）。
+        for (final StateAccess state : Arrays.asList(closed, reference, on)) {
+            purgeProbeDeployments(state);
+        }
         for (final StateAccess state : Arrays.asList(reference, on)) {
             if (state != null) {
                 state.context.close();
             }
+        }
+    }
+
+    /** 删除探针 fixture 的部署（按流程定义 key 收口；收尾清理不阻断，上下文不可用时无库可清）。 */
+    private static void purgeProbeDeployments(final StateAccess state) {
+        if (state == null) {
+            return;
+        }
+        try {
+            final RepositoryService repository = state.bean(RepositoryService.class);
+            for (final ProcessDefinition definition
+                    : repository.createProcessDefinitionQuery().processDefinitionKey(PROCESS_KEY).list()) {
+                repository.deleteDeployment(definition.getDeploymentId(), true);
+            }
+        } catch (final RuntimeException alreadyGone) {
+            // 有意的宽捕获：收尾清理不阻断（对拍结果已固化）—— 上下文已关 / 库已不可达时的
+            // 失败类型不受框架限定，且本处失败不影响任何判据，故不为它收窄类型
         }
     }
 
@@ -520,6 +547,9 @@ class DecisionTwoPathIsolationIntegrationTest extends AbstractIntegrationTest {
             final boolean enabled) {
         final List<String> args = new ArrayList<>();
         addDataSourceArgs(args);
+        // 三态同款：关掉异步事件发布 ⇒ 既有回调的录制顺序确定（面⑤ 的「逐位置等值」才可判）。
+        // 异步发布器的顺序不是框架性质（AsyncEventPublisher 只把事件丢进线程池），故不进对拍面。
+        args.add("--" + DecisionTwoPathProbeTestConfiguration.EVENT_ASYNC_OFF);
         if (excludeMechanism) {
             args.add("--spring.autoconfigure.exclude="
                     + String.join(",", EXCLUDED_AUTO_CONFIGURATIONS));
