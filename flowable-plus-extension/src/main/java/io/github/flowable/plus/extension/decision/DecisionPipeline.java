@@ -242,7 +242,8 @@ public final class DecisionPipeline {
         } catch (RuntimeException assemblyFailure) {
             // 有意的宽捕获：装配器异常归 ASSEMBLY_FAILED / INTERNAL_ERROR（异常 message 不进观测面）
             LOG.warn("决策上下文装配失败 ⇒ 归 INTERNAL_ERROR：taskId={}", taskId);
-            finalizeFailure(anchor, DecisionFailureKind.INTERNAL_ERROR, targetKey, null, null, null, startedNanos);
+            finalizeFailure(anchor, DecisionFailureKind.INTERNAL_ERROR, false, targetKey, null, null, null,
+                    startedNanos);
             return;
         }
         final List<DecisionContextSource> dropped = assembly.getDroppedContextSources();
@@ -256,7 +257,7 @@ public final class DecisionPipeline {
         if (policy == null) {
             // 运行期不自洽（注册表漂移 / 绕过校验的部署）⇒ 最后防御：阻断式不出域
             LOG.warn("节点声明引用的出域策略在运行期不可解析 ⇒ 阻断式不出域：policyKey={}", policyKey);
-            finalizeFailure(anchor, DecisionFailureKind.INTERNAL_ERROR, targetKey, dropped, null, null,
+            finalizeFailure(anchor, DecisionFailureKind.INTERNAL_ERROR, false, targetKey, dropped, null, null,
                     startedNanos);
             return;
         }
@@ -266,7 +267,7 @@ public final class DecisionPipeline {
         } catch (RuntimeException policyFailure) {
             // 有意的宽捕获：策略抛异常 = 系统故障、计错误（与「合规拒绝」严禁混用）
             LOG.warn("出域策略抛异常 ⇒ 归 INTERNAL_ERROR：taskId={}", taskId);
-            finalizeFailure(anchor, DecisionFailureKind.INTERNAL_ERROR, targetKey, dropped, null, null,
+            finalizeFailure(anchor, DecisionFailureKind.INTERNAL_ERROR, false, targetKey, dropped, null, null,
                     startedNanos);
             return;
         }
@@ -284,7 +285,7 @@ public final class DecisionPipeline {
         } catch (DecisionClampRejectedException rejected) {
             // 丢到全空仍超限 ⇒ 兜底拒绝（硬闸 ⇒ 出站调用不发生，符合 I2）
             LOG.warn("出域载荷丢到全空仍超框架上限 ⇒ 归 INTERNAL_ERROR：taskId={}", taskId);
-            finalizeFailure(anchor, DecisionFailureKind.INTERNAL_ERROR, targetKey, dropped, null, null,
+            finalizeFailure(anchor, DecisionFailureKind.INTERNAL_ERROR, false, targetKey, dropped, null, null,
                     startedNanos);
             return;
         }
@@ -293,8 +294,8 @@ public final class DecisionPipeline {
         final DecisionTarget target = findByKey(targets, targetKey, DecisionTarget::key);
         if (target == null) {
             LOG.warn("节点声明引用的决策目标在运行期不可解析 ⇒ 阻断式不出域：targetKey={}", targetKey);
-            finalizeFailure(anchor, DecisionFailureKind.INTERNAL_ERROR, targetKey, dropped, inputSnapshot, null,
-                    startedNanos);
+            finalizeFailure(anchor, DecisionFailureKind.INTERNAL_ERROR, false, targetKey, dropped, inputSnapshot,
+                    null, startedNanos);
             return;
         }
         final DecisionProviderResponse response = callProvider(target, clamped, anchor, startedNanos);
@@ -302,8 +303,8 @@ public final class DecisionPipeline {
             final String failureRawOutput = response.getFailureKind() == DecisionFailureKind.RESPONSE_UNPARSEABLE
                     ? response.getRawOutput()
                     : null;
-            finalizeFailure(anchor, response.getFailureKind(), targetKey, dropped, inputSnapshot, failureRawOutput,
-                    startedNanos);
+            finalizeFailure(anchor, response.getFailureKind(), true, targetKey, dropped, inputSnapshot,
+                    failureRawOutput, startedNanos);
             return;
         }
         if (Boolean.TRUE.equals(response.getDeclined())) {
@@ -505,7 +506,8 @@ public final class DecisionPipeline {
             draft.setInboundRedacted(inbound.getRecord().isRedacted());
             draft.setInboundTruncated(inbound.getRecord().isTruncated());
             if (writeRow(anchor, draft)) {
-                emit(anchor, DecisionOutcome.SUGGESTION_PRODUCED, null, null, latencyMs(startedNanos),
+                emit(anchor, DecisionOutcome.SUGGESTION_PRODUCED, null, null,
+                        response.getModelId(), response.getChainStage(), latencyMs(startedNanos),
                         response.getInputTokens(), response.getOutputTokens(), null, dropped);
             }
             return;
@@ -520,7 +522,8 @@ public final class DecisionPipeline {
             // ⇒ 同样只接住（不静默，不重复归口）。
             return;
         }
-        emit(anchor, DecisionOutcome.SUGGESTION_PRODUCED, null, null, latencyMs(startedNanos),
+        emit(anchor, DecisionOutcome.SUGGESTION_PRODUCED, null, null,
+                response.getModelId(), response.getChainStage(), latencyMs(startedNanos),
                 response.getInputTokens(), response.getOutputTokens(), null, dropped);
     }
 
@@ -555,8 +558,8 @@ public final class DecisionPipeline {
                                 final List<DecisionContextSource> dropped,
                                 final long startedNanos) {
         if (writePolicyRow(anchor, reason)) {
-            emit(anchor, DecisionOutcome.NO_SUGGESTION_BY_POLICY, null, reason, latencyMs(startedNanos),
-                    null, null, null, dropped);
+            emit(anchor, DecisionOutcome.NO_SUGGESTION_BY_POLICY, null, reason, null, null,
+                    latencyMs(startedNanos), null, null, null, dropped);
         }
     }
 
@@ -579,7 +582,8 @@ public final class DecisionPipeline {
                 .build();
         if (writeRow(anchor, draft)) {
             emit(anchor, DecisionOutcome.NO_SUGGESTION_BY_POLICY, null, DecisionPolicyReason.MODEL_DECLINED,
-                    latencyMs(startedNanos), response.getInputTokens(), response.getOutputTokens(), null, dropped);
+                    response.getModelId(), response.getChainStage(), latencyMs(startedNanos),
+                    response.getInputTokens(), response.getOutputTokens(), null, dropped);
         }
     }
 
@@ -590,12 +594,15 @@ public final class DecisionPipeline {
      * 故 target key 可解析时整组填入（{@code chainStage = PRIMARY}、{@code degraded = false} ——
      * 框架自有出站调用的链路阶段与降级位）；否则整组为 null。</p>
      *
-     * @param targetKey        决策目标 key；不可解析时为 null
-     * @param inputSnapshot    出域方向实际载荷（模型实际看到的串）；未发生出站调用时为 null
-     * @param inboundRawOutput 入站方向原文（仅「响应不可解析」时可得）
+     * @param targetKey          决策目标 key；不可解析时为 null
+     * @param outboundDispatched 本次失败是否发生在框架<b>确已发起主链路出站调用</b>之后（决定观测的
+     *                           {@code chainStage}：已出站 ⇒ {@code PRIMARY}，从未出站 ⇒ {@code null}）
+     * @param inputSnapshot      出域方向实际载荷（模型实际看到的串）；未发生出站调用时为 null
+     * @param inboundRawOutput   入站方向原文（仅「响应不可解析」时可得）
      */
     private void finalizeFailure(final Task anchor,
                                  final DecisionFailureKind failureKind,
+                                 final boolean outboundDispatched,
                                  final String targetKey,
                                  final List<DecisionContextSource> dropped,
                                  final String inputSnapshot,
@@ -620,8 +627,12 @@ public final class DecisionPipeline {
             draft.setRawOutput(inboundRawOutput);
         }
         if (writeRow(anchor, draft)) {
-            emit(anchor, DecisionOutcome.SUGGESTION_FAILED, failureKind, null, latencyMs(startedNanos),
-                    null, null, null, dropped);
+            // 观测的链路阶段只认「确已出站」这一事实（不按失败名称粗分类）：已出站 ⇒ PRIMARY、失败响应
+            // 无 modelId 可取 ⇒ 留空；从未出站的失败 ⇒ chainStage 亦留空（与证据面的出处组规则有意不同）。
+            final DecisionChainStage observationChainStage =
+                    outboundDispatched ? DecisionChainStage.PRIMARY : null;
+            emit(anchor, DecisionOutcome.SUGGESTION_FAILED, failureKind, null, null, observationChainStage,
+                    latencyMs(startedNanos), null, null, null, dropped);
         }
     }
 
@@ -654,18 +665,27 @@ public final class DecisionPipeline {
         draft.setRawOutput(null);
         if (writeRow(anchor, draft)) {
             emit(anchor, DecisionOutcome.SUGGESTION_PRODUCED, DecisionFailureKind.INBOUND_PROCESSING_FAILED, null,
-                    latencyMs(startedNanos), response.getInputTokens(), response.getOutputTokens(), null, dropped);
+                    response.getModelId(), response.getChainStage(), latencyMs(startedNanos),
+                    response.getInputTokens(), response.getOutputTokens(), null, dropped);
         }
     }
 
-    /** 未归口异常的兜底：尽力落一条 INTERNAL_ERROR 的 D 列行并观测（失败也不再上抛）。 */
+    /**
+     * 未归口异常的兜底：尽力落一条 INTERNAL_ERROR 的 D 列行并观测（失败也不再上抛）。
+     *
+     * <p><b>不变量</b>：出站调用（{@code callProvider}）之后的各步骤均已就地收口异常（入站策略与位点提交
+     * 各自接住、入站加工与草稿构造不抛），故本兜底<b>只会接住出站前的未归口异常</b> ⇒ 观测的
+     * {@code chainStage} 恒留空（{@code outboundDispatched = false}）。若日后在出站后新增可抛步骤，
+     * 须同步把「已出站」这一事实带到这里，否则观测会漏报链路阶段。</p>
+     */
     private void defendUnhandled(final String taskId, final long startedNanos) {
         try {
             final Task anchor = taskService.createTaskQuery().taskId(taskId).singleResult();
             if (anchor == null) {
                 return;
             }
-            finalizeFailure(anchor, DecisionFailureKind.INTERNAL_ERROR, null, null, null, null, startedNanos);
+            finalizeFailure(anchor, DecisionFailureKind.INTERNAL_ERROR, false, null, null, null, null,
+                    startedNanos);
         } catch (RuntimeException hopeless) {
             // 有意的宽捕获：兜底路径自身失败时观测面已是最后一道可见面，只落日志（不上抛、不改流程状态）
             LOG.warn("拉管线兜底路径自身失败（已无处可退）：taskId={}", taskId);
@@ -721,7 +741,7 @@ public final class DecisionPipeline {
         } catch (RuntimeException writeFailure) {
             // 有意的宽捕获：ADR-0042 第 9 节第 10 条要求写入失败一律降级、绝不上抛，
             // 而引擎写入面的失败类型不受框架限定（异常 message 与堆栈也不进观测面）。
-            emit(anchor, null, null, null, null, null, null,
+            emit(anchor, null, null, null, null, null, null, null, null,
                     classifyDegradation(anchor.getProcessInstanceId()), null);
             return false;
         }
@@ -743,9 +763,9 @@ public final class DecisionPipeline {
             taskService.addComment(anchor.getId(), anchor.getProcessInstanceId(),
                     DecisionEvidenceComment.COMMENT_TYPE.name(), rowText);
             emit(anchor, DecisionOutcome.SUGGESTION_FAILED, DecisionFailureKind.INTERNAL_ERROR, null,
-                    null, null, null, null, null);
+                    null, null, null, null, null, null, null);
         } catch (RuntimeException writeFailure) {
-            emit(anchor, null, null, null, null, null, null,
+            emit(anchor, null, null, null, null, null, null, null, null,
                     classifyDegradation(anchor.getProcessInstanceId()), null);
         }
         // 原结局未落行（改落了 INTERNAL_ERROR），调用方不得再报原结局
@@ -759,11 +779,19 @@ public final class DecisionPipeline {
 
     /**
      * 决策观测的<b>单一构造点</b>（本类只构造拉面路径的观测；准入拒绝与写入期降级的观测由位点服务产）。
+     *
+     * <p><b>归因 / 链路的填值口径</b>：只在框架<b>确已发起主链路出站调用</b>时填值 ——
+     * 产出 / 模型主动不产出 / 入站加工失败 / 出站失败四处带 {@code modelId}（可空，失败时响应业务字段全空）
+     * 与 {@code chainStage}；未出站的结局（装配失败 / 策略拒绝 / clamp 拒绝 / 目标不可解析 / 暂停 /
+     * 池满 / 未物质化）保持 {@code null}。判据是「是否已出站」这一事实，<b>不</b>按失败名称分类 ——
+     * 使「取不到」与「不适用」在这两个字段上也可分。</p>
      */
     private void emit(final Task anchor,
                       final DecisionOutcome outcome,
                       final DecisionFailureKind failureKind,
                       final DecisionPolicyReason policyReason,
+                      final String modelId,
+                      final DecisionChainStage chainStage,
                       final Long latencyMs,
                       final Long inputTokens,
                       final Long outputTokens,
@@ -778,8 +806,8 @@ public final class DecisionPipeline {
                 policyReason,
                 severityOf(outcome, failureKind, policyReason, writeDegradedCause),
                 DecisionSubjectType.AI,
-                null,
-                null,
+                modelId,
+                chainStage,
                 latencyMs,
                 inputTokens,
                 outputTokens,

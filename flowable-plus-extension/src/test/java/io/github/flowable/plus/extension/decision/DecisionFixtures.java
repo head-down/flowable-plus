@@ -92,18 +92,6 @@ final class DecisionFixtures {
     }
 
     /**
-     * 失败行的观测 fixture（{@code OUTBOUND_TIMEOUT} 行：可重试、落证据行）。
-     *
-     * @return 观测事实
-     */
-    static DecisionObservation failedObservation() {
-        return new DecisionObservation(TASK_ID, NODE_ID, PROCESS_INSTANCE_ID,
-                DecisionOutcome.SUGGESTION_FAILED, DecisionFailureKind.OUTBOUND_TIMEOUT, null,
-                DecisionSeverity.WARN, DecisionSubjectType.AI, MODEL_ID, DecisionChainStage.PRIMARY,
-                LATENCY_MS, null, null, null, null, null);
-    }
-
-    /**
      * 未物质化行的观测 fixture（{@code ANCHOR_LOST} 行：结局三字段皆 null、严重度必填）。
      *
      * @return 观测事实

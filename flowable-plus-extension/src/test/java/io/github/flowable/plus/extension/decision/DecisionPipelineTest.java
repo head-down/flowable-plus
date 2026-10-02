@@ -467,6 +467,52 @@ class DecisionPipelineTest {
                 .isEqualTo(io.github.flowable.plus.core.enums.DecisionCompleteness.NO_PAYLOAD);
     }
 
+    @Test
+    @DisplayName("观测归因/链路随「是否已发起主链路出站调用」而填：已出站带 modelId/chainStage；未出站恒空")
+    void observationAttributionFollowsOutboundDispatch() {
+        final BaseElement nodeElement = declaring("TASK_METADATA", POLICY_KEY, TARGET_KEY, "true");
+
+        // ① 产出成功（已出站）：modelId 与 chainStage 取响应值（与证据面同值）
+        pipeline.pull(TASK_ID, PROCESS_INSTANCE_ID, nodeElement);
+        assertThat(singleObservation().getModelId()).isEqualTo(DecisionFixtures.MODEL_ID);
+        assertThat(singleObservation().getChainStage()).isEqualTo(DecisionChainStage.PRIMARY);
+        nextScenario();
+
+        // ② 模型主动不产出（已出站）：同样带归因与链路
+        when(provider.send(any())).thenReturn(declinedResponse());
+        pipeline.pull(TASK_ID, PROCESS_INSTANCE_ID, nodeElement);
+        assertThat(singleObservation().getOutcome()).isEqualTo(DecisionOutcome.NO_SUGGESTION_BY_POLICY);
+        assertThat(singleObservation().getModelId()).isEqualTo(DecisionFixtures.MODEL_ID);
+        assertThat(singleObservation().getChainStage()).isEqualTo(DecisionChainStage.PRIMARY);
+        nextScenario();
+
+        // ③ 出站失败（已发起主链路出站调用）：modelId 不可得留空，chainStage = PRIMARY
+        when(provider.send(any()))
+                .thenReturn(DecisionProviderResponse.failed(DecisionFailureKind.OUTBOUND_CREDENTIAL_INVALID));
+        pipeline.pull(TASK_ID, PROCESS_INSTANCE_ID, nodeElement);
+        assertThat(singleObservation().getFailureKind())
+                .isEqualTo(DecisionFailureKind.OUTBOUND_CREDENTIAL_INVALID);
+        assertThat(singleObservation().getModelId()).as("失败响应业务字段全空 ⇒ modelId 不可得").isNull();
+        assertThat(singleObservation().getChainStage())
+                .as("框架确已发起主链路出站调用 ⇒ chainStage = PRIMARY").isEqualTo(DecisionChainStage.PRIMARY);
+        nextScenario();
+
+        // ④ 装配失败（从未出站）：两者皆空（判据是「是否已出站」，不按失败名称粗分类）
+        when(runtimeService.getVariables(anyString())).thenThrow(new IllegalStateException("引擎读失败"));
+        pipeline.pull(TASK_ID, PROCESS_INSTANCE_ID, nodeElement);
+        assertThat(singleObservation().getFailureKind()).isEqualTo(DecisionFailureKind.INTERNAL_ERROR);
+        assertThat(singleObservation().getModelId()).isNull();
+        assertThat(singleObservation().getChainStage()).as("从未出站 ⇒ 不填链路阶段").isNull();
+        nextScenario();
+
+        // ⑤ 按政策未产出（从未出站）：两者皆空
+        when(runtimeControl.isPaused()).thenReturn(true);
+        pipeline.pull(TASK_ID, PROCESS_INSTANCE_ID, nodeElement);
+        assertThat(singleObservation().getPolicyReason()).isEqualTo(DecisionPolicyReason.SUSPENDED);
+        assertThat(singleObservation().getModelId()).isNull();
+        assertThat(singleObservation().getChainStage()).isNull();
+    }
+
     // ======================== 驱动辅助 ========================
 
     /** 构造管线（数值可调，供重试面用自定值）。 */
@@ -565,6 +611,19 @@ class DecisionPipelineTest {
                 .chainStage(DecisionChainStage.PRIMARY)
                 .degraded(Boolean.FALSE)
                 .rawOutput(StubDecisionTransport.PRODUCED_FIXTURE)
+                .inputTokens(128L)
+                .outputTokens(32L)
+                .build();
+    }
+
+    /** 固定「模型主动不产出」响应（走过一次出站调用 ⇒ 归因/链路必填）。 */
+    private static DecisionProviderResponse declinedResponse() {
+        return DecisionProviderResponse.builder()
+                .declined(Boolean.TRUE)
+                .modelId(DecisionFixtures.MODEL_ID)
+                .provider(TARGET_KEY)
+                .chainStage(DecisionChainStage.PRIMARY)
+                .degraded(Boolean.FALSE)
                 .inputTokens(128L)
                 .outputTokens(32L)
                 .build();
