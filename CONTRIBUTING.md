@@ -16,7 +16,7 @@ flowable-plus 是面向 Java 8 的 Flowable (6.8.0) 工作流引擎增强工具�
 | JDK | 1.8 |
 | Maven | 3.6+ |
 
-推荐在提交前先阅读 [CONTEXT.md](CONTEXT.md)（领域概念与统一语言）和 [UBIQUITOUS_LANGUAGE.md](UBIQUITOUS_LANGUAGE.md)。
+推荐在提交前先阅读 [GLOSSARY.md](GLOSSARY.md)（领域概念与统一语言）和 [UBIQUITOUS_LANGUAGE.md](UBIQUITOUS_LANGUAGE.md)。
 
 ## 模块结构
 
