@@ -8,7 +8,7 @@ flowable-plus 是面向 Java 8 的 Flowable (6.8.0) 工作流引擎增强工具�
 
 **GroupId**: `io.github.flowable.plus` · **Version**: `1.0.0`
 
-领域词汇与语言规范见 `CONTEXT.md`。所有依赖版本一律以父 POM / BOM（`flowable-root`）为准，不要自行指定。
+领域词汇与语言规范见 `GLOSSARY.md`。所有依赖版本一律以父 POM / BOM（`flowable-root`）为准，不要自行指定。
 
 ## 模块架构
 
@@ -58,7 +58,7 @@ starter 模块通过 `META-INF/spring.factories` 注册 `FlowablePlusAutoConfigu
 
 ### Domain docs
 
-单一上下文布局：`CONTEXT.md` + `docs/adr/` 在仓库根目录。详见 `docs/agents/domain.md`。
+单一上下文布局：`GLOSSARY.md` + `docs/adr/` 在仓库根目录。详见 `docs/agents/domain.md`。
 
 ### 实现流程规范
 
