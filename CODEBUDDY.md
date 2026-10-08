@@ -62,7 +62,7 @@ starter 模块通过 `META-INF/spring.factories` 注册 `FlowablePlusAutoConfigu
 
 ### 实现流程规范
 
-`/implement` 完成后必须执行 `/code-review` 双轴审查（Standards + Spec），审查通过后方可提交。
+`/implement` 完成后必须执行 `/my-code-review` 双轴审查（Standards + Spec，另带个人规范清单 `~/.codebuddy/code-standards/`），审查通过后方可提交。不走 `/code-review`（上游通用版，不带个人规范）——全局规则 `~/.codebuddy/rules/review-skill-routing.md` 为准。
 
 ### 架构决策记录 (ADR)
 
