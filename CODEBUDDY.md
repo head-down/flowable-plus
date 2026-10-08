@@ -67,3 +67,7 @@ starter 模块通过 `META-INF/spring.factories` 注册 `FlowablePlusAutoConfigu
 ### 架构决策记录 (ADR)
 
 改动核心逻辑前先查索引确认已有决策（含会签、驳回、查询、权限等 42 项）：完整编号→标题→日期索引见 `docs/adr/README.md`。
+
+### 教学与演练工作区
+
+`.codebuddy/skills/teach/` 是一个**独立的私有 Git 仓库**（面试教学课 + `/drill` 演练体系），远端 `head-down/flowable-plus-teach`（private），有自己的提交历史。该目录已被根 `.gitignore` 排除、**不受本仓版本控制**——改动其中文件后，在该目录内单独提交并推送。
