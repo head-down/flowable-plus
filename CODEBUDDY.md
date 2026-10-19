@@ -62,7 +62,7 @@ starter 模块通过 `META-INF/spring.factories` 注册 `FlowablePlusAutoConfigu
 
 ### 实现流程规范
 
-`/implement` 完成后必须执行 `/code-review` 双轴审查（Standards + Spec），审查通过后方可提交。
+`/implement` 完成后必须执行 `/my-code-review` 双轴审查（Standards + Spec，另带个人规范清单 `~/.codebuddy/code-standards/`），审查通过后方可提交。不走 `/code-review`（上游通用版，不带个人规范）——全局规则 `~/.codebuddy/rules/review-skill-routing.md` 为准。
 
 ### 架构决策记录 (ADR)
 
@@ -71,3 +71,5 @@ starter 模块通过 `META-INF/spring.factories` 注册 `FlowablePlusAutoConfigu
 ### 教学与演练工作区
 
 `.codebuddy/skills/teach/` 是一个**独立的私有 Git 仓库**（面试教学课 + `/drill` 演练体系），远端 `head-down/flowable-plus-teach`（private），有自己的提交历史。该目录已被根 `.gitignore` 排除、**不受本仓版本控制**——改动其中文件后，在该目录内单独提交并推送。
+
+`/drill`、`/retro` 的技能本体**不在本仓**：分别在 `~/.codebuddy/skills/drill/SKILL.md` 与 `~/.codebuddy/skills/retro/SKILL.md`。收到这两个斜杠命令的文本（未展开）时，直接读对应文件执行，不要扫目录定位。
