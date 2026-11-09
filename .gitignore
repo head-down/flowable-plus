@@ -50,3 +50,5 @@ package-lock.json
 flowable-plus-spring-boot-starter/src/test/resources/bpmn/carUseApply.bpmn
 flowable-plus-spring-boot-starter/src/test/resources/bpmn/hospitalitySupplies.bpmn
 flowable-plus-spring-boot-starter/src/test/resources/bpmn/webInfoRelease.bpmn
+# skills CLI 的机器本地状态（不跨机、不入库）
+.skills/
